@@ -73,9 +73,9 @@ function start() {
       const out = {};
       await Promise.all(ids.map(async id => {
         try {
-          let s = await getDoc(usersDoc(id));
-          if (!s.exists()) s = await getDoc(doc(fs, PFX + 'members/' + id));
-          if (s.exists()) out[id] = { name: (s.data() || {}).name || '', avatarUrl: (s.data() || {}).avatarUrl || '' };
+          let s = await getDoc(doc(fs, PFX + 'members/' + id));
+          if (!s.exists()) { try { s = await getDoc(usersDoc(id)); } catch (_) {} }
+          if (s && s.exists()) out[id] = { name: (s.data() || {}).name || '', avatarUrl: (s.data() || {}).avatarUrl || '' };
         } catch (_) {}
       }));
       return out;
@@ -92,6 +92,7 @@ function start() {
       } catch (e) { throw new Error(errText(e)); }
       finally { try { await signOut(sauth); } catch (_) {} }
     };
+    if (level === 'admin') window.appResetPassword = async email => { try { await sendPasswordResetEmail(auth, email); } catch (e) { throw new Error(errText(e)); } };
     ov.style.display = 'none';
     if (!booted) { booted = true; window.__fbResolve({ db, user: A.makeUser(info), downloads: A.makeDownloads(document, window) }); }
   }
