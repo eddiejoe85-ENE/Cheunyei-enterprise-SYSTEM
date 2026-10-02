@@ -55,7 +55,6 @@ small{font-size:12.5px;color:var(--ink3)}
 .top h1{font-size:20px;font-weight:700;letter-spacing:.02em}
 .top-r{display:flex;align-items:center;gap:8px}
 .av{width:30px;height:30px;border-radius:50%;background:var(--soft)}
-.userchip{display:inline-flex;align-items:center;gap:6px;max-width:116px;padding:4px 10px 4px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:13px;font-weight:600;color:var(--ink);min-height:32px}.userchip .uc-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.uc-dot{width:8px;height:8px;border-radius:50%;background:var(--ink3);flex:none}.uc-dot.on{background:var(--ok)}.top-r{min-width:0}.top-in h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--lows);color:var(--low);font-weight:600}
 .ic{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;color:var(--ink2)}
 .ic:hover{background:var(--soft)}
@@ -347,7 +346,7 @@ function applyUi(){ const m = uiCurrent(), root = document.documentElement; if (
 applyUi();
 { let t = null; const again = () => { clearTimeout(t); t = setTimeout(applyUi, 120); }; window.addEventListener('resize', again); window.addEventListener('orientationchange', () => setTimeout(applyUi, 250)); }
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k'){ e.preventDefault(); if (typeof gateActive === 'function' && gateActive()) return; if (!document.querySelector('#layer .scrim') && typeof openPalette === 'function') openPalette(); return; }
+  if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k'){ e.preventDefault(); if (!document.querySelector('#layer .scrim') && typeof openPalette === 'function') openPalette(); return; }
   if (e.key !== '/' || document.documentElement.dataset.ui !== 'laptop' || document.querySelector('#layer .scrim') || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
   const i = document.querySelector('#app .search input'); if (i){ e.preventDefault(); i.focus(); }
 });
@@ -656,7 +655,6 @@ function draw(d = new Set(['*'])){
   const app = $('#app');
   if (!S.__restored && ready()){ S.__restored = true; restoreLogin(); }
   if (gateActive()){ renderLoginScreen(app); return; }
-  if (!ready() && !S.fatal && !S.err && !S.isAdmin){ S.__loginEl = null; app.replaceChildren(h('div', {class:'loading', style:'padding-top:30vh', text:'載入資料中…'})); app.dataset.tab = 'loading'; const nv = document.getElementById('nav'); if (nv) nv.replaceChildren(); return; }
   const ae = document.activeElement;
   const keep = ae && ae.dataset && ae.dataset.k && app.contains(ae) ? {k:ae.dataset.k, s:ae.selectionStart, e:ae.selectionEnd} : null;
   const frag = document.createDocumentFragment();
@@ -673,35 +671,15 @@ function draw(d = new Set(['*'])){
   for (const en of [...live]) if (d.has('*') || en.deps.some(k => d.has(k))) en.run();
 }
 
-const acctLevelTxt = () => { const adm = S.realAdminSet ? S.realAdmin : S.isAdmin; return adm ? '管理員' : (S.canWrite ? '可編輯' : '唯讀'); };
-const whoTxt = () => S.emp ? S.emp.name : ((S.me && S.me.name) || '');
-const roleTxt = () => S.emp ? acctRoleName(empKey(S.emp)).replace('（個別設定）', '') : (S.isAdmin ? '管理員' : ((roleDefs()[myRoleKey()] || {}).name || ''));
-const hhmm = t => t ? new Date(t).toLocaleTimeString('zh-TW', {hour12:false, hour:'2-digit', minute:'2-digit'}) : '—';
-function startEmpLogin(){ S.askLogin = true; S.adminBypass = false; S.__loginEl = null; const layer = document.getElementById('layer'); if (layer) layer.replaceChildren(); document.documentElement.style.overflow = ''; draw(); }
-function openLoginInfo(){
-  const sh = sheet({title:'登錄資訊'}), c = loginCfg(), canFb = typeof window.appLogout === 'function';
-  const e = S.emp, off = e ? e.office : userOfficeName();
-  put(sh.bodyEl, h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'登錄資訊內容'},
-    h('div', {class:'dhead'}, h('span', {class:'tag ' + (e ? 'in' : 'adj'), text:e ? '登' : '帳'}), h('div', null, h('b', {class:'big', text:whoTxt() || '（未知）'}), h('small', {text:e ? '員工編號登錄' : '網站帳號'}))),
-    e ? kv('員工編號', e.code) : null, kv('使用者分類', roleTxt() || '—'), off ? kv('所屬營業所', off) : null,
-    kv('網站帳號', ((S.me && S.me.name) || '—') + '（' + acctLevelTxt() + '）'),
-    e ? [kv('員工登錄時間', hhmm(S.loginAt)), kv('自動登出', c.idle > 0 ? '閒置 ' + c.idle + ' 分鐘' : '不會自動登出')] : (canEmpLogin() ? kv('員工登錄', '尚未登錄（開單、打卡會記在網站帳號名下）') : null)));
-  const btns = [];
-  if (e){ btns.push(h('button', {class:'btn grow', 'aria-label':'登出員工', onclick:() => { sh.forceClose(); logoutSys(); }}, '登出（換人使用）')); }
-  else if (canEmpLogin()) btns.push(h('button', {class:'btn grow', 'aria-label':'以員工登錄', onclick:() => { sh.forceClose(); startEmpLogin(); }}, '員工登錄（員工編號＋打卡密碼）'));
-  if (canFb) btns.push(h('button', {class:'btn ghost', 'aria-label':'登出網站帳號', onclick:async () => { if (await dialog({title:'登出網站帳號？', msg:'登出後要重新輸入電子郵件和密碼才能使用。', ok:'登出', danger:true})) window.appLogout(); }}, '登出網站帳號'));
-  sh.footEl.append(...btns);
-}
 function headerEl(){
-  const nm = whoTxt(), emp = !!S.emp, canFb = typeof window.appLogout === 'function';
   return h('header', {class:'top'}, h('div', {class:'wrap top-in'},
     h('h1', {text:S.set.name || '進銷存'}),
     h('div', {class:'top-r'},
       !S.canWrite ? h('span', {class:'pill', text:'唯讀'}) : null,
-      nm ? h('button', {class:'userchip', 'aria-label':emp ? '目前登錄' : '登錄資訊', title:'登錄資訊', onclick:openLoginInfo}, h('span', {class:'uc-dot' + (emp ? ' on' : '')}), h('span', {class:'uc-n', text:nm})) : null,
-      emp ? h('button', {class:'btn plain sm', 'aria-label':'登出系統', onclick:() => logoutSys()}, '登出') : (canEmpLogin() ? h('button', {class:'btn plain sm', 'aria-label':'員工登錄', onclick:startEmpLogin}, '登錄') : (canFb ? h('button', {class:'btn plain sm', 'aria-label':'登出網站帳號', onclick:async () => { if (await dialog({title:'登出網站帳號？', msg:'登出後要重新輸入電子郵件和密碼才能使用。', ok:'登出', danger:true})) window.appLogout(); }}, '登出') : null)),
+      S.emp ? h('span', {class:'pill', 'aria-label':'目前登錄', text:S.emp.name}) : null, S.emp ? h('button', {class:'btn plain sm', 'aria-label':'登出系統', onclick:() => logoutSys()}, '登出') : null,
       h('button', {class:'ic', 'aria-label':'搜尋功能', title:'搜尋功能（Ctrl+K）', onclick:openPalette}, icon('search')),
-      S.isAdmin ? h('button', {class:'ic', 'aria-label':'系統設定', onclick:openSettings}, icon('gear')) : null)));
+      S.isAdmin ? h('button', {class:'ic', 'aria-label':'系統設定', onclick:openSettings}, icon('gear')) : null,
+      S.me ? h('img', {class:'av', src:S.me.avatarUrl, alt:''}) : null)));
 }
 function foldSections(nodes, openTitles){
   const out = []; let cur = null;
@@ -6482,7 +6460,6 @@ const usedMenu = label => lsSet(UI_REC, [label, ...menuRecents().filter(x => x !
 const togglePin = label => { const p = menuPins(); lsSet(UI_PIN, p.includes(label) ? p.filter(x => x !== label) : [...p, label]); };
 const runMenu = i => { usedMenu(i.label); i.fn(); };
 function openPalette(){
-  if (gateActive()) return;
   const sh = sheet({title:'搜尋功能'}), box = h('div'); let list = [];
   const all = menuFlat(), fill = q => {
     q = q.trim().toLowerCase(); const byLabel = l => all.find(i => i.label === l);
@@ -6940,16 +6917,15 @@ function openPriceLevels(){
 const loginCfg = () => ({on:S.set.loginOn !== false, idle:S.set.loginIdle !== undefined && S.set.loginIdle !== '' ? Number(S.set.loginIdle) || 0 : 30, adminToo:!!S.set.loginAdminToo});
 const loginPeople = () => Object.values(S.employees).filter(e => e.active !== false && e.pwHash);
 const empKey = e => e.uid || ('emp_' + e.id);
-function gateActive(){ const c = loginCfg(); if (!c.on || !ready() || S.emp) return false; if (S.askLogin) return loginPeople().length > 0; if (S.isAdmin && !c.adminToo) return false; if (S.adminBypass) return false; return true; }
-const canEmpLogin = () => loginCfg().on && loginPeople().length > 0;
+function gateActive(){ const c = loginCfg(); if (!c.on || !ready() || S.emp) return false; if (S.isAdmin && !c.adminToo) return false; if (S.adminBypass) return false; return loginPeople().length > 0; }
 function loginAs(e, silent){
   if (!S.realAdminSet){ S.realAdmin = S.isAdmin; S.realAdminSet = true; }
-  S.emp = e; S.isAdmin = false; S.lastAct = Date.now(); S.loginAt = S.loginAt && silent ? S.loginAt : Date.now(); S.askLogin = false; S.tab = 'home'; S.ui.invWhInit = false; S.ui.invWh = ''; S.ui.invAllItems = false;
-  try { const old = JSON.parse(sessionStorage.getItem('sysLogin1') || 'null'); if (silent && old && old.id === e.id && old.since) S.loginAt = old.since; sessionStorage.setItem('sysLogin1', JSON.stringify({id:e.id, at:Date.now(), since:S.loginAt})); sessionStorage.removeItem('sysLoginFail1'); } catch (_) {}
+  S.emp = e; S.isAdmin = false; S.lastAct = Date.now(); S.tab = 'home'; S.ui.invWhInit = false; S.ui.invWh = ''; S.ui.invAllItems = false;
+  try { sessionStorage.setItem('sysLogin1', JSON.stringify({id:e.id, at:Date.now()})); sessionStorage.removeItem('sysLoginFail1'); } catch (_) {}
   if (!silent) toast('歡迎 ' + e.name); draw();
 }
 function logoutSys(msg){
-  S.emp = null; S.loginAt = 0; S.askLogin = false; S.isAdmin = !!S.realAdmin; S.adminBypass = false; S.ui.invWhInit = false; S.ui.invWh = ''; S.ui.invAllItems = false;
+  S.emp = null; S.isAdmin = !!S.realAdmin; S.adminBypass = false; S.ui.invWhInit = false; S.ui.invWh = ''; S.ui.invAllItems = false;
   try { sessionStorage.removeItem('sysLogin1'); } catch (_) {}
   const layer = document.getElementById('layer'); if (layer) layer.replaceChildren(); document.documentElement.style.overflow = '';
   S.tab = 'home'; S.__loginEl = null; draw(); if (msg) toast(msg);
@@ -6959,8 +6935,7 @@ function restoreLogin(){
     if (e && e.active !== false && e.pwHash && !(c.idle > 0 && Date.now() - (v.at || 0) > c.idle * 60000)) loginAs(e, true); else sessionStorage.removeItem('sysLogin1'); } catch (_) {}
 }
 function renderLoginScreen(app){
-  const lkey = [loginPeople().length === 0, S.set.loginClockBtn === true, !!S.isAdmin].join('|');
-  if (S.__loginEl && app.firstChild === S.__loginEl && S.__loginKey === lkey) return;
+  if (S.__loginEl && app.firstChild === S.__loginEl) return;
   const failN = () => { try { return JSON.parse(sessionStorage.getItem('sysLoginFail1') || '{"n":0,"until":0}'); } catch (_) { return {n:0, until:0}; } };
   const msg = h('div', {class:'note bad', style:'display:none;margin:10px 0 0', role:'alert', 'aria-label':'登錄訊息'});
   const codeIn = h('input', {class:'in', 'aria-label':'員工編號', placeholder:'員工編號', autocomplete:'username', autocapitalize:'off', style:'font-size:18px;height:50px'}), pwIn = h('input', {class:'in', type:'password', 'aria-label':'打卡密碼', placeholder:'打卡密碼', autocomplete:'current-password', style:'font-size:18px;height:50px'});
@@ -6972,17 +6947,15 @@ function renderLoginScreen(app){
     loginAs(e);
   };
   [codeIn, pwIn].forEach(i => i.addEventListener('keydown', ev => { if (ev.key === 'Enter') submit(); }));
-  const nobody = loginPeople().length === 0; S.__loginKey = lkey;
-  const el = h('div', {class:'login-wrap', role:'main'}, h('div', {class:'login-card'}, h('h1', {text:S.set.name || '進銷存'}), h('h2', {text:'系統登錄'}),
-    nobody ? h('div', {class:'note warn', 'aria-label':'尚無人可登錄', style:'margin:0 0 4px', text:'目前還沒有人設定打卡密碼，暫時沒有人可以登錄。請通知管理員，到「人員管理」替員工設定員工編號和打卡密碼。'}) : [h('p', {class:'hint', style:'margin:0 0 12px', text:'請先登錄，登錄後才看得到系統的功能。請輸入員工編號和打卡密碼（和上下班打卡用的相同）。'}), fld('員工編號', codeIn), fld('打卡密碼', pwIn), h('button', {class:'btn', style:'width:100%;min-height:50px;font-size:17px', 'aria-label':'登錄系統', onclick:submit}, '登錄'), msg],
-    h('div', {style:'margin-top:14px;display:flex;flex-direction:column;gap:8px'}, S.set.loginClockBtn === true && !nobody ? h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'只要上下班打卡', onclick:() => openClock()}, '只要上下班打卡（不登錄）') : null, S.isAdmin ? h('button', {class:'btn plain', style:'width:100%', 'aria-label':'管理員直接進入', onclick:() => { S.adminBypass = true; S.askLogin = false; S.__loginEl = null; draw(); }}, '管理員直接進入') : null)));
-  S.__loginEl = el; app.replaceChildren(el); app.dataset.tab = 'login'; const nav = document.getElementById('nav'); if (nav) nav.replaceChildren(); if (!nobody) setTimeout(() => { try { codeIn.focus(); } catch (_) {} }, 50);
+  const el = h('div', {class:'login-wrap', role:'main'}, h('div', {class:'login-card'}, h('h1', {text:S.set.name || '進銷存'}), h('h2', {text:'系統登錄'}), h('p', {class:'hint', style:'margin:0 0 12px', text:'請輸入員工編號和打卡密碼（和上下班打卡用的相同）。'}), fld('員工編號', codeIn), fld('打卡密碼', pwIn), h('button', {class:'btn', style:'width:100%;min-height:50px;font-size:17px', 'aria-label':'登錄系統', onclick:submit}, '登錄'), msg,
+    h('div', {style:'margin-top:14px;display:flex;flex-direction:column;gap:8px'}, h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'只要上下班打卡', onclick:() => openClock()}, '只要上下班打卡（不登錄）'), S.isAdmin ? h('button', {class:'btn plain', style:'width:100%', 'aria-label':'管理員直接進入', onclick:() => { S.adminBypass = true; S.__loginEl = null; draw(); }}, '管理員直接進入') : null)));
+  S.__loginEl = el; app.replaceChildren(el); app.dataset.tab = 'login'; const nav = document.getElementById('nav'); if (nav) nav.replaceChildren(); setTimeout(() => { try { codeIn.focus(); } catch (_) {} }, 50);
 }
 ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now(); }, {passive:true, capture:true}));
 setInterval(() => {
   if (!S.emp) return; const c = loginCfg(), e = S.employees[S.emp.id];
   if (!e || e.active === false){ logoutSys('這個員工已經離職或停用，已登出'); return; } S.emp = e;
-  try { sessionStorage.setItem('sysLogin1', JSON.stringify({id:e.id, at:S.lastAct || Date.now(), since:S.loginAt || 0})); } catch (_) {}
+  try { sessionStorage.setItem('sysLogin1', JSON.stringify({id:e.id, at:S.lastAct || Date.now()})); } catch (_) {}
   if (c.idle > 0 && Date.now() - (S.lastAct || Date.now()) > c.idle * 60000) logoutSys('閒置超過 ' + c.idle + ' 分鐘，已自動登出');
 }, 15000);
 /* ---- 票據：託收／兌現日期 ---- */
@@ -7985,7 +7958,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-e';
+const APP_VERSION = '2026.10.02-b';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -8272,42 +8245,16 @@ async function deleteOrder(o, sh){
 
 /* ================= 登入帳號管理（自架 Firebase 版才有） ================= */
 const LEVELS = {admin:'管理員（可改商品與設定）', edit:'可編輯（開單、收付款）', view:'唯讀'};
-function openAccountEdit(u){
-  if (!S.isAdmin) return;
-  const sh = sheet({title:'編輯帳號'}), st = {name:u.name || ''}, canReset = typeof window.appResetPassword === 'function' && !!u.email;
-  put(sh.bodyEl, fld('Email（登入用，不能在這裡改）', h('input', {class:'in', value:u.email || '', disabled:true, 'aria-label':'帳號Email'})),
-    fld('顯示名稱', h('input', {class:'in', value:st.name, autocomplete:'off', 'aria-label':'帳號名稱', oninput:e => { st.name = e.target.value; }})),
-    canReset ? h('div', {class:'panel pad', style:'margin:10px 0'}, h('b', {text:'密碼'}), h('p', {class:'hint', style:'margin:4px 0 8px', text:'系統看不到也改不了別人的密碼。他忘記密碼時，寄一封重設密碼的信到他的信箱，他自己設定新密碼。'}), h('button', {class:'btn ghost', 'aria-label':'寄重設密碼信', onclick:async () => { try { await window.appResetPassword(u.email); toast('已寄出重設密碼的信到 ' + u.email); } catch (e) { toast((e && e.message) || '寄信失敗'); } }}, '寄重設密碼信')) : null,
-    h('p', {class:'hint', text:'要換登入用的 Email，請建立新帳號，再刪除舊的帳號。'}));
-  let saving = false;
-  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存帳號', onclick:async () => { if (saving) return; const nm = st.name.trim(); if (!nm) return toast('請填寫顯示名稱'); saving = true;
-    const ok = await run(async () => { await S.db.doc('users/' + u.id).update({name:nm}); if (S.members[u.id]) await S.db.doc('members/' + u.id).update({name:nm}); return true; }); saving = false; if (ok){ toast('已更新帳號'); sh.forceClose(); } }}, '儲存'));
-}
-async function deleteAccount(u, rows){
-  if (!S.isAdmin) return;
-  if (u.id === S.meId) return toast('不能刪除自己的帳號');
-  if (u.level === 'admin' && rows.filter(x => x.level === 'admin').length <= 1) return toast('至少要留一位管理員，不能刪除');
-  const emp = Object.values(S.employees).find(e => e.uid === u.id), label = u.name || u.email || u.id;
-  if (!await dialog({title:'刪除帳號「' + label + '」？', msg:'他會立刻無法使用系統，登入後只會看到「帳號尚未開通」。他以前開的單據和紀錄都會保留。' + (emp ? '他目前綁定在人員「' + emp.name + '」，刪除後那位人員改用員工編號登錄，權限分類不變。' : '') + '注意：這只是移除系統權限，Firebase 裡的登入帳號本身還在；要完全刪除，請到 Firebase 主控台 → Authentication → 使用者。', ok:'刪除', danger:true})) return;
-  const ok = await run(async () => { await S.db.doc('users/' + u.id).delete(); if (emp) await S.db.doc('employees/' + emp.id).update({uid:''}); return true; });
-  if (!ok) return;
-  if (emp) await saveRoles(c => { if (c.assign[u.id] && !c.assign['emp_' + emp.id]) c.assign['emp_' + emp.id] = c.assign[u.id]; delete c.assign[u.id]; });
-  toast('已刪除帳號 ' + label);
-}
 function openLoginAccounts(){
   if (!S.isAdmin || typeof window.appCreateUser !== 'function') return;
   let unsub = null;
   const sh = sheet({title:'登入帳號管理', onclose:() => { if (unsub) unsub(); }});
   const listBox = h('div'), st = {email:'', pw:'', name:'', level:'edit'};
   unsub = S.db.collection('users').onSnapshot(snap => {
-    const rows = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-TW')), adminsN = rows.filter(x => x.level === 'admin').length;
-    setKids(listBox, rows.length ? h('div', {class:'panel'}, rows.map(u => { const me = u.id === S.meId, nm = u.name || u.email || u.id;
-      return h('div', {class:'row', style:'grid-template-columns:1fr;gap:8px', 'data-uid':u.id},
-        h('span', {style:'min-width:0'}, h('b', {text:nm + (me ? '（我）' : '')}), h('br'), h('small', {text:u.email || u.id})),
-        h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'},
-          (() => { const sel = h('select', {class:'in', 'aria-label':'層級 ' + nm, style:'height:38px;width:130px', disabled:me, onchange:e => { const v = e.target.value; if (u.level === 'admin' && v !== 'admin' && adminsN <= 1){ e.target.value = u.level; return toast('至少要留一位管理員'); } run(async () => { await S.db.doc('users/' + u.id).update({level:v}); return true; }); }}, ...Object.entries(LEVELS).map(([k, t]) => h('option', {value:k, text:t.split('（')[0]}))); sel.value = u.level || 'view'; return sel; })(),
-          h('button', {class:'btn ghost sm', 'aria-label':'編輯帳號 ' + nm, onclick:() => openAccountEdit(u)}, '編輯'),
-          h('button', {class:'btn plain sm', style:'color:var(--zero)', disabled:me || (u.level === 'admin' && adminsN <= 1), title:me ? '不能刪除自己' : '', 'aria-label':'刪除帳號 ' + nm, onclick:() => deleteAccount(u, rows)}, '刪除'))); })) : h('div', {class:'panel empty', text:'還沒有帳號'}));
+    const rows = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-TW'));
+    setKids(listBox, rows.length ? h('div', {class:'panel'}, rows.map(u => h('div', {class:'row', style:'align-items:center'},
+      h('span', {style:'min-width:0'}, h('b', {text:(u.name || u.email || u.id) + (u.id === S.meId ? '（我）' : '')}), h('br'), h('small', {text:u.email || u.id})),
+      (() => { const sel = h('select', {class:'in', 'aria-label':'層級 ' + (u.name || u.email), style:'height:38px;width:150px', disabled:u.id === S.meId, onchange:e => run(async () => { await S.db.doc('users/' + u.id).update({level:e.target.value}); return true; })}, ...Object.entries(LEVELS).map(([k, t]) => h('option', {value:k, text:t.split('（')[0]}))); sel.value = u.level || 'view'; return sel; })()))) : h('div', {class:'panel empty', text:'還沒有帳號'}));
   }, e => console.error(e));
   let saving = false;
   const btn = h('button', {class:'btn grow', onclick:async () => {
@@ -8319,7 +8266,7 @@ function openLoginAccounts(){
     catch (e) { toast((e && e.message) || '建立失敗'); }
     saving = false; btn.disabled = false;
   }}, '建立帳號');
-  put(sh.bodyEl, h('p', {class:'note', text:'在這裡新增、修改、刪除可以登入的人，並決定他的權限層級。更細的功能限制（能不能開單、看報表、看成本等）在「成員與權限」設定。'}),
+  put(sh.bodyEl, h('p', {class:'note', text:'在這裡新增可以登入的人，並決定他的權限層級。更細的功能限制（能不能開單、看報表、看成本等）在「成員與權限」設定。'}),
     h('div', {class:'sec-h'}, h('h2', {text:'現有帳號'})), listBox,
     h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'新增帳號'})),
     fld('Email（登入用）', h('input', {class:'in', type:'email', autocomplete:'off', 'aria-label':'新帳號 Email', oninput:e => { st.email = e.target.value; }})),
@@ -8666,7 +8613,7 @@ function openSettings(){
     const seenMain = new Set(), whsOut = whs.map(w => { const isMain = !!(w.main && w.office && !seenMain.has(w.office)); if (isMain) seenMain.add(w.office); return {id:w.id, name:w.name.trim(), active:w.id === WH_MAIN ? true : w.active !== false, ...(w.office ? {office:w.office} : {}), ...(isMain ? {main:true} : {})}; });
     btn.disabled = true;
     const ok = await run(async () => { await S.db.doc('settings/main').set({...(S.setRaw || {}), name:nameIn.value.trim(), cur:curIn.value.trim(), allowNeg:negIn.checked, co:coIn.value.trim(), taxId:taxIn.value.trim(), tel:telIn.value.trim(), addr:addrIn.value.trim(), slipNote:slipIn.value.trim(),
-      cutoffDay:cd, defBilling:billSel.value, intAmt:intIn.checked, taxMode:taxModeSel.value, taxRate:rt, freightRate:Math.max(toNum($('#freightRateIn').value), 0), caiDiv:Math.max(toNum($('#caiDivIn').value), 1) || 27000, pickScan:$('#pickScanIn').checked, loginOn:$('#loginOnIn').checked, loginIdle:Math.max(toNum($('#loginIdleIn').value), 0), loginAdminToo:$('#loginAdminIn').checked, loginClockBtn:$('#loginClockIn').checked, offices:($('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean).length ? $('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean) : ['總公司', '台北營業處']), drivers:$('#driversIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean), reviewOn:$('#revOnIn').checked, reviewSelf:$('#revSelfIn').checked, reviewFrom:$('#revFromIn').value || '', leadMin:Math.max(Math.round(toNum($('#leadMinIn').value)), 1) || 4, leadMax:Math.max(Math.round(toNum($('#leadMaxIn').value)), Math.round(toNum($('#leadMinIn').value)), 1) || 7, useVelocity:$('#velOnIn').checked, velDays:Math.max(Math.round(toNum($('#velDaysIn').value)), 7) || 60, priceMode:pmodeSel.value, priceRound:proundSel.value, histPrice:histIn.checked, levels:levels.length ? levels : SET_DEFAULT.levels, warehouses:whsOut, discountRates:drates.length ? [...new Set(drates)].sort((a, b) => a - b) : [3, 5], payTol:Math.max(toNum(tolIn.value), 0)}); return true; });
+      cutoffDay:cd, defBilling:billSel.value, intAmt:intIn.checked, taxMode:taxModeSel.value, taxRate:rt, freightRate:Math.max(toNum($('#freightRateIn').value), 0), caiDiv:Math.max(toNum($('#caiDivIn').value), 1) || 27000, pickScan:$('#pickScanIn').checked, loginOn:$('#loginOnIn').checked, loginIdle:Math.max(toNum($('#loginIdleIn').value), 0), loginAdminToo:$('#loginAdminIn').checked, offices:($('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean).length ? $('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean) : ['總公司', '台北營業處']), drivers:$('#driversIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean), reviewOn:$('#revOnIn').checked, reviewSelf:$('#revSelfIn').checked, reviewFrom:$('#revFromIn').value || '', leadMin:Math.max(Math.round(toNum($('#leadMinIn').value)), 1) || 4, leadMax:Math.max(Math.round(toNum($('#leadMaxIn').value)), Math.round(toNum($('#leadMinIn').value)), 1) || 7, useVelocity:$('#velOnIn').checked, velDays:Math.max(Math.round(toNum($('#velDaysIn').value)), 7) || 60, priceMode:pmodeSel.value, priceRound:proundSel.value, histPrice:histIn.checked, levels:levels.length ? levels : SET_DEFAULT.levels, warehouses:whsOut, discountRates:drates.length ? [...new Set(drates)].sort((a, b) => a - b) : [3, 5], payTol:Math.max(toNum(tolIn.value), 0)}); return true; });
     btn.disabled = false;
     if (ok){ toast('已儲存設定'); sh.forceClose(); }
   }}, '儲存');
@@ -8690,7 +8637,6 @@ function openSettings(){
     fld('送貨員名單（用頓號分隔，銷貨單可以指定）', h('input', {class:'in', value:driverNames().join('、'), placeholder:'例：阿明、小華', autocomplete:'off', 'aria-label':'送貨員名單', id:'driversIn'})),
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.loginOn !== false, id:'loginOnIn', 'aria-label':'啟用系統登錄'}), '啟用系統登錄：進入系統要先輸入員工編號和打卡密碼'),
     fld('閒置幾分鐘自動登出（0＝不自動登出）', h('input', {class:'in', id:'loginIdleIn', type:'text', inputmode:'numeric', value:S.set.loginIdle !== undefined ? S.set.loginIdle : 30, 'aria-label':'閒置登出分鐘'})),
-    h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.loginClockBtn === true, id:'loginClockIn', 'aria-label':'登錄畫面提供打卡按鈕'}), '登錄畫面也放一顆「只要上下班打卡」（共用平板打卡用；預設關閉，因為登錄前什麼功能都不該看到）'),
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!S.set.loginAdminToo, id:'loginAdminIn', 'aria-label':'管理員也要登錄'}), '管理員（分享選單設為「可編輯」的人）也要登錄；沒勾選時，管理員可以直接進入'),
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.pickScan !== false, id:'pickScanIn', 'aria-label':'揀貨要掃QR Code'}), '揀貨時，每個商品都要掃 QR Code 確認拿對了（現場可以按「略過掃描」）'),
     fld('營業所名單（用頓號分隔；票據、費用單據、現金的保管位置）', h('input', {class:'in', value:officeList().join('、'), 'aria-label':'營業所名單', id:'officesIn', autocomplete:'off'})),
