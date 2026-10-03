@@ -776,6 +776,7 @@ function orderRow(o){
 
 function pHome(){
   const page = h('div', {class:'wrap page'}), qp = quickPunchCard(); if (qp) page.append(qp);
+  { const dc = driverHomeCard(); if (dc) page.append(dc); }
   page.append(homeTiles()); page.append(homeFavs());
   if (can('stock') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'調庫補貨提示', onclick:openReplenish}, h('span', null, h('b', {text:whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存'}), h('br'), h('small', {text:'可以依規則從「' + whName(pl.src) + '」調庫補貨'})), h('small', {class:'chev', text:'›'}))))); }
   if (reviewOn() && canReviewPerm()){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'待覆核單據', onclick:openReviewQueue}, h('span', null, h('b', {text:'待覆核單據 ' + pend.length + ' 張'}), h('br'), h('small', {text:'覆核後單據鎖定，不能再修改或作廢'})), h('small', {class:'chev', text:'›'}))))); }
@@ -986,7 +987,7 @@ function openProductForm(id){
     dimH:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimH ? ex.dimH : '', placeholder:'公分', 'aria-label':'高'}),
     moq:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.moq ? ex.moq : '', placeholder:'0 = 不限'}),
     lot:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.lot ? ex.lot : '', placeholder:'0 = 不限'}),
-    supplier:(() => { const s = h('select', {class:'in'}, h('option', {value:'', text:'不指定（依最近一次進貨）'}), ...Object.values(S.partners).filter(p => p.type === 'supplier').sort(cmpName).map(p => h('option', {value:p.id, text:p.name}))); s.value = ex ? ex.supplierId || '' : ''; return s; })(),
+    supplier:(() => { const s = h('select', {class:'in'}, h('option', {value:'', text:'不指定（依最近一次進貨）'}), ...Object.values(S.partners).filter(p => p.type === 'supplier').sort(cmpName).map(p => h('option', {value:p.id, text:p.name}))); s.value = ex ? ex.supplierId || '' : defaultSupplierId(); return s; })(),
     open:h('input', {class:'in', type:'text', inputmode:'decimal', value:'', placeholder:'0'}),
     note:h('input', {class:'in', value:ex ? ex.note || '' : ''}),
     bomEd:bomEditor(ex),
@@ -2839,6 +2840,8 @@ async function createDoc(kind, o){
   await ref.set(doc);
   return {...doc, id:ref.id};
 }
+const DEF_SUPPLIER_NAME = '鑫城實業股份有限公司';
+const defaultSupplierId = () => { const sups = Object.values(S.partners).filter(x => x.type === 'supplier'); if (S.set.defSupplier && sups.some(x => x.id === S.set.defSupplier)) return S.set.defSupplier; const ex = sups.find(x => x.name === DEF_SUPPLIER_NAME) || sups.find(x => String(x.name || '').includes('鑫城實業')); return ex ? ex.id : ''; };
 const supplierOf = p => (p.supplierId && S.partners[p.supplierId]) ? p.supplierId : (S.d.lastSup[p.id] || '');
 
 /* ================= 採購到貨天數、同日到貨、銷售速度 ================= */
@@ -3308,6 +3311,46 @@ function twCaps(n){
   return (neg ? '負' : '') + s;
 }
 
+const rocYM = ym => { const m = /^(\d{4})-(\d{2})/.exec(String(ym || '')); return m ? (Number(m[1]) - 1911) + '/' + m[2] : ''; };
+const rocDate = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? (Number(m[1]) - 1911) + ' 年 ' + m[2] + ' 月 ' + m[3] + ' 日' : ''; };
+const REF_ROWS = 13;
+function refSlipHTML(o, standalone){
+  const pt = S.partners[o.partnerId] || {}, os = orderShip(o), isRet = o.type === 'sale_return';
+  const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+  const n0 = x => (Number(x) || 0).toLocaleString('zh-TW', {maximumFractionDigits:2});
+  const lines = o.lines || [], pages = Math.max(1, Math.ceil((lines.length + 1) / REF_ROWS)), total = o.total || 0, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : r2(total - tax);
+  const salesName = pt.salesRep || ((S.employees[pt.salesEmp] || {}).name) || '', madeBy = o.byName || whoName(o.by), wh = whName(o.wh);
+  const month = rocYM(billMonth(o.date, cutoffOf(pt))), ship = [o.shipMethod ? '交貨方式: ' + o.shipMethod : '交貨方式:', o.note ? o.note : ''].filter(Boolean).join('　');
+  const spec = l => (S.products[l.pid] || {}).labelSpec ? ' ' + (S.products[l.pid] || {}).labelSpec : '';
+  const pageHtml = pg => {
+    const part = lines.slice(pg * REF_ROWS, (pg + 1) * REF_ROWS), last = pg === pages - 1, rows = [];
+    part.forEach(l => rows.push('<tr><td>' + e(l.sku) + '</td><td>' + e(l.name) + e(spec(l)) + '</td><td class="r">' + n0(l.qty) + (l.unit ? ' ' + e(l.unit) : '') + '</td><td class="r">' + n0(l.price) + '</td><td class="r">' + n0(amtOf(l.qty, l.price)) + '</td></tr>'));
+    if (last) rows.push('<tr><td></td><td>(以下空白,共 ' + pages + ' 頁)</td><td></td><td></td><td></td></tr>');
+    while (rows.length < REF_ROWS) rows.push('<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>');
+    return '<section class="pg"><div class="ttl">' + (isRet ? '銷貨退回單' : '銷貨單') + '</div>' +
+      '<div class="top"><div>帳款月份: ' + e(month) + '</div><div>對方單號: ' + e(o.refNo || o.custPo || '') + '</div></div>' +
+      '<div class="top2"><span>客戶編號: ' + e(pt.code || '') + '</span><span class="mid">' + e(rocDate(o.date)) + '</span><span>單據編號: ' + e(o.no) + '　　頁次: ' + (pg + 1) + '</span></div>' +
+      '<div class="box"><div class="g">' +
+        '<div>客戶名稱: ' + e(pt.name || '散客') + '</div><div class="r2">統一編號: ' + e(pt.taxId || '') + '<span class="nt">' + e(S.set.cur || 'NT$') + '</span></div>' +
+        '<div>聯絡地址: ' + e(pt.invoiceAddress || pt.address || '') + '</div><div class="r2">發票號碼: ' + e(o.invoiceNo || '') + '</div>' +
+        '<div>送貨地址: ' + e(os.addr || '') + (os.special ? '　<b class="stp2">' + (o.shipOnly ? '只送' : '指送') + '</b>' : '') + '</div><div class="r2">業務姓名: ' + e(salesName) + '</div>' +
+        '<div class="two"><span>電話傳真: ' + e(os.phone || pt.phone || '') + '</span><span>聯絡人: ' + e(os.contact || '') + '</span></div><div class="r2">倉 庫 別: ' + e(wh) + '</div></div>' +
+      '<table class="it"><thead><tr><th style="width:19%">產品編號</th><th>品 名 規 格</th><th style="width:15%">數 量/單位</th><th style="width:15%">單價</th><th style="width:17%">金 額</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' +
+      '<div class="ft"><div class="note"><span class="lab">備<br>註</span><span>' + e(ship) + '</span></div><div class="sum"><div><span>小　計</span><b>' + (last ? n0(net) : '') + '</b></div><div><span>營業稅</span><b>' + (last ? n0(tax) : '') + '</b></div><div><span>合　計</span><b>' + (last ? n0(total) : '') + '</b></div></div></div>' +
+      '<div class="sg"><div class="c">主<br>管</div><div class="v"></div><div class="c">會<br>計</div><div class="v"></div><div class="c">倉<br>管</div><div class="v"></div><div class="c">送<br>貨</div><div class="v drv">' + (isRet ? '' : e(o.driver || '')) + '</div><div class="c">製<br>單</div><div class="v">' + e(madeBy) + '</div><div class="c">客<br>戶</div><div class="v"></div></div></div></section>';
+  };
+  const css = '@page{size:A4 landscape;margin:10mm 8mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000}body{font:11pt/1.35 "細明體","MingLiU","PMingLiU","Noto Serif CJK TC","Noto Serif TC",serif}' +
+    '.pg{page-break-after:always;break-after:page;width:281mm;margin:0 auto;padding-top:4mm}.pg:last-child{page-break-after:auto;break-after:auto}' +
+    '.ttl{text-align:center;font-size:19pt;font-weight:700;text-decoration:underline;letter-spacing:.05em;margin:0 0 -4mm}' +
+    '.top{padding-top:2mm}.top div{line-height:1.4}.top2{display:flex;justify-content:space-between;line-height:1.4}.top2 .mid{margin-left:-6mm}' +
+    '.box{border:.5mm solid #000;margin-top:.5mm}.g{display:grid;grid-template-columns:1fr 62mm;padding:.8mm 1.5mm;line-height:1.45}.g .r2{display:flex;justify-content:space-between}.g .nt{padding-right:6mm}.g .two{display:flex;justify-content:space-between;gap:20mm;padding-right:12mm}' +
+    'table.it{width:100%;border-collapse:collapse;border-top:.3mm solid #000;table-layout:fixed}table.it th{font-weight:400;border:.2mm solid #000;border-top:0;padding:.3mm 1mm;text-align:center;letter-spacing:.1em}table.it td{border-left:.2mm solid #000;border-right:.2mm solid #000;padding:0 1.5mm;height:6.4mm;vertical-align:top;overflow:hidden;white-space:nowrap}table.it td.r{text-align:right}' +
+    '.ft{display:grid;grid-template-columns:1fr 62mm;border-top:.3mm solid #000;min-height:17mm}.ft .note{display:flex;gap:2mm;padding:.5mm 1mm}.ft .lab{width:6mm;text-align:center;line-height:1.25;padding-top:2mm}.ft .sum{border-left:.2mm solid #000;padding:.3mm 1.5mm}.ft .sum div{display:flex;justify-content:space-between;line-height:1.35}.ft .sum b{font-weight:400}' +
+    '.sg{display:grid;grid-template-columns:7mm 1fr 7mm 1fr 7mm 1fr 7mm 1fr 7mm 1.1fr 7mm 20mm;border-top:.3mm solid #000;min-height:11mm}.sg .c{text-align:center;line-height:1.2;padding-top:.6mm;border-left:.2mm solid #000}.sg .c:first-child{border-left:0}.sg .v{padding:6mm 1mm 0}.sg .drv{font-weight:700}' +
+    '.stp2{border:.4mm solid #000;border-radius:1mm;padding:0 1.2mm;font-size:9.5pt;transform:rotate(-4deg);display:inline-block}' +
+    '@media screen{body{background:#dfe3e8;padding:12px}.pg{background:#fff;padding:8mm;margin:0 auto 12px;box-shadow:0 1px 6px rgba(0,0,0,.25);width:297mm}.bar{max-width:297mm;margin:0 auto 10px;font:14px sans-serif}.bar button{font:inherit;padding:6px 16px}}@media print{.bar{display:none!important}.pg{padding-top:0}}';
+  return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>銷貨單 ' + e(o.no) + '</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>　紙張選 A4（橫式），比例 100%。</span></div>' : '') + Array.from({length:pages}, (_, i) => pageHtml(i)).join('') + '</body></html>';
+}
 function slipHTML(o, P, standalone){
   const T = TYPES[o.type] || TYPES.sale, pt = S.partners[o.partnerId] || {};
   const e = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
@@ -3374,7 +3417,7 @@ function slipHTML(o, P, standalone){
     '<div class="paper"><div class="sheet">' + stampsFull + '<table class="it"><thead><tr><td class="hd" colspan="' + ncol + '">' + head + '</td></tr>' +
     '<tr><th class="h" style="width:5%">項次</th>' + (showSku ? '<th class="h">料號</th>' : '') + '<th class="h">品名</th><th class="h">數量</th><th class="h">單位</th>' + (showList ? '<th class="h">定價</th><th class="h">折數</th>' : '') + (showPrice ? '<th class="h">單價</th><th class="h">金額</th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<div class="bot">' + totalRow + (notes ? '<div class="note">' + notes + '</div>' : '') +
-    '<div class="sign"><div>製單' + (madeBy ? '：' + e(madeBy) : '') + '</div><div>' + (isRet ? '驗收' : '送貨') + '</div><div>主管</div><div>' + (isRet ? '客戶退貨人' : '客戶簽收') + '</div></div>' +
+    '<div class="sign"><div>製單' + (madeBy ? '：' + e(madeBy) : '') + '</div><div>' + (isRet ? '驗收' : '送貨' + (o.driver ? '：' + e(o.driver) : '')) + '</div><div>主管</div><div>' + (isRet ? '客戶退貨人' : '客戶簽收') + '</div></div>' +
     (compact ? '' : '<div class="pt">列印時間 ' + e(new Date().toLocaleString('zh-TW', {hour12:false})) + '</div>') + '</div>' +
     '</div></div></body></html>';
 }
@@ -3463,8 +3506,9 @@ function slipEnv(L, local, opt, fs, title){
   const storeStamp = (o, at) => {
     if (!(o.type === 'sale' || o.type === 'sale_return') || (local && local.ss === false) || !at) return '';
     const nm = storeStampName(o); if (!nm) return '';
-    const rd = v => Math.round(v * 100) / 100, big = [...nm].length <= 4, base = L.w < 200 ? 13 : 0, dx = has(local && local.ssx) ? toNum(local.ssx) : 0, dy = has(local && local.ssy) ? toNum(local.ssy) : 0;
-    return '<div class="stp stp-st" style="position:absolute;left:' + rd(at.x + base + dx) + 'mm;top:' + rd(at.y - 2.2 + dy) + 'mm;font-size:' + (big ? '11' : '9.5') + 'pt">' + e(nm) + '</div>';
+    const rd = v => Math.round(v * 100) / 100, big = [...nm].length <= 4, base = L.w < 200 ? 13 : 0, si = storeInfoOf(S.partners[o.partnerId], o.store), cx = Number(si.stampDx) || 0, cy = Number(si.stampDy) || 0, dx = (has(local && local.ssx) ? toNum(local.ssx) : 0) + cx, dy = (has(local && local.ssy) ? toNum(local.ssy) : 0) + cy;
+    const minX = L.w < 200 ? 9 : 13;   // never farther left than the printable body of the form (the tractor strip is not printable)
+    return '<div class="stp stp-st" style="position:absolute;left:' + rd(Math.max(at.x + base + dx, minX)) + 'mm;top:' + rd(Math.max(at.y - 2.2 + dy, 2)) + 'mm;font-size:' + (big ? '11' : '9.5') + 'pt">' + e(nm) + '</div>';
   };
   const spStamp = (o, at) => {
     if (!(o.type === 'sale' || o.type === 'sale_return') || !String(o.shipSpecial || '').trim() || (local && local.sp === false) || !at) return '';
@@ -3601,10 +3645,12 @@ function storeEditor(ex){
   const box = h('div'), mk = (r, k, ph, aria) => h('input', {class:'in', value:r[k] || '', placeholder:ph, 'aria-label':aria, autocomplete:'off', oninput:e => { r[k] = e.target.value; }});
   const paint = () => setKids(box, ...rows.map((r, i) => h('div', {class:'panel pad', style:'margin-bottom:8px'}, h('div', {style:'display:flex;gap:8px;align-items:center'}, mk(r, 'name', '店名，例：中山店', '叫貨店面'), h('button', {class:'ic sm', type:'button', 'aria-label':'移除店面 ' + (i + 1), onclick:() => { rows.splice(i, 1); if (!rows.length) rows.push({name:''}); paint(); }}, icon('x'))),
     h('div', {style:'margin-top:6px'}, mk(r, 'addr', '這家店的送貨地址（留空＝同客戶送貨地址）', '店面送貨地址')), h('div', {style:'margin-top:6px'}, mk(r, 'spot', '指送特別地點（選填，例：後門卸貨區、地下室、請先電話聯絡）', '店面指送地點')),
-    h('div', {class:'f2', style:'margin-top:6px'}, mk(r, 'contact', '聯絡人', '店面聯絡人'), mk(r, 'phone', '電話', '店面電話')))));
+    h('div', {class:'f2', style:'margin-top:6px'}, mk(r, 'contact', '聯絡人', '店面聯絡人'), mk(r, 'phone', '電話', '店面電話')),
+    h('div', {class:'f2', style:'margin-top:6px'}, mk(r, 'stampDx', '戳章往右（mm，往左填負數）', '店面戳章往右'), mk(r, 'stampDy', '戳章往下（mm，往上填負數）', '店面戳章往下')),
+    h('small', {class:'hint', style:'display:block;margin-top:2px', text:'列印銷貨單時，這家店的叫貨戳章位置微調；例如往左 4 公分，就在「往右」填 −40。留空＝不調整。'}))));
   paint();
   return {el:h('div', null, box, h('button', {class:'btn ghost', type:'button', style:'width:100%', 'aria-label':'新增店面', onclick:() => { rows.push({name:''}); paint(); }}, icon('plus'), '新增一家店')),
-    get:() => { const stores = [], info = {}; for (const r of rows){ const n = String(r.name || '').trim(); if (!n || stores.includes(n)) continue; stores.push(n); const o = {}; ['addr', 'spot', 'contact', 'phone'].forEach(k => { const v = String(r[k] || '').trim(); if (v) o[k] = v; }); if (Object.keys(o).length) info[n] = o; } return {stores, storeInfo:info}; },
+    get:() => { const stores = [], info = {}; for (const r of rows){ const n = String(r.name || '').trim(); if (!n || stores.includes(n)) continue; stores.push(n); const o = {}; ['addr', 'spot', 'contact', 'phone'].forEach(k => { const v = String(r[k] || '').trim(); if (v) o[k] = v; }); ['stampDx', 'stampDy'].forEach(k => { const t = String(r[k] === undefined || r[k] === null ? '' : r[k]).replace(/[−–—]/g, '-').trim(); if (t !== '' && Number.isFinite(Number(t)) && Number(t) !== 0) o[k] = Number(t); }); if (Object.keys(o).length) info[n] = o; } return {stores, storeInfo:info}; },
     dup:() => { const seen = new Set(); for (const r of rows){ const n = String(r.name || '').trim(); if (!n) continue; if (seen.has(n)) return n; seen.add(n); } return ''; }};
 }
 const returnedQty = (saleId, pid, exceptId) => Object.values(S.orders).filter(x => x.type === 'sale_return' && x.status !== 'void' && x.srcId === saleId && x.id !== exceptId).reduce((a, x) => a + (x.lines || []).filter(l => l.pid === pid).reduce((b, l) => b + (Number(l.qty) || 0), 0), 0);
@@ -3751,22 +3797,22 @@ function openPrint(ref){
   const sh = sheet({title:'列印' + T.label});
   const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'});
   let fr = null;
-  const formOn = () => isSale && P.mode !== 'full';
+  const formOn = () => isSale && P.mode !== 'full' && P.mode !== 'ref';
   const paint = () => {
     savePrint(P);
     const SL = slipFormLayout(tp.id), on = formOn();
-    const pw = on ? SL.w : paperSize(P)[0], pxW = pw * 3.7795;
+    const pw = on ? SL.w : (isSale && P.mode === 'ref' ? 297 : paperSize(P)[0]), pxW = pw * 3.7795;
     const cw = (sh.bodyEl.clientWidth || 340) - 34, sc = Math.min(1, cw / pxW);
     fr = h('iframe', {title:'列印預覽', style:'width:' + pxW + 'px;height:400px;border:0;transform:scale(' + sc + ');transform-origin:0 0;display:block;background:#dfe3e8'});
     fr.addEventListener('load', () => {
       try { const hgt = fr.contentDocument.documentElement.scrollHeight; fr.style.height = hgt + 'px'; pvBox.style.height = Math.ceil(hgt * sc) + 'px'; } catch (_) {}
     });
     pvBox.style.height = Math.ceil((on ? SL.h * 3.7795 : 400) * sc) + 'px';
-    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null}) : slipHTML(o, P, false));
+    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false) : slipHTML(o, P, false)));
     setKids(pvBox, fr);
   };
   const soon = () => { clearTimeout(soon.t); soon.t = setTimeout(paint, 250); };
-  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone}) : slipHTML(o, P, standalone);
+  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, standalone) : slipHTML(o, P, standalone));
 
   /* ---- 完整列印（自行畫表格）控制項 ---- */
   const inputs = {};
@@ -3796,7 +3842,7 @@ function openPrint(ref){
   const fchips = (list, cur, on) => h('div', {class:'chips', style:'padding-top:0'}, list.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur() === k, onclick:e => { on(k); [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   const formCtl = h('div');
   const adminBtn = h('button', {class:'btn ghost', onclick:() => openSlipFormLayout(tp.id)}, '版面校準');
-  const syncVis = () => { fullCtl.style.display = formOn() ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; };
+  const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; };
   function buildForm(){
     const ftxt = (key, label) => fld(label, h('input', {class:'in', value:F[key] || '', 'aria-label':label, autocomplete:'off', oninput:e => { F[key] = e.target.value; soon(); }}));
     setKids(formCtl,
@@ -3829,8 +3875,8 @@ function openPrint(ref){
   }
   buildForm();
 
-  const modeRow = isSale ? h('div', {class:'chips', style:'padding-top:0'}, [['form', '套印預印表單'], ['full', '完整列印（含表格）']].map(([k, t]) =>
-    h('button', {class:'chip', 'aria-pressed':(P.mode !== 'full' ? 'form' : 'full') === k, onclick:e => {
+  const modeRow = isSale ? h('div', {class:'chips', style:'padding-top:0'}, [['form', '套印預印表單'], ['full', '完整列印（含表格）'], ['ref', '參考版面（A4 橫式）']].map(([k, t]) =>
+    h('button', {class:'chip', 'aria-pressed':(P.mode === 'full' ? 'full' : (P.mode === 'ref' ? 'ref' : 'form')) === k, onclick:e => {
       P.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); syncVis(); paint(); }}, t))) : null;
   syncVis();
   put(sh.bodyEl,
@@ -5286,6 +5332,10 @@ function openDeliveryList(){
 
 /* ================= 出車排程（貨車上午／下午行程、連結銷貨單）與績效 ================= */
 const SLOTS = {am:'上午', pm:'下午'};
+const ordOf = id => (S.orders && S.orders[id]) || (S.corders && S.corders[id]) || null;
+const isCo = o => !!(o && o.id && S.corders && S.corders[o.id] && !(S.orders && S.orders[o.id]));
+const stopDate = o => isCo(o) ? (o.expected || o.date || '') : deliveryOf(o);
+const openStopDoc = o => { if (!o) return; if (isCo(o)) openDocDetail('co', o.id); else openOrderDetail(o.id); };
 const tripKey = (date, vid, slot) => date + '_' + vid + '_' + slot;
 const vehLabel = v => v ? String(v.plate || '') + (v.name ? ' ' + v.name : '') : '（車輛已刪除）';
 const hmMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -5300,10 +5350,10 @@ const updTrip = (date, vid, slot, patch) => run(async () => { const cur = getTri
 async function assignOrders(date, vid, slot, ids, opts){
   opts = opts || {};
   const target = getTrip(date, vid, slot), map = assignedMap(), others = {}, dups = ids.filter(oid => { const old = map[oid]; return old && !(old.date === date && old.vehicleId === vid && old.slot === slot); });
-  if (dups.length && !opts.move){ const o = S.orders[dups[0]], old = map[dups[0]]; toast('「' + (o ? o.no : dups[0]) + '」已經排在 ' + old.date + ' ' + SLOTS[old.slot] + ' ' + vehLabel(S.vehicles[old.vehicleId]) + '，不能重複指派（要換車請在那一趟按「改排」）'); return false; }
+  if (dups.length && !opts.move){ const o = ordOf(dups[0]), old = map[dups[0]]; toast('「' + (o ? o.no : dups[0]) + '」已經排在 ' + old.date + ' ' + SLOTS[old.slot] + ' ' + vehLabel(S.vehicles[old.vehicleId]) + '，不能重複指派（要換車請在那一趟按「改排」）'); return false; }
   for (const oid of dups){ const old = map[oid], k = tripKey(old.date, old.vehicleId, old.slot); others[k] = others[k] || getTrip(old.date, old.vehicleId, old.slot); others[k].stops = others[k].stops.filter(x => x.orderId !== oid); }
   for (const oid of ids) if (!target.stops.some(x => x.orderId === oid)) target.stops.push({orderId:oid, doneTime:''});
-  if (!target.driver){ const o = S.orders[ids[0]]; if (o && o.driver) target.driver = o.driver; }
+  if (!target.driver){ const o = ordOf(ids[0]); if (o && o.driver) target.driver = o.driver; }
   const ok = await run(async () => { for (const t of Object.values(others)){ await writeTrip(t); await syncTripOrders(t); } await writeTrip(target); await syncTripOrders(target); return true; });
   if (ok){ const v = S.vehicles[vid], cap = bedCap(v); if (cap){ const other = getTrip(date, vid, slot === 'am' ? 'pm' : 'am'), vol = r2(volOfTrip(target) + (isMerged(target) ? volOfTrip(other) : 0)), pct = loadPct(vol, cap); if (pct > 100) toast('⚠ ' + vehLabel(v) + ' 載貨量 ' + pctTxt(pct) + '，超過車斗容量 ' + num(cap) + ' 才，建議分到別趟或別台車'); } }
   return ok;
@@ -5314,9 +5364,9 @@ const orderRegion = o => ((S.partners[o.partnerId] || {}).region || '').trim();
 function tripFacts(orders){ const custs = new Set(orders.map(o => o.partnerId || o.id)), regs = new Set(orders.map(orderRegion).filter(Boolean)); return {n:orders.length, stores:custs.size, regions:[...regs], noRegion:orders.some(o => !orderRegion(o)), vol:r2(orders.reduce((a, o) => a + orderVolume(o), 0)), noVol:orders.filter(orderNoVol).length, amt:r2(orders.reduce((a, o) => a + (o.total || 0), 0))}; }
 const factsTxt = f => f.stores + ' 家店・' + (f.regions.length ? f.regions.join('、') : '未填地區') + (f.noRegion && f.regions.length ? '＋未填地區' : '') + '・' + num(f.vol) + ' 才' + (f.noVol ? '（' + f.noVol + ' 張有商品沒填材積）' : '');
 async function assignDriver(ids, name){
-  const todo = ids.map(id => S.orders[id]).filter(o => o && o.driver !== name && !reviewLock('order', o));
+  const todo = ids.map(id => ordOf(id)).filter(o => o && o.driver !== name && (isCo(o) || !reviewLock('order', o)));
   if (!todo.length) return true;
-  return run(async () => { for (const o of todo) await S.db.doc('orders/' + o.id).update({driver:name || ''}); return true; });
+  return run(async () => { for (const o of todo) await S.db.doc((isCo(o) ? 'corders/' : 'orders/') + o.id).update({driver:name || ''}); return true; });
 }
 const mergeOf = (day, vid) => { const a = S.trips[tripKey(day, vid, 'am')], b = S.trips[tripKey(day, vid, 'pm')]; return (a && a.merge) || (b && b.merge) || ''; };
 const mergeDef = vid => (S.vehicles[vid] || {}).mergeDefault || '';
@@ -5328,18 +5378,94 @@ const loadPct = (vol, cap) => cap > 0 ? Math.round(vol / cap * 1000) / 10 : null
 const pctColor = p => p === null ? 'var(--ink3)' : p > 100 ? 'var(--zero)' : p >= 80 ? 'var(--low)' : 'var(--ok)';
 const pctTxt = p => p === null ? '—' : (Math.round(p * 10) / 10) + '%';
 const truckSlotTxt = o => o.truckSlot === 'day' ? '全天' : o.truckSlot === 'am' ? '上午' : o.truckSlot === 'pm' ? '下午' : '';
-const volOfTrip = t => r3((t.stops || []).reduce((a, st) => a + (S.orders[st.orderId] ? orderVolume(S.orders[st.orderId]) : 0), 0));
+const volOfTrip = t => r3((t.stops || []).reduce((a, st) => a + (ordOf(st.orderId) ? orderVolume(ordOf(st.orderId)) : 0), 0));
 function vehLoad(v, day){
   const va = volOfTrip(getTrip(day, v.id, 'am')), vb = volOfTrip(getTrip(day, v.id, 'pm')), cap = bedCap(v), merged = mergeEff(day, v.id) === 'merged', peak = merged ? r2(va + vb) : Math.max(va, vb);
   return {cap, va, vb, total:r2(va + vb), merged, peak, pct:loadPct(peak, cap), pa:loadPct(va, cap), pb:loadPct(vb, cap), pt:loadPct(va + vb, cap)};
 }
 async function syncTripOrders(t, removedIds){
   const v = S.vehicles[t.vehicleId], merged = isMerged(t), drv = tripDriver(t); let skipped = 0;
-  for (const [i, st] of (t.stops || []).entries()){ const o = S.orders[st.orderId]; if (!o) continue; if (reviewLock('order', o)){ skipped++; continue; }
+  for (const [i, st] of (t.stops || []).entries()){ const o = ordOf(st.orderId); if (!o) continue; if (!isCo(o) && reviewLock('order', o)){ skipped++; continue; }
     const patch = {truckPlate:(v && v.plate) || '', truckSlot:merged ? 'day' : t.slot, truckDate:t.date, truckSeq:i + 1, truckMerged:merged}; if (drv) patch.driver = drv;
-    if (Object.keys(patch).some(k => o[k] !== patch[k])) await S.db.doc('orders/' + o.id).update(patch); }
-  for (const id of removedIds || []){ const o = S.orders[id]; if (o && !reviewLock('order', o) && (o.truckPlate || o.truckSlot)) await S.db.doc('orders/' + id).update({truckPlate:'', truckSlot:'', truckDate:'', truckSeq:0, truckMerged:false}); }
+    if (Object.keys(patch).some(k => o[k] !== patch[k])) await S.db.doc((isCo(o) ? 'corders/' : 'orders/') + o.id).update(patch); }
+  for (const id of removedIds || []){ const o = ordOf(id); if (o && (isCo(o) || !reviewLock('order', o)) && (o.truckPlate || o.truckSlot)) await S.db.doc((isCo(o) ? 'corders/' : 'orders/') + id).update({truckPlate:'', truckSlot:'', truckDate:'', truckSeq:0, truckMerged:false}); }
   if (skipped) toast(skipped + ' 張單據已覆核，沒有更新單據內容（排車資料仍有記錄）');
+}
+async function healTripStops(){
+  if (!S.canWrite || S.__healing) return; const fix = [];
+  for (const t of Object.values(S.trips)) for (const st of t.stops || []){ if (!(S.corders && S.corders[st.orderId]) || (S.orders && S.orders[st.orderId])) continue;
+    const sale = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && o.srcId === st.orderId && !assignedMap()[o.id]).sort((a, b) => String(a.at || 0).localeCompare(String(b.at || 0)))[0];
+    if (sale) fix.push([t, st.orderId, sale.id]); }
+  if (!fix.length) return; S.__healing = true;
+  try { const done = new Set(); for (const [t, coId, saleId] of fix){ const k = tripKey(t.date, t.vehicleId, t.slot); const cur = getTrip(t.date, t.vehicleId, t.slot); const i = cur.stops.findIndex(x => x.orderId === coId); if (i < 0 || done.has(coId)) continue; cur.stops[i] = {...cur.stops[i], orderId:saleId, fromCo:coId}; await writeTrip(cur); await syncTripOrders(cur, [coId]); done.add(coId); } } catch (e) { console.error(e); } finally { S.__healing = false; }
+}
+/* ================= 出車作業（外務人員：選配送人員 → 出車 → 抵達公司，系統自動記錄時間） ================= */
+const DRV_LS = 'drvRunName1';
+const areaOf = o => { const r = orderRegion(o); if (r) return r; const pt = S.partners[o.partnerId] || {}, a = String(o.shipSpecial || o.shipAddress || pt.shipAddress || pt.address || '').replace(/\s/g, ''), m = /[縣市]([\u4e00-\u9fa5]{1,3}?[區鄉鎮市])/.exec(a) || /^\d*([\u4e00-\u9fa5]{1,3}?[區鄉鎮市])/.exec(a) || /([\u4e00-\u9fa5]{2}[縣市])/.exec(a); return m ? m[1] : ''; };
+function driverRuns(day, name){
+  const vids = new Set(Object.values(S.trips).filter(t => t.date === day && tripDriver(t) === name && (t.stops || []).length).map(t => t.vehicleId)), runs = [];
+  for (const vid of vids){ const am = getTrip(day, vid, 'am'), pm = getTrip(day, vid, 'pm'), merged = mergeEff(day, vid) === 'merged';
+    if (merged){ const stops = [...am.stops, ...pm.stops]; if (stops.length) runs.push({key:vid + '|day', vid, slot:'day', label:'全天', stops, outSlot:'am', backSlot:'pm', out:am.outTime, back:pm.backTime, outAt:am.outAt, backAt:pm.backAt}); }
+    else for (const t of [am, pm]) if (tripDriver(t) === name && t.stops.length) runs.push({key:vid + '|' + t.slot, vid, slot:t.slot, label:SLOTS[t.slot], stops:t.stops, outSlot:t.slot, backSlot:t.slot, out:t.outTime, back:t.backTime, outAt:t.outAt, backAt:t.backAt}); }
+  return runs.sort((a, b) => (a.slot === 'pm' ? 1 : 0) - (b.slot === 'pm' ? 1 : 0) || a.vid.localeCompare(b.vid));
+}
+function runInfo(runs){
+  const docs = runs.flatMap(r => r.stops.map(st => ordOf(st.orderId))).filter(Boolean), by = new Map();
+  docs.forEach(o => { const a = areaOf(o) || '未填區域'; by.set(a, (by.get(a) || 0) + 1); });
+  return {n:docs.length, sales:docs.filter(o => !isCo(o)).length, cos:docs.filter(o => isCo(o)).length, items:r3(docs.reduce((a, o) => a + (o.lines || []).reduce((b, l) => b + (Number(l.qty) || 0), 0), 0)), areas:[...by.entries()], areaTxt:[...by.entries()].map(([a, n]) => a + ' ' + n + ' 張').join('、') || '（沒有資料）'};
+}
+const minsBetween = (a, b) => Math.max(Math.round((b - a) / 60000), 0);
+const countTxt = i => i.n + ' 張' + (i.cos ? '（銷貨單 ' + i.sales + '、客戶訂單 ' + i.cos + '）' : '');
+function openDriverRun(){
+  if (!S.canWrite) return toast('這個帳號是唯讀的，不能記錄出車時間');
+  healTripStops();
+  const names = () => { const set = new Set(driverHistory()); return [...set]; };
+  let name = (S.emp && driverNames().includes(S.emp.name)) ? S.emp.name : (() => { try { return localStorage.getItem(DRV_LS) || ''; } catch (_) { return ''; } })();
+  liveSheet({title:'出車作業'}, ['trips', 'orders', 'corders', 'partners', 'vehicles', 'employees', 'settings'], sh => {
+    const day = today(), all = names(), withTrips = new Set(Object.values(S.trips).filter(t => t.date === day && (t.stops || []).length).map(t => tripDriver(t)).filter(Boolean));
+    if (name && !all.includes(name)) name = '';
+    const body = h('div', null, h('div', {class:'note', style:'margin-top:0', text:'今天 ' + day + '　選配送人員 → 出車前確認 → 送貨 → 回到公司按「抵達公司」，系統自動記錄時間。'}),
+      h('div', {class:'sec-h'}, h('h2', {text:'配送人員'})),
+      all.length ? h('div', {class:'chips', style:'padding-top:0'}, all.map(n => h('button', {class:'chip', 'aria-pressed':name === n, 'aria-label':'配送人員 ' + n, onclick:() => { name = n; try { localStorage.setItem(DRV_LS, n); } catch (_) {} render('trips'); }}, n + (withTrips.has(n) ? '（今天有單）' : '')))) : h('div', {class:'note warn', text:'還沒有配送人員。到「人員管理」把員工設成送貨員，或在「出車排程」指定送貨員。'}));
+    if (!name){ body.append(h('div', {class:'panel empty', text:'請先選擇配送人員'})); return {body}; }
+    const runs = driverRuns(day, name), tot = runInfo(runs);
+    if (!runs.length){ body.append(h('div', {class:'panel empty', 'aria-label':'今天沒有配送單', text:'今天沒有排給 ' + name + ' 的配送單。要先在「出車排程」把銷貨單或客戶訂單排到他的車上。'})); return {body}; }
+    body.append(h('div', {class:'panel pad', 'aria-label':'今天的配送', style:'margin-top:10px'}, h('b', {class:'big', text:name + ' 今天共 ' + countTxt(tot) + '配送單'}), h('div', {style:'margin-top:4px', text:'區域：' + tot.areaTxt}), h('small', {class:'hint', text:tot.items + ' 件貨，' + runs.length + ' 趟'})));
+    for (const run of runs){ const info = runInfo([run]), started = !!run.out, finished = !!(run.out && run.back), v = S.vehicles[run.vid];
+      const durMin = finished ? (run.outAt && run.backAt ? minsBetween(run.outAt, run.backAt) : (hmMin(run.back) - hmMin(run.out))) : null;
+      const stopsEl = h('div', {class:'panel', style:'margin:8px 0'}, run.stops.map((st, i) => { const o = ordOf(st.orderId); return h('div', {class:'row', style:'padding:8px 12px'}, h('span', {style:'min-width:0'}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）'), h('br'), h('small', {text:(o ? (areaOf(o) || '未填區域') + '　' + shipLine(o) : '')}))); }));
+      const state = finished ? h('div', {class:'note', 'aria-label':'已完成', style:'background:var(--oks);color:var(--ok)', text:'已完成　出車 ' + run.out + '　回到公司 ' + run.back + '　共花 ' + hmTxt(durMin)}) : started ? h('div', {class:'note', 'aria-label':'配送中', style:'background:var(--lows);color:var(--low)', text:'配送中　' + run.out + ' 出車' + (run.outAt ? '，已經 ' + hmTxt(minsBetween(run.outAt, Date.now())) : '')}) : null;
+      body.append(h('div', {class:'panel pad', style:'margin-top:12px', 'aria-label':'行程 ' + run.label}, h('b', {text:run.label + '行程　' + vehLabel(v)}), h('div', {style:'margin:4px 0', text:countTxt(info) + '　' + info.items + ' 件'}), h('small', {class:'hint', style:'display:block', text:'區域：' + info.areaTxt}), stopsEl, state,
+        !started ? h('button', {class:'btn', style:'width:100%;min-height:58px;font-size:19px', 'aria-label':'出車 ' + run.label, onclick:() => confirmDepart(name, run, info)}, '出車') : null,
+        started && !finished ? h('button', {class:'btn', style:'width:100%;min-height:58px;font-size:19px;background:var(--ok)', 'aria-label':'抵達公司 ' + run.label, onclick:() => arriveBack(name, run, info, runs)}, '抵達公司') : null)); }
+    return {body};
+  });
+  function confirmDepart(name, run, info){
+    const sh = sheet({title:'出車前確認'});
+    put(sh.bodyEl, h('div', {class:'panel pad', 'aria-label':'出車摘要'}, h('b', {class:'big', text:name + '　' + run.label + '行程'}), h('p', {style:'margin:8px 0 2px;font-size:18px', text:'這趟共 ' + countTxt(info) + '配送單，' + info.items + ' 件貨。'}), h('p', {style:'margin:2px 0;font-size:18px', text:'區域：' + info.areaTxt})),
+      h('div', {class:'note warn', 'aria-label':'出車提醒', style:'font-size:18px;line-height:1.6', text:'請勿忘記出貨單的隨身物品！出貨單、簽收單、收款用品、手機和車鑰匙，都帶了再出發。'}));
+    let busy = false;
+    sh.footEl.append(h('button', {class:'btn grow', style:'min-height:54px;font-size:18px', 'aria-label':'確認出車', onclick:async () => { if (busy) return; busy = true; const t = nowHM(), ok = await updTrip(today(), run.vid, run.outSlot, {outTime:t, outAt:Date.now(), outBy:myName()}); busy = false; if (ok){ toast('已記錄出車時間 ' + t + '，路上小心'); sh.forceClose(); } }}, '確認，出車'), h('button', {class:'btn ghost', 'aria-label':'還沒準備好', onclick:() => sh.forceClose()}, '還沒好'));
+  }
+  async function arriveBack(name, run, info, runs){
+    const t = nowHM(), nowMs = Date.now(); let busy = false; if (busy) return;
+    const ok = await updTrip(today(), run.vid, run.backSlot, {backTime:t, backAt:nowMs, backBy:myName()}); if (!ok) return;
+    const mins = run.outAt ? minsBetween(run.outAt, nowMs) : Math.max((hmMin(t) || 0) - (hmMin(run.out) || 0), 0), emp = empByName(name), end = hmMin(empHours(emp || {type:'field'})[1]), nowMin = hmMin(t), left = end !== null && nowMin !== null ? end - nowMin : null, done = runs.filter(r => r.key !== run.key && r.out && r.back), all = runInfo([run, ...done]);
+    const sh = sheet({title:'已抵達公司'});
+    put(sh.bodyEl, h('div', {class:'panel pad', 'aria-label':'抵達總結'}, h('b', {class:'big', text:'辛苦了，' + name + '！'}),
+      h('p', {style:'margin:8px 0 2px;font-size:18px', text:'回到公司時間 ' + t + '（' + run.out + ' 出車）。'}),
+      h('p', {style:'margin:2px 0;font-size:18px', text:'這趟共送了 ' + countTxt(info) + '配送單、' + info.items + ' 件貨。'}),
+      h('p', {style:'margin:2px 0;font-size:18px', text:'區域：' + info.areaTxt}),
+      h('p', {style:'margin:2px 0;font-size:18px;font-weight:700', text:'共花了 ' + hmTxt(mins) + '。'}),
+      done.length ? h('p', {style:'margin:2px 0', class:'hint', text:'今天累計 ' + (done.length + 1) + ' 趟、' + all.n + ' 張配送單。'}) : null),
+      h('div', {class:'note ' + (left !== null && left <= 0 ? 'warn' : ''), 'aria-label':'備貨提醒', style:'font-size:18px;line-height:1.6', text:left === null ? '請開始準備明天的備貨。' : (left > 0 ? '離下班（' + empHours(emp || {type:'field'})[1] + '）還有 ' + hmTxt(left) + '，請開始準備明天的備貨。' : '已經過了下班時間（' + empHours(emp || {type:'field'})[1] + '），請盡快完成明天的備貨。')}));
+    sh.footEl.append(h('button', {class:'btn ghost', 'aria-label':'看明天的配送單', onclick:() => { sh.forceClose(); openDispatch({day:addDays(today(), 1)}); }}, '看明天的配送單'), h('button', {class:'btn grow', 'aria-label':'完成', onclick:() => sh.forceClose()}, '完成'));
+  }
+}
+function driverHomeCard(){
+  if (!S.emp || !driverNames().includes(S.emp.name)) return null;
+  const runs = driverRuns(today(), S.emp.name); if (!runs.length) return null; const info = runInfo(runs), out = runs.filter(r => r.out && !r.back).length, fin = runs.filter(r => r.out && r.back).length;
+  return h('section', {class:'sec', 'aria-label':'今天的配送'}, h('div', {class:'panel pad'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap'}, h('b', {text:'今天的配送'}), h('small', {text:runs.length + ' 趟' + (fin ? '，已完成 ' + fin : '') + (out ? '，配送中 ' + out : '')})), h('div', {style:'margin:6px 0', text:'共 ' + countTxt(info) + '配送單，區域：' + info.areaTxt}), h('button', {class:'btn', style:'width:100%;min-height:54px;font-size:18px', 'aria-label':'前往出車作業', onclick:openDriverRun}, '出車作業')));
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x)}); } catch (_) {}
@@ -5351,7 +5477,9 @@ async function fixDupStops(){
 function setMerge(day, vid, state){ return run(async () => { for (const slot of ['am', 'pm']){ const nt = {...getTrip(day, vid, slot), merge:state, mergeBy:S.meId || null, mergeByName:myName(), mergeAt:Date.now()}; await writeTrip(nt); await syncTripOrders(nt); } return true; }); }
 function unassignedOrders(day, back){
   const map = assignedMap(), from = back ? addDays(day, -7) : day;
-  return Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && !map[o.id] && deliveryOf(o) >= from && deliveryOf(o) <= day).sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(deliveryOf(a)).localeCompare(String(deliveryOf(b))) || String(a.no).localeCompare(String(b.no)));
+  const sales = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && !map[o.id] && deliveryOf(o) >= from && deliveryOf(o) <= day);
+  const cos = Object.values(S.corders || {}).filter(c => !map[c.id] && docProgress('co', c).active && (c.expected || '') >= from && (c.expected || '') <= day && !Object.values(S.orders).some(o => o.type === 'sale' && o.status !== 'void' && o.srcId === c.id && map[o.id]));
+  return [...sales, ...cos].sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(stopDate(a)).localeCompare(String(stopDate(b))) || String(a.no).localeCompare(String(b.no)));
 }
 const stopCust = o => { const pt = S.partners[o.partnerId] || {}; return (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : ''); };
 function pickOrdersForTrip(date, vid, slot){
@@ -5360,22 +5488,23 @@ function pickOrdersForTrip(date, vid, slot){
   const goBtn = h('button', {class:'btn grow', disabled:true, onclick:async () => { const ids = [...sel]; if (!ids.length) return; const ok = await assignOrders(date, vid, slot, ids); if (ok){ toast('已加入 ' + ids.length + ' 張'); sh.forceClose(); } }}, '加入');
   const fill = () => { const list = unassignedOrders(date, back);
     setKids(box, list.length ? h('div', {class:'panel'}, list.map(o => h('label', {class:'row', style:'align-items:center;cursor:pointer'}, h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('input', {type:'checkbox', checked:sel.has(o.id), 'aria-label':'選取 ' + o.no, onchange:e => { if (e.target.checked) sel.add(o.id); else sel.delete(o.id); goBtn.disabled = !sel.size; goBtn.textContent = sel.size ? '加入 ' + sel.size + ' 張' : '加入'; }}),
-      h('span', {style:'min-width:0'}, h('b', null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:(shipLine(o) || '（沒有送貨地址）') + (o.driver ? '　送貨員 ' + o.driver : '')}))), h('b', {text:money(o.total)})))) : h('div', {class:'panel empty', text:'沒有還沒排車的銷貨單'})); };
-  put(sh.bodyEl, h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'包含前7天', onchange:e => { back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據'), box);
+      h('span', {style:'min-width:0'}, h('b', null, isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:(isCo(o) ? '客戶訂單　交貨日 ' + (o.expected || '') + '　' : '') + (shipLine(o) || '（沒有送貨地址）') + (o.driver ? '　送貨員 ' + o.driver : '')}))), h('b', {text:money(o.total)})))) : h('div', {class:'panel empty', text:'沒有還沒排車的銷貨單或客戶訂單'})); };
+  put(sh.bodyEl, h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'包含前7天', onchange:e => { back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據（銷貨單和客戶訂單）'), box);
   sh.footEl.append(goBtn); fill();
 }
 function openDispatch(pre){
+  healTripStops();
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {day:(pre && pre.day) || today(), back:false};
   liveSheet({title:'配送管理（出車排程）'}, ['trips', 'orders', 'partners', 'vehicles', 'products'], sh => {
     const vs = tripVehicles(), names = driverHistory(), box = h('div');
     const dIn = h('input', {class:'in', type:'date', value:U.day, 'aria-label':'出車日期', onchange:e => { U.day = e.target.value || U.day; render('trips'); }});
-    const tripCard = (v, slot) => { const t = getTrip(U.day, v.id, slot), mins = tripMin(t), orders = t.stops.map(st => S.orders[st.orderId]).filter(Boolean), facts = tripFacts(orders), merged = mergeEff(U.day, v.id) === 'merged', cap = bedCap(v), pctT = loadPct(facts.vol, cap);
+    const tripCard = (v, slot) => { const t = getTrip(U.day, v.id, slot), mins = tripMin(t), orders = t.stops.map(st => ordOf(st.orderId)).filter(Boolean), facts = tripFacts(orders), merged = mergeEff(U.day, v.id) === 'merged', cap = bedCap(v), pctT = loadPct(facts.vol, cap);
       const timeBox = (key, label) => h('div', {class:'f'}, h('label', {text:label}), h('div', {style:'display:flex;gap:6px'}, h('input', {class:'in', type:'time', value:t[key] || '', 'aria-label':SLOTS[slot] + vehLabel(v) + label, style:'flex:1', onchange:e => updTrip(U.day, v.id, slot, {[key]:e.target.value})}), h('button', {class:'btn ghost sm', 'aria-label':SLOTS[slot] + vehLabel(v) + label + '現在', onclick:() => updTrip(U.day, v.id, slot, {[key]:nowHM()})}, '現在')));
       const drvSel = h('select', {class:'in', 'aria-label':SLOTS[slot] + vehLabel(v) + '送貨員', onchange:async e => { const nm = e.target.value; await updTrip(U.day, v.id, slot, {driver:nm}); if (nm) await assignDriver(t.stops.map(x => x.orderId), nm); }}, h('option', {value:'', text:'（未指定）'}), ...[...new Set([...names, t.driver, vehDriver(v)].filter(Boolean))].map(n => h('option', {value:n, text:n}))); drvSel.value = tripDriver(t) || '';
-      const stops = t.stops.map((st, i) => { const o = S.orders[st.orderId];
+      const stops = t.stops.map((st, i) => { const o = ordOf(st.orderId);
         const mv = d => { const arr = t.stops.slice(), j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; updTrip(U.day, v.id, slot, {stops:arr}); };
-        return h('div', {class:'row', style:'align-items:flex-start'}, h('span', {style:'min-width:0'}, h('button', {style:'text-align:left', onclick:() => o && openOrderDetail(o.id)}, h('b', null, (i + 1) + '. ', o ? stopCust(o) : '（單據已刪除）', o && o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null), h('br'), h('small', {text:o ? o.no + '　' + shipLine(o) + '　' + money(o.total) : st.orderId}))),
+        return h('div', {class:'row', style:'align-items:flex-start'}, h('span', {style:'min-width:0'}, h('button', {style:'text-align:left', onclick:() => openStopDoc(o)}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）', o && o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null), h('br'), h('small', {text:o ? (isCo(o) ? '客戶訂單 ' : '') + o.no + '　' + shipLine(o) + '　' + money(o.total) : st.orderId}))),
           h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, h('span', {style:'display:flex;gap:4px'}, h('button', {class:'ic sm', 'aria-label':'上移 ' + (i + 1), onclick:() => mv(-1)}, '↑'), h('button', {class:'ic sm', 'aria-label':'下移 ' + (i + 1), onclick:() => mv(1)}, '↓'), h('button', {class:'ic sm', 'aria-label':'移出 ' + (i + 1), onclick:() => updTrip(U.day, v.id, slot, {stops:t.stops.filter((_, j) => j !== i)})}, icon('x'))),
             o ? (() => { const opts = tripVehicles().flatMap(v2 => ['am', 'pm'].map(sl => [v2.id + '|' + sl, SLOTS[sl] + ' ' + vehLabel(v2)])).filter(([k]) => k !== v.id + '|' + slot), s4 = h('select', {class:'in', 'aria-label':'改排 ' + o.no, style:'height:34px;width:132px;font-size:13px', onchange:async e => { const [vid2, sl2] = e.target.value.split('|'); e.target.value = ''; if (!vid2) return; if (await dialog({title:'改排 ' + o.no + '？', msg:'這張單據已排在 ' + SLOTS[slot] + ' ' + vehLabel(v) + '，要改排到 ' + SLOTS[sl2] + ' ' + vehLabel(S.vehicles[vid2]) + '。（一張單據只能排在一趟）', ok:'改排'})) assignOrders(U.day, vid2, sl2, [o.id], {move:true}); }}, h('option', {value:'', text:'改排到…'}), ...opts.map(([k, t]) => h('option', {value:k, text:t}))); s4.value = ''; return s4; })() : null,
             h('span', {style:'display:flex;gap:4px;align-items:center'}, h('small', {text:'送達'}), h('input', {class:'in', type:'time', value:st.doneTime || '', 'aria-label':'送達時間 ' + (o ? o.no : i + 1), style:'height:34px;width:104px', onchange:e => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = e.target.value; updTrip(U.day, v.id, slot, {stops:arr}); }}), h('button', {class:'btn ghost sm', 'aria-label':'送達現在 ' + (o ? o.no : i + 1), onclick:() => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = nowHM(); updTrip(U.day, v.id, slot, {stops:arr}); }}, '現在')))); });
@@ -5385,9 +5514,9 @@ function openDispatch(pre){
         merged ? h('div', {class:'note', style:'margin:0 0 8px', text:slot === 'am' ? '已合併為全天一趟：這裡只記出車時間，中午不回公司。' : '已合併為全天一趟：這裡只記下午回公司的時間。'}) : null,
         fld('外務人員（送貨員）', drvSel), merged ? (slot === 'am' ? timeBox('outTime', '出車時間') : timeBox('backTime', '回來時間（全天最後回公司）')) : h('div', {class:'f2'}, timeBox('outTime', '出車時間'), timeBox('backTime', '回來時間')),
         t.stops.length ? h('div', {class:'panel', style:'margin:8px 0'}, stops) : h('div', {class:'note', style:'margin:8px 0', text:'還沒有單據。'}),
-        h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'加入單據 ' + SLOTS[slot] + ' ' + vehLabel(v), onclick:() => pickOrdersForTrip(U.day, v.id, slot)}, icon('plus'), '加入銷貨單')); };
+        h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'加入單據 ' + SLOTS[slot] + ' ' + vehLabel(v), onclick:() => pickOrdersForTrip(U.day, v.id, slot)}, icon('plus'), '加入銷貨單或客戶訂單')); };
     const vehHead = v => {
-      const am = getTrip(U.day, v.id, 'am'), pm = getTrip(U.day, v.id, 'pm'), oa = am.stops.map(x => S.orders[x.orderId]).filter(Boolean), ob = pm.stops.map(x => S.orders[x.orderId]).filter(Boolean), all = tripFacts([...oa, ...ob]), stored = mergeOf(U.day, v.id), st = stored || mergeDef(v.id), both = oa.length && ob.length, L = vehLoad(v, U.day), bed = bedCm(v);
+      const am = getTrip(U.day, v.id, 'am'), pm = getTrip(U.day, v.id, 'pm'), oa = am.stops.map(x => ordOf(x.orderId)).filter(Boolean), ob = pm.stops.map(x => ordOf(x.orderId)).filter(Boolean), all = tripFacts([...oa, ...ob]), stored = mergeOf(U.day, v.id), st = stored || mergeDef(v.id), both = oa.length && ob.length, L = vehLoad(v, U.day), bed = bedCm(v);
       const dayMin = st === 'merged' && hmMin(am.outTime) !== null && hmMin(pm.backTime) !== null && hmMin(pm.backTime) >= hmMin(am.outTime) ? hmMin(pm.backTime) - hmMin(am.outTime) : null;
       return h('div', {class:'panel pad', style:'margin-bottom:10px', 'aria-label':'車輛摘要 ' + vehLabel(v)},
         L.cap ? h('div', {'aria-label':'今天載貨量 ' + vehLabel(v), style:'margin-bottom:10px'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {text:'今天載貨量'}), h('b', {style:'font-size:26px;color:' + pctColor(L.pct), text:pctTxt(L.pct)})),
@@ -5410,7 +5539,7 @@ function openDispatch(pre){
     const body = h('div', null, h('p', {class:'note', text:'主管在這裡把銷貨單分配給外務人員、排進每台車的上午或下午。每台車會顯示配送店家數、區域和總材積，並請你確認上午下午是否合併（中午不回公司）。'}),
       h('div', {class:'chips', style:'padding-top:0'}, [['今天', 0], ['明天', 1], ['昨天', -1]].map(([t, n]) => h('button', {class:'chip', onclick:() => { U.day = addDays(today(), n); dIn.value = U.day; rerender(); }}, t))),
       dupStops().length ? h('div', {class:'note bad', 'aria-label':'重複指派警告'}, h('b', {text:'⚠ 有 ' + dupStops().length + ' 張單據被重複指派到不同車趟'}), h('br'), '一張單據只能排在一趟。', h('button', {class:'btn sm', style:'margin-left:8px', 'aria-label':'修正重複指派', onclick:() => fixDupStops()}, '自動修正（保留最早排的）')) : null,
-      fld('日期', dIn), h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.back, 'aria-label':'列出前7天未排車', onchange:e => { U.back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據'), box,
+      fld('日期', dIn), h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.back, 'aria-label':'列出前7天未排車', onchange:e => { U.back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據（銷貨單和客戶訂單）'), box,
       vs.length ? vs.map(v => h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:vehLabel(v)})), vehHead(v), tripCard(v, 'am'), tripCard(v, 'pm'))) : h('div', {class:'note bad', text:'還沒有貨車。請先到「更多 → 車輛」新增車輛。'}));
     const rerender = () => render('trips');
     fill();
@@ -5423,7 +5552,7 @@ function tripStatRows(from, to, by){
     if ((from && t.date < from) || (to && t.date > to) || !mids.has(t.vehicleId)) continue;
     const mg = isMerged(t), pair = mg ? (t.slot === 'am' ? t : getTrip(t.date, t.vehicleId, 'am')) : null, other = mg ? (t.slot === 'am' ? getTrip(t.date, t.vehicleId, 'pm') : t) : null;
     if (mg){ const k0 = t.date + '|' + t.vehicleId; if (seen.has(k0)) continue; seen.add(k0); }
-    const stops = mg ? [...pair.stops, ...other.stops] : (t.stops || []), orders = stops.map(st => S.orders[st.orderId]).filter(Boolean);
+    const stops = mg ? [...pair.stops, ...other.stops] : (t.stops || []), orders = stops.map(st => ordOf(st.orderId)).filter(Boolean);
     const driver = mg ? (tripDriver(pair) || tripDriver(other)) : tripDriver(t), key = by === 'driver' ? (driver || '（未指定）') : by === 'vehicle' ? vehLabel(S.vehicles[t.vehicleId]) : t.date;
     const r = g[key] || (g[key] = {key, trips:0, done:0, open:0, mins:0, orders:0, custs:new Set(), amt:0, drivers:new Set()});
     r.drivers.add(driver || '（未指定）'); let m = null, openTrip = false;
@@ -5436,7 +5565,7 @@ function tripStatRows(from, to, by){
 function dsTrips(from, to){
   const mids = new Set(tripVehicles().map(v => v.id)), rows = Object.values(S.trips).filter(t => (!from || t.date >= from) && (!to || t.date <= to) && mids.has(t.vehicleId)).sort((a, b) => a.date.localeCompare(b.date) || String(a.vehicleId).localeCompare(String(b.vehicleId)) || a.slot.localeCompare(b.slot));
   const cols = [XC('日期', 'text', 12), XC('時段', 'text', 8), XC('車輛', 'text', 14), XC('送貨員', 'text', 12), XC('出車時間', 'text', 10), XC('回來時間', 'text', 10), XC('出車分鐘', 'number', 10), XC('送貨單數', 'number', 10), XC('店家數', 'number', 10), XC('金額', 'money', 14), XC('單號', 'text', 40)];
-  return {title:'出車績效', sub:(from || '') + '～' + (to || ''), filename:'出車績效', sections:[{name:'出車明細', cols, rows:rows.map(t => { const os = (t.stops || []).map(st => S.orders[st.orderId]).filter(Boolean); return [t.date, SLOTS[t.slot], vehLabel(S.vehicles[t.vehicleId]), tripDriver(t), t.outTime || '', t.backTime || '', tripMin(t) === null ? '' : tripMin(t), os.length, new Set(os.map(o => o.partnerId || o.id)).size, r2(os.reduce((a, o) => a + (o.total || 0), 0)), os.map(o => o.no).join('、')]; })}]};
+  return {title:'出車績效', sub:(from || '') + '～' + (to || ''), filename:'出車績效', sections:[{name:'出車明細', cols, rows:rows.map(t => { const os = (t.stops || []).map(st => ordOf(st.orderId)).filter(Boolean); return [t.date, SLOTS[t.slot], vehLabel(S.vehicles[t.vehicleId]), tripDriver(t), t.outTime || '', t.backTime || '', tripMin(t) === null ? '' : tripMin(t), os.length, new Set(os.map(o => o.partnerId || o.id)).size, r2(os.reduce((a, o) => a + (o.total || 0), 0)), os.map(o => o.no).join('、')]; })}]};
 }
 function openTripStats(){
   if (!see('report') && !S.isAdmin) return toast('你的角色沒有查看報表的權限');
@@ -5450,7 +5579,7 @@ function openTripStats(){
         rows.length ? h('div', {class:'panel'}, rows.map(r => h('div', {class:'row', style:'align-items:flex-start'}, h('span', null, h('b', {text:r.key + (U.by === 'vehicle' && r.drivers.size ? '　' + [...r.drivers].join('、') : '')}), h('br'), h('small', {text:r.trips + ' 趟・' + r.orders + ' 張單・' + r.custs.size + ' 家店・' + money(r.amt)}), h('br'),
           h('small', {text:'平均每趟 ' + hmTxt(r.done ? Math.round(r.mins / r.done) : null) + '　每張單 ' + (r.orders && r.mins ? Math.round(r.mins / r.orders) + ' 分' : '—') + '　每小時 ' + (r.mins ? (r2(r.orders / (r.mins / 60))) + ' 張／' + money(Math.round(r.amt / (r.mins / 60))) : '—')})), h('b', {text:hmTxt(r.mins)})))) : h('div', {class:'panel empty', text:'這段期間沒有出車紀錄'}),
         h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'出車明細'})),
-        h('div', {class:'panel'}, Object.values(S.trips).filter(t => t.date >= U.from && t.date <= U.to && tripVehicles().some(v => v.id === t.vehicleId)).sort((a, b) => b.date.localeCompare(a.date) || a.slot.localeCompare(b.slot)).slice(0, 80).map(t => { const os = (t.stops || []).map(st => S.orders[st.orderId]).filter(Boolean);
+        h('div', {class:'panel'}, Object.values(S.trips).filter(t => t.date >= U.from && t.date <= U.to && tripVehicles().some(v => v.id === t.vehicleId)).sort((a, b) => b.date.localeCompare(a.date) || a.slot.localeCompare(b.slot)).slice(0, 80).map(t => { const os = (t.stops || []).map(st => ordOf(st.orderId)).filter(Boolean);
           return h('button', {class:'row', onclick:() => openDispatch({day:t.date})}, h('span', null, h('b', {text:t.date + ' ' + SLOTS[t.slot] + '　' + vehLabel(S.vehicles[t.vehicleId])}), h('br'), h('small', {text:(tripDriver(t) || '（未指定）') + '　' + (t.outTime || '--:--') + ' → ' + (t.backTime || '--:--') + '　' + os.length + ' 張單'})), h('b', {text:hmTxt(tripMin(t))})); })));
       void label; };
     const chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.by === k, onclick:e => { U.by = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t);
@@ -6088,7 +6217,7 @@ function openCustody(){
 
 /* ================= 考勤：打卡（員工代號＋密碼、照片、位置）、請假、特休、統計與異常表 ================= */
 const EMP_TYPES = {office:'內勤人員', field:'外勤人員'};
-const attCfg = () => ({officeStart:'08:00', officeEnd:'17:00', fieldStart:'08:20', fieldEnd:'17:20', graceMin:3, graceMax:3, lunchMin:60, unitMin:30, punchWin:30, ...(S.set.att || {})});
+const attCfg = () => ({officeStart:'08:00', officeEnd:'17:00', fieldStart:'08:20', fieldEnd:'17:20', graceMin:3, graceMax:3, lunchMin:60, unitMin:30, punchWin:30, photoKB:300, ...(S.set.att || {})});
 const empHours = e => { const c = attCfg(); return e.type === 'field' ? [c.fieldStart, c.fieldEnd] : [c.officeStart, c.officeEnd]; };
 const canAttView = () => S.isAdmin || rolePerm('attview') || rolePerm('attmgr');
 const canAttMgr = () => S.isAdmin || rolePerm('attmgr');
@@ -6183,10 +6312,13 @@ const FLAG_TXT = {grace:'遲到（寬限內）', graceOver:'遲到（寬限次�
 const needLeaveMin = n => { const u = attCfg().unitMin || 30; return Math.ceil(n / u) * u; };
 /* ---- 取得照片與位置 ---- */
 function getPos(){ return new Promise(res => { try { if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition(p => res({lat:Math.round(p.coords.latitude * 1e6) / 1e6, lng:Math.round(p.coords.longitude * 1e6) / 1e6, acc:Math.round(p.coords.accuracy || 0)}), () => res(null), {enableHighAccuracy:true, timeout:8000, maximumAge:30000}); } catch (_) { res(null); } }); }
-function snapSmall(src, sw, sh){
-  let edge = 480, q = 0.55, out = scaledJpeg(src, sw, sh, edge, q);
-  for (let n = 0; dataBytes(out.data) > 45 * 1024 && n < 10; n++){ if (q > 0.35) q -= 0.08; else edge = Math.round(edge * 0.8); out = scaledJpeg(src, sw, sh, edge, q); }
-  return {id:photoId(), data:out.data, w:out.w, h:out.h, name:'打卡.jpg', at:Date.now()};
+const attPhotoLimit = () => Math.min(Math.max(Number(attCfg().photoKB) || 300, 30), 900) * 1024;
+const exactBytes = d => { const t = String(d), b = t.slice(t.indexOf(',') + 1); return Math.floor(b.length * 3 / 4) - (b.endsWith('==') ? 2 : b.endsWith('=') ? 1 : 0); };
+/* 打卡照片：壓縮後的檔案大小一定不超過上限（預設 300 KB）；在上限內盡量清楚 */
+function snapClock(src, sw, sh){
+  const lim = attPhotoLimit(); let edge = 1280, q = 0.85, out = scaledJpeg(src, sw, sh, edge, q);
+  for (let n = 0; exactBytes(out.data) > lim && n < 60; n++){ if (q > 0.5) q = Math.round((q - 0.07) * 100) / 100; else edge = Math.max(Math.round(edge * 0.85), 120); out = scaledJpeg(src, sw, sh, edge, q); }
+  return {id:photoId(), data:out.data, w:out.w, h:out.h, name:'打卡.jpg', at:Date.now(), bytes:exactBytes(out.data)};
 }
 function autoShot(){
   return new Promise(res => {
@@ -6195,7 +6327,7 @@ function autoShot(){
     const video = h('video', {autoplay:true, playsinline:true, muted:true, style:'width:100%;border-radius:12px;background:#000;max-height:50vh'}), stop = () => { if (stream) stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} }); stream = null; };
     const fin = p => { if (done) return; done = true; stop(); sh.forceClose(); res(p); };
     put(sh.bodyEl, video, h('p', {class:'hint', text:'請看著鏡頭，系統會自動拍下這張打卡照片。'}));
-    navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false}).then(s => { stream = s; video.srcObject = s; if (video.play){ const pr = video.play(); if (pr && pr.catch) pr.catch(() => null); } setTimeout(() => { try { fin(snapSmall(video, video.videoWidth || 640, video.videoHeight || 480)); } catch (_) { fin(null); } }, 1300); }).catch(() => fin(null));
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false}).then(s => { stream = s; video.srcObject = s; if (video.play){ const pr = video.play(); if (pr && pr.catch) pr.catch(() => null); } setTimeout(() => { try { fin(snapClock(video, video.videoWidth || 640, video.videoHeight || 480)); } catch (_) { fin(null); } }, 1300); }).catch(() => fin(null));
     const old = sh.forceClose; sh.forceClose = () => { stop(); old(); if (!done){ done = true; res(null); } };
   });
 }
@@ -6210,7 +6342,7 @@ async function recordClock(emp, kind){
   await S.db.doc('attdays/' + key).set(payload); S.attdays[key] = {...payload, id:key};
   return {ev, date};
 }
-async function savePhotoDocsTo(coll, list){ for (const p of list) await S.db.doc(coll + '/' + p.id).set({data:p.data, w:p.w, h:p.h, at:p.at}); }
+async function savePhotoDocsTo(coll, list){ for (const p of list) await S.db.doc(coll + '/' + p.id).set({data:p.data, w:p.w, h:p.h, at:p.at, ...(p.bytes ? {bytes:p.bytes} : {})}); }
 function clockMsg(emp, kind, ev, date){
   const c = attCfg(), [st, en] = empHours(emp), t = hmOf(ev.t);
   if (kind === 'in'){ const late = Math.floor((ev.t - new Date(date + 'T00:00:00').getTime()) / 60000) - hmMin(st); if (late <= 0) return '上班打卡 ' + t + '　準時'; const ev0 = monthEval(emp, date.slice(0, 7), ev.t), used = ev0.sum.grace; return late <= c.graceMin ? '上班打卡 ' + t + '　遲到 ' + late + ' 分鐘（寬限內，本月第 ' + used + ' 次，還剩 ' + Math.max(c.graceMax - used, 0) + ' 次）' : '上班打卡 ' + t + '　遲到 ' + late + ' 分鐘，超過寬限，需依請假辦法請事假或特休'; }
@@ -6392,9 +6524,9 @@ function openAttAdmin(){
     if (U.tab === 'bal'){ const ds = dsLeaveBal(), emps = Object.values(S.employees).filter(e => e.active !== false).sort((a, b) => String(a.code).localeCompare(String(b.code)));
       content = [h('div', {class:'btns', style:'margin-bottom:8px'}, canExport() ? h('button', {class:'btn ghost sm', onclick:() => openExport(ds)}, '匯出（PDF／Excel）') : null), emps.length ? h('div', {class:'panel'}, emps.map(e => { const a = annualSummary(e).cur; return h('div', {class:'row', style:'align-items:flex-start', 'aria-label':'餘額 ' + e.code}, h('span', {style:'min-width:0'}, h('b', {text:e.name + '（' + e.code + '）'}), h('br'), h('small', {text:'到職 ' + (e.hireDate || '未填') + (a ? '　特休 ' + a.start + '～' + a.end : '')})), h('span', {class:'right'}, h('b', {text:a ? '特休剩 ' + r2((a.hours - a.used) / 8) + ' / ' + a.days + ' 天' : '特休 0 天'}), h('br'), h('small', {text:LEAVE_VIS().filter(([k]) => k !== 'annual').map(([k, t]) => t.name + ' ' + r2(leaveBalance(e, k).used / 8) + ' 天').join('・') || '　'}))); })) : h('div', {class:'panel empty', text:'還沒有人員'})]; }
     if (U.tab === 'cfg'){ const c = attCfg(), inp = (k, label, type) => fld(label, h('input', {class:'in', type:type || 'text', value:c[k], 'aria-label':label, id:'attc_' + k}));
-      content = [h('p', {class:'note', text:'上班時間、遲到寬限等規則。改了以後，統計表和異常表會用新規則重新計算（包含過去的月份）。'}), h('div', {class:'f2'}, inp('officeStart', '內勤上班', 'time'), inp('officeEnd', '內勤下班', 'time')), h('div', {class:'f2'}, inp('fieldStart', '外勤上班', 'time'), inp('fieldEnd', '外勤下班', 'time')), h('div', {class:'f2'}, inp('graceMin', '寬限分鐘數'), inp('graceMax', '寬限每月次數')), h('div', {class:'f2'}, inp('lunchMin', '午休分鐘（扣工時）'), inp('unitMin', '補假最小單位（分鐘）')), h('div', {class:'f2'}, inp('punchWin', '首頁「上班打卡」鍵：上班前後幾分鐘內出現'), h('div')), h('div', {class:'f'}, h('label', {text:'請假時可以選的假別'}), h('div', {class:'chips', style:'padding:4px 0 0;flex-wrap:wrap'}, ...Object.entries(LEAVE_TYPES).map(([k, t]) => h('label', {class:'check', style:'margin-right:14px'}, h('input', {type:'checkbox', class:'lvshow', value:k, checked:leaveShown().includes(k), 'aria-label':'顯示假別 ' + t.name}), t.name)))),
+      content = [h('p', {class:'note', text:'上班時間、遲到寬限等規則。改了以後，統計表和異常表會用新規則重新計算（包含過去的月份）。'}), h('div', {class:'f2'}, inp('officeStart', '內勤上班', 'time'), inp('officeEnd', '內勤下班', 'time')), h('div', {class:'f2'}, inp('fieldStart', '外勤上班', 'time'), inp('fieldEnd', '外勤下班', 'time')), h('div', {class:'f2'}, inp('graceMin', '寬限分鐘數'), inp('graceMax', '寬限每月次數')), h('div', {class:'f2'}, inp('lunchMin', '午休分鐘（扣工時）'), inp('unitMin', '補假最小單位（分鐘）')), h('div', {class:'f2'}, inp('punchWin', '首頁「上班打卡」鍵：上班前後幾分鐘內出現'), inp('photoKB', '打卡照片大小上限（KB，壓縮後不會超過；預設 300）')), h('div', {class:'f'}, h('label', {text:'請假時可以選的假別'}), h('div', {class:'chips', style:'padding:4px 0 0;flex-wrap:wrap'}, ...Object.entries(LEAVE_TYPES).map(([k, t]) => h('label', {class:'check', style:'margin-right:14px'}, h('input', {type:'checkbox', class:'lvshow', value:k, checked:leaveShown().includes(k), 'aria-label':'顯示假別 ' + t.name}), t.name)))),
         fld('國定假日／公司休假日（YYYY-MM-DD，用逗號或換行分隔）', h('textarea', {class:'in', rows:4, id:'attc_hol', 'aria-label':'假日清單'}, (S.set.holidays || []).join('\n'))),
-        h('button', {class:'btn', style:'width:100%', 'aria-label':'儲存考勤設定', onclick:async () => { const g = k => $('#attc_' + k).value, hol = $('#attc_hol').value.split(/[\s,，;；]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); const att = {officeStart:g('officeStart'), officeEnd:g('officeEnd'), fieldStart:g('fieldStart'), fieldEnd:g('fieldEnd'), graceMin:toNum(g('graceMin')), graceMax:toNum(g('graceMax')), lunchMin:toNum(g('lunchMin')), unitMin:Math.max(toNum(g('unitMin')), 1), punchWin:Math.max(toNum(g('punchWin')), 0), leaveShow:[...document.querySelectorAll('.lvshow')].filter(x => x.checked).map(x => x.value)}; if (await run(async () => { await S.db.doc('settings/main').update({att, holidays:hol}); return true; })) toast('已儲存考勤設定'); }}, '儲存設定'),
+        h('button', {class:'btn', style:'width:100%', 'aria-label':'儲存考勤設定', onclick:async () => { const g = k => $('#attc_' + k).value, hol = $('#attc_hol').value.split(/[\s,，;；]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); const att = {officeStart:g('officeStart'), officeEnd:g('officeEnd'), fieldStart:g('fieldStart'), fieldEnd:g('fieldEnd'), graceMin:toNum(g('graceMin')), graceMax:toNum(g('graceMax')), lunchMin:toNum(g('lunchMin')), unitMin:Math.max(toNum(g('unitMin')), 1), punchWin:Math.max(toNum(g('punchWin')), 0), photoKB:Math.min(Math.max(toNum(g('photoKB')) || 300, 30), 900), leaveShow:[...document.querySelectorAll('.lvshow')].filter(x => x.checked).map(x => x.value)}; if (await run(async () => { await S.db.doc('settings/main').update({att, holidays:hol}); return true; })) toast('已儲存考勤設定'); }}, '儲存設定'),
         S.isAdmin ? [h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'打卡照片清理'})), h('p', {class:'hint', text:'照片佔空間。可以刪除指定月份以前的打卡照片（出勤時間和位置紀錄都保留）。'}), h('div', {class:'btns'}, h('input', {class:'in', type:'month', 'aria-label':'清理到月份', id:'attc_purge', style:'max-width:180px'}), h('button', {class:'btn ghost', 'aria-label':'清理打卡照片', onclick:async () => { const m = $('#attc_purge').value; if (!m) return toast('請選擇月份'); const ids = []; Object.values(S.attdays).filter(d => d.ym < m).forEach(d => Object.values(d.d || {}).forEach(r => r.ev.forEach(e => { if (e.ph) ids.push(e.ph); }))); if (!ids.length) return toast('沒有可清理的照片'); if (!await dialog({title:'刪除 ' + ids.length + ' 張照片？', msg:m + ' 以前的打卡照片會被刪除，無法復原。', ok:'刪除', danger:true})) return; await Promise.all(ids.map(i => S.db.doc('attphotos/' + i).delete().catch(() => null))); toast('已刪除 ' + ids.length + ' 張打卡照片'); }}, '清理'))] : null]; }
     const body = h('div', null, h('div', {class:'chips', style:'padding-top:0'}, tabs.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('attdays'); }}, t))), ['stats', 'abn'].includes(U.tab) ? fld('月份', ymIn) : null, content);
     return {body, foot:mgr && U.tab === 'emp' ? [h('button', {class:'btn grow', 'aria-label':'新增人員', onclick:() => openEmpForm()}, icon('plus'), '新增人員')] : []};
@@ -8105,12 +8237,12 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-l';
+const APP_VERSION = '2026.10.02-r';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
   ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位設定', '產品標籤列印', '庫存關帳作業']],
-  ['配送與車輛', 'truck', ['出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
+  ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
   ['收款與帳務', 'wallet', ['應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
   ['票據與現金', 'lock', ['支票代收作業', '保管管理', '其他收支作業']],
   ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入']],
@@ -8134,7 +8266,7 @@ function menuGroups(){
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
-    ['帳款', [M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
+    ['帳款', [M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
     ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
@@ -8786,7 +8918,7 @@ function openSettings(){
     const seenMain = new Set(), whsOut = whs.map(w => { const isMain = !!(w.main && w.office && !seenMain.has(w.office)); if (isMain) seenMain.add(w.office); return {id:w.id, name:w.name.trim(), active:w.id === WH_MAIN ? true : w.active !== false, ...(w.office ? {office:w.office} : {}), ...(isMain ? {main:true} : {})}; });
     btn.disabled = true;
     const ok = await run(async () => { await S.db.doc('settings/main').set({...(S.setRaw || {}), name:nameIn.value.trim(), cur:curIn.value.trim(), allowNeg:negIn.checked, co:coIn.value.trim(), taxId:taxIn.value.trim(), tel:telIn.value.trim(), addr:addrIn.value.trim(), slipNote:slipIn.value.trim(),
-      cutoffDay:cd, defBilling:billSel.value, intAmt:intIn.checked, taxMode:taxModeSel.value, taxRate:rt, freightRate:Math.max(toNum($('#freightRateIn').value), 0), caiDiv:Math.max(toNum($('#caiDivIn').value), 1) || 27000, pickScan:$('#pickScanIn').checked, loginOn:$('#loginOnIn').checked, loginIdle:Math.max(toNum($('#loginIdleIn').value), 0), loginAdminToo:$('#loginAdminIn').checked, loginClockBtn:$('#loginClockIn').checked, punchPrompt:$('#punchPromptIn').checked, offices:($('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean).length ? $('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean) : ['總公司', '台北營業處']), drivers:$('#driversIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean), reviewOn:$('#revOnIn').checked, reviewSelf:$('#revSelfIn').checked, reviewFrom:$('#revFromIn').value || '', leadMin:Math.max(Math.round(toNum($('#leadMinIn').value)), 1) || 4, leadMax:Math.max(Math.round(toNum($('#leadMaxIn').value)), Math.round(toNum($('#leadMinIn').value)), 1) || 7, useVelocity:$('#velOnIn').checked, velDays:Math.max(Math.round(toNum($('#velDaysIn').value)), 7) || 60, priceMode:pmodeSel.value, priceRound:proundSel.value, histPrice:histIn.checked, levels:levels.length ? levels : SET_DEFAULT.levels, warehouses:whsOut, discountRates:drates.length ? [...new Set(drates)].sort((a, b) => a - b) : [3, 5], payTol:Math.max(toNum(tolIn.value), 0)}); return true; });
+      cutoffDay:cd, defBilling:billSel.value, intAmt:intIn.checked, taxMode:taxModeSel.value, taxRate:rt, freightRate:Math.max(toNum($('#freightRateIn').value), 0), caiDiv:Math.max(toNum($('#caiDivIn').value), 1) || 27000, pickScan:$('#pickScanIn').checked, loginOn:$('#loginOnIn').checked, loginIdle:Math.max(toNum($('#loginIdleIn').value), 0), loginAdminToo:$('#loginAdminIn').checked, loginClockBtn:$('#loginClockIn').checked, punchPrompt:$('#punchPromptIn').checked, offices:($('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean).length ? $('#officesIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean) : ['總公司', '台北營業處']), drivers:$('#driversIn').value.split(/[、,，;；\s]+/).map(x => x.trim()).filter(Boolean), reviewOn:$('#revOnIn').checked, reviewSelf:$('#revSelfIn').checked, reviewFrom:$('#revFromIn').value || '', leadMin:Math.max(Math.round(toNum($('#leadMinIn').value)), 1) || 4, leadMax:Math.max(Math.round(toNum($('#leadMaxIn').value)), Math.round(toNum($('#leadMinIn').value)), 1) || 7, defSupplier:$('#defSupIn').value || '', useVelocity:$('#velOnIn').checked, velDays:Math.max(Math.round(toNum($('#velDaysIn').value)), 7) || 60, priceMode:pmodeSel.value, priceRound:proundSel.value, histPrice:histIn.checked, levels:levels.length ? levels : SET_DEFAULT.levels, warehouses:whsOut, discountRates:drates.length ? [...new Set(drates)].sort((a, b) => a - b) : [3, 5], payTol:Math.max(toNum(tolIn.value), 0)}); return true; });
     btn.disabled = false;
     if (ok){ toast('已儲存設定'); sh.forceClose(); }
   }}, '儲存');
@@ -8804,6 +8936,7 @@ function openSettings(){
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.reviewOn !== false, 'aria-label':'啟用單據覆核', id:'revOnIn'}), '啟用單據覆核（覆核後單據鎖定，不能修改或作廢，要更正須先取消覆核）'),
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.reviewSelf === true, 'aria-label':'允許自己覆核', id:'revSelfIn'}), '允許建立者自己覆核（預設要由其他人覆核，管理員不受限制）'),
     fld('覆核起算日（這天以前的單據一律視為已覆核，可留空）', h('input', {class:'in', type:'date', value:S.set.reviewFrom || '', 'aria-label':'覆核起算日', id:'revFromIn'})),
+    fld('新增產品的預設供應商（空白＝自動用「' + DEF_SUPPLIER_NAME + '」）', (() => { const sel = h('select', {class:'in', id:'defSupIn', 'aria-label':'新增產品預設供應商'}, h('option', {value:'', text:'自動（' + DEF_SUPPLIER_NAME + '）'}), ...Object.values(S.partners).filter(x => x.type === 'supplier').sort(cmpName).map(x => h('option', {value:x.id, text:x.name}))); sel.value = S.set.defSupplier && S.partners[S.set.defSupplier] ? S.set.defSupplier : ''; return sel; })()),
     h('div', {class:'f2'}, fld('採購到貨最短天數', h('input', {class:'in', type:'text', inputmode:'decimal', value:Number(S.set.leadMin) || 4, 'aria-label':'系統最短到貨天數', id:'leadMinIn'})), fld('採購到貨最長天數', h('input', {class:'in', type:'text', inputmode:'decimal', value:Number(S.set.leadMax) || 7, 'aria-label':'系統最長到貨天數', id:'leadMaxIn'}))),
     h('label', {class:'check'}, h('input', {type:'checkbox', checked:S.set.useVelocity !== false, 'aria-label':'採購建議估算用量', id:'velOnIn'}), '採購建議把「到貨前的預估用量」算進去（依近 N 天平均銷量）'),
     fld('用近幾天的銷量估算（天）', h('input', {class:'in', type:'text', inputmode:'decimal', value:Number(S.set.velDays) || 60, 'aria-label':'估算天數', id:'velDaysIn'})),
@@ -9403,7 +9536,7 @@ function openImport(){
         const write = () => Promise.all(chunk.map(async it => {
           const ref = S.db.collection('products').doc();
           const {opening:op, ...data} = it;
-          await ref.set({...data, active:true, createdBy:S.meId, createdAt:Date.now()});
+          await ref.set({...data, ...(data.supplierId ? {} : (defaultSupplierId() ? {supplierId:defaultSupplierId()} : {})), active:true, createdBy:S.meId, createdAt:Date.now()});
           if (op > 0) opening.push({pid:ref.id, name:it.name, sku:it.sku, unit:it.unit, qty:op, counted:op, before:0, price:0, cost:it.cost});
         }));
         try { await write(); } catch (e) { if (e && e.code === 'resource_exhausted'){ await new Promise(r => setTimeout(r, 1200)); await write(); } else throw e; }
