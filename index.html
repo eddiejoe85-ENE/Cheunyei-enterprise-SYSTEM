@@ -400,7 +400,7 @@ const S = {
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
   tab:'home',
-  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null}}
+  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null, wh:null}}
 };
 
 /* ================= 小工具 ================= */
@@ -482,11 +482,19 @@ function errMsg(e){
   if (c === 'resource_exhausted') return (typeof window !== 'undefined' && window.FIREBASE_CONFIG) ? '資料庫今天的免費用量用完了（Firebase 免費方案每天有讀寫次數上限）。請管理員到 Firebase 主控台把方案升級為 Blaze（依用量計費），或等明天額度重置。' : '操作太頻繁，請稍候再試';
   if (c === 'unavailable') return '連線暫時異常，請再試一次';
   if (c === 'revoked') return '存取權限已變更，請重新整理頁面';
+  if (/already been terminated|client is offline|terminated/i.test(String((e && e.message) || ''))) return '連線已中斷（手機放在背景一段時間後常會這樣），請重新載入頁面後，再儲存一次。';
   return '儲存失敗：' + ((e && (e.message || e.code)) || '未知錯誤');
 }
 async function run(fn){
   try { return await fn(); }
-  catch (e) { console.error(e); toast(errMsg(e)); return undefined; }
+  catch (e) { console.error(e); toast(errMsg(e)); if (/already been terminated/i.test(String((e && e.message) || ''))) offerReload(); return undefined; }
+}
+let reloadAsked = false;
+async function offerReload(){
+  if (reloadAsked) return; reloadAsked = true;
+  const go = await dialog({title:'連線已中斷', msg:'資料庫的連線被手機中斷了（常發生在畫面放在背景一段時間後），剛才的儲存沒有成功。按「重新載入」，載入後再儲存一次。', ok:'重新載入', cancel:'稍後'});
+  reloadAsked = false; if (!go) return;
+  if (typeof window.__fbRecover === 'function') window.__fbRecover(); else location.reload();
 }
 
 /* ================= 對話框 / 彈出頁 ================= */
@@ -2844,10 +2852,10 @@ const openPOs = () => Object.values(S.porders).filter(d => docProgress('po', d).
 const poOnDay = day => openPOs().filter(d => d.expected === day);
 const wdName = d => '日一二三四五六'[new Date(d + 'T00:00:00').getDay()];
 const mdw = d => Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) + '（' + wdName(d) + '）';
-function salesVelocity(days){
+function salesVelocity(days, wid){
   const from = addDays(today(), -days), m = {};
   for (const o of Object.values(S.orders)){
-    if (o.status === 'void' || o.date < from || (o.type !== 'sale' && o.type !== 'sale_return')) continue;
+    if (o.status === 'void' || o.date < from || (o.type !== 'sale' && o.type !== 'sale_return')) continue; if (wid && (o.wh || WH_MAIN) !== wid) continue;
     const sg = o.type === 'sale' ? 1 : -1;
     for (const l of o.lines || []) m[l.pid] = (m[l.pid] || 0) + sg * (Number(l.qty) || 0);
   }
@@ -2909,29 +2917,37 @@ function setQwarn(r, q){
 }
 const buyRule = p => { const rf = replenOn() && p.id ? whRuleOf(p, factoryWh()) : {moq:Number(p.moq) || 0, lot:Number(p.lot) || 0}; return [rf.moq > 0 ? '最小量 ' + num(rf.moq) : '', rf.lot > 0 ? '批量 ' + num(rf.lot) : ''].filter(Boolean).join('　'); };
 const sugMode = () => (S.ui.sug && S.ui.sug.mode) || S.set.sugMode || 'simple';
+const sugWh = () => { if (!multiWh()) return ''; const U = S.ui.sug; if (U.wh !== undefined && U.wh !== null) return U.wh; return replenOn() ? (factoryWh() || '') : ''; };
+const docWh = d => d.wh || WH_MAIN;
+function whMaps(wid){
+  const inc = {}, com = {};
+  for (const d of openPOs()) if (docWh(d) === wid) for (const l of docProgress('po', d).lines) inc[l.pid] = (inc[l.pid] || 0) + Math.max(l.rem, 0);
+  for (const d of Object.values(S.corders || {})){ const pr = docProgress('co', d); if (!pr.active || docWh(d) !== wid) continue; for (const l of pr.lines) com[l.pid] = (com[l.pid] || 0) + Math.max(l.rem, 0); }
+  return {inc, com};
+}
 function suggestionsSimple(){
-  const out = [], ron = replenOn(), fw = factoryWh();
+  const out = [], wid = sugWh(), mp = wid ? whMaps(wid) : null;
   for (const p of activeProducts()){
     if (p.procSrc === 'make') continue;
-    const rf = ron ? whRuleOf(p, fw) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
-    const onHand = ron ? stockAt(p.id, fw) : stockOf(p.id), inc = S.d.incoming[p.id] || 0, safety = rf.safety;
+    const rf = wid ? whRuleOf(p, wid) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
+    const onHand = wid ? stockAt(p.id, wid) : stockOf(p.id), inc = mp ? (mp.inc[p.id] || 0) : (S.d.incoming[p.id] || 0), safety = rf.safety;
     const raw = Math.ceil(r3(safety - onHand - inc) - 0.0004); if (!(raw > 0)) continue;
     const need = roundBuy(raw, rf.moq, rf.lot);
-    out.push({p, onHand, commit:S.d.commit[p.id] || 0, inc, projected:r3(onHand + inc), safety, need, raw, moq:rf.moq, lot:rf.lot, daily:0, velDemand:0, days:0, atArrival:r3(onHand + inc), risk:false, reason:onHand + inc < -0.0004 ? '庫存為負數' : '低於安全存量', supplier:supplierOf(p), simple:true});
+    out.push({p, onHand, commit:mp ? (mp.com[p.id] || 0) : (S.d.commit[p.id] || 0), inc, projected:r3(onHand + inc), safety, need, raw, moq:rf.moq, lot:rf.lot, daily:0, velDemand:0, days:0, atArrival:r3(onHand + inc), risk:false, reason:onHand + inc < -0.0004 ? '庫存為負數' : '低於安全存量', supplier:supplierOf(p), simple:true});
   }
   return out.sort((a, b) => cmpSku(a.p, b.p));
 }
 function suggestions(){
   if (sugMode() === 'simple') return suggestionsSimple();
-  const out = [], U = S.ui.sug, arrive = U.arrive || addDays(today(), leadOf('').max), days = Math.max(daysBetween(today(), arrive), 1);
-  const useVel = U.vel === null || U.vel === undefined ? S.set.useVelocity !== false : !!U.vel, vd = Number(S.set.velDays) > 0 ? Number(S.set.velDays) : 60, vel = useVel ? salesVelocity(vd) : {};
-  const incBefore = {}, ron = replenOn(), fw = factoryWh(), want = {}; if (ron) replenPlan().rows.forEach(r => { want[r.p.id] = r.want; });
-  for (const d of openPOs()) if (d.expected && d.expected <= arrive) for (const l of docProgress('po', d).lines) incBefore[l.pid] = (incBefore[l.pid] || 0) + Math.max(l.rem, 0);
+  const out = [], U = S.ui.sug, arrive = U.arrive || addDays(today(), leadOf('').max), days = Math.max(daysBetween(today(), arrive), 1), wid = sugWh(), mp = wid ? whMaps(wid) : null;
+  const useVel = U.vel === null || U.vel === undefined ? S.set.useVelocity !== false : !!U.vel, vd = Number(S.set.velDays) > 0 ? Number(S.set.velDays) : 60, vel = useVel ? salesVelocity(vd, wid) : {};
+  const incBefore = {}, ron = replenOn(), fw = factoryWh(), want = {}; if (ron && wid === fw) replenPlan().rows.forEach(r => { want[r.p.id] = r.want; });
+  for (const d of openPOs()) if (d.expected && d.expected <= arrive && (!wid || docWh(d) === wid)) for (const l of docProgress('po', d).lines) incBefore[l.pid] = (incBefore[l.pid] || 0) + Math.max(l.rem, 0);
   for (const p of activeProducts()){
     if (p.procSrc === 'make') continue;
     const daily = vel[p.id] || 0, velDemand = r3(daily * days);
-    const rf = ron ? whRuleOf(p, fw) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
-    const onHand = ron ? stockAt(p.id, fw) : stockOf(p.id), commit = S.d.commit[p.id] || 0, inc = S.d.incoming[p.id] || 0, outLead = Math.max(commit, velDemand) + (want[p.id] || 0);
+    const rf = wid ? whRuleOf(p, wid) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
+    const onHand = wid ? stockAt(p.id, wid) : stockOf(p.id), commit = mp ? (mp.com[p.id] || 0) : (S.d.commit[p.id] || 0), inc = mp ? (mp.inc[p.id] || 0) : (S.d.incoming[p.id] || 0), outLead = Math.max(commit, velDemand) + (want[p.id] || 0);
     const projected = r3(onHand + inc - outLead), safety = rf.safety, atArrival = r3(onHand + (incBefore[p.id] || 0) - outLead);
     const trigger = safety > 0 ? projected <= safety + 0.0004 : projected < -0.0004;
     if (!trigger) continue;
@@ -3177,7 +3193,7 @@ async function makePOs(groups){
   const ok = await run(async () => {
     for (const g of groups){
       const lines = g.rows.map(r => ({pid:r.p.id, name:r.p.name, sku:r.p.sku, unit:r.p.unit || '', qty:r.qty, price:resolvePrice({side:'purchase', product:r.p, partner:S.partners[g.supId], qty:r.qty, date:today()}).price, cost:r.p.cost || 0}));
-      made.push(await createDoc('po', {partnerId:g.supId, lines, expected:arrive, note:'由採購建議產生，預計 ' + arrive + ' 到貨', extra:{from:'suggestion'}}));
+      made.push(await createDoc('po', {partnerId:g.supId, lines, expected:arrive, note:'由採購建議產生，預計 ' + arrive + ' 到貨', extra:{from:'suggestion', ...(sugWh() ? {wh:sugWh()} : {})}}));
       g.rows.forEach(r => { delete S.ui.sug.qty[r.p.id]; delete S.ui.sug.off[r.p.id]; delete S.ui.sug.sup[r.p.id]; });
     }
     return true;
@@ -3190,6 +3206,8 @@ async function makePOs(groups){
 function sugView(){
   const U = S.ui.sug, list = suggestions(), wrap = h('div'), simple = sugMode() === 'simple';
   wrap.append(h('div', {class:'chips', style:'padding-top:0'}, [['simple', '簡易公式：安全存量 − 庫存 − 在途'], ['forecast', '進階預估：含已訂未出、預估銷量']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':sugMode() === k, 'aria-label':'計算方式 ' + (k === 'simple' ? '簡易公式' : '進階預估'), onclick:() => { U.mode = k; if (S.isAdmin) S.db.doc('settings/main').update({sugMode:k}).catch(() => null); draw(); }}, t))));
+  if (multiWh()) wrap.append(h('div', {class:'panel pad', style:'margin-bottom:12px'}, h('label', {style:'font-weight:700', text:'以哪個倉庫計算'}), (() => { const sel = h('select', {class:'in', 'aria-label':'採購建議倉庫', style:'margin-top:6px', onchange:e => { U.wh = e.target.value; draw(); }}, h('option', {value:'', text:'全部倉庫（合計庫存）'}), ...myWhs().map(w => h('option', {value:w.id, text:w.name + (w.office ? '（' + w.office + '）' : '')}))); sel.value = sugWh(); return sel; })(),
+    h('small', {class:'hint', style:'display:block;margin-top:6px', text:sugWh() ? '用「' + ((whList().find(w => w.id === sugWh()) || {}).name || '') + '」的庫存、安全存量（倉庫規則）和送到這個倉庫的在途採購單來算；建立的採購單，收貨倉庫也是它。' : '用所有倉庫合計的庫存，和商品本身的安全存量來算。'})));
   const eff = s => ({qty:U.qty[s.p.id] !== undefined ? toNum(U.qty[s.p.id]) : s.need, sup:U.sup[s.p.id] !== undefined ? U.sup[s.p.id] : s.supplier, on:!U.off[s.p.id]});
   { const leads = [...new Set(list.map(x => x.supplier).filter(Boolean))].map(id => leadOf(id)), lo = Math.min(leadOf('').min, ...leads.map(l => l.min)), hi = Math.max(leadOf('').max, ...leads.map(l => l.max));
     if (!U.arrive) U.arrive = addDays(today(), leadOf('').max);
@@ -3255,7 +3273,7 @@ const PAPERS = {
   a4:         ['A4 單張', 210, 297, {fs:14, mt:12, mr:12, mb:12, ml:12}],
   custom:     ['自訂尺寸', 0, 0, {}]
 };
-const PRINT_DEFAULT = {mode:'form', form:'north', paper:'9.5x5.5', w:241.3, h:139.7, fsv2:1, fs:12, mt:5, mr:8, mb:6, ml:8, ox:0, oy:0, price:true, listp:false, sku:true, bold:true, qr:true, spStamp:true, qrSize:0, qx:0, qy:0, auto:false};
+const PRINT_DEFAULT = {mode:'form', form:'north', paper:'9.5x5.5', w:241.3, h:139.7, fsv2:1, fs:12, mt:5, mr:8, mb:6, ml:8, ox:0, oy:0, price:true, listp:false, sku:true, bold:true, qr:true, spStamp:true, ss:true, qrSize:0, qx:0, qy:0, auto:false};
 const PRINT_KEY = 'slipPrefs2';
 function loadPrint(){
   try {
@@ -3309,21 +3327,22 @@ function slipHTML(o, P, standalone){
   const qtySum = r3(lines.reduce((a, l) => a + (Number(l.qty) || 0), 0));
   const caps = /NT|元|台/i.test(S.set.cur || 'NT$');
   const term = termText(pt);
-  const kvh = (k, v) => v ? '<span class="i"><span class="k">' + k + '：</span>' + e(v) + '</span>' : '';
+  const kvh = (k, v) => v ? '<span class="i"><span class="k">' + k + '：</span>' + e(v) + (k === '日期' ? urgentBlk : '') + (k === '客戶' ? stIn : '') + '</span>' : '';
   const dueTxt = (due > 0.004 && pt.name && !isRet) ? dueDateOf(o) : '';
   const qrOn = (o.type === 'sale' || o.type === 'sale_return') && P.qr !== false, qsz = Math.min(Math.max(toNum(P.qrSize) > 0 ? toNum(P.qrSize) : (compact ? 9 : 13), 8), 30);
   const spOn = (o.type === 'sale' || o.type === 'sale_return') && !!os.special && P.spStamp !== false, spIn = spOn ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-4deg);transform-origin:center">' + (o.shipOnly ? '只送' : '指送') + '</span>' : '';
+  const stN = P.ss !== false && (o.type === 'sale' || o.type === 'sale_return') ? storeStampName(o) : '', stIn = stN ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9.5pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-3deg);transform-origin:left center">' + e(stN) + '</span>' : '';
   const noQr = qrOn ? '<span class="oqr oqrin" style="display:inline-block;width:' + qsz + 'mm;height:' + qsz + 'mm;vertical-align:middle;margin-left:2mm">' + qrSvg(String(o.no || ''), qsz, 'M') + '</span>' : '';
-  const urgentBlk = o.urgent ? '<span class="stp" style="display:block;width:fit-content;margin:1mm 0;transform:rotate(-6deg)">早一點</span>' : '';
-  const stItems = stampItems(o).filter(t => t !== '早一點'), stampsFull = stItems.length ? '<div class="stps">' + stItems.map((t, i) => '<span class="stp" style="transform:rotate(' + STAMP_ROT[i % 3] + 'deg)">' + e(t) + '</span>').join('') + '</div>' : '';
+  const urgentBlk = o.urgent ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9.5pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-5deg);transform-origin:left center">早一點</span>' : '';
+  const stItems = stampItems(o).filter(t => t !== '早一點' && !isStoreStamp(t)), stampsFull = stItems.length ? '<div class="stps">' + stItems.map((t, i) => '<span class="stp" style="transform:rotate(' + STAMP_ROT[i % 3] + 'deg)">' + e(t) + '</span>').join('') + '</div>' : '';
   const sub = [S.set.taxId ? '統一編號 ' + e(S.set.taxId) : '', S.set.tel ? '電話 ' + e(S.set.tel) : '', S.set.addr ? e(S.set.addr) : ''].filter(Boolean).join('　');
   const head = compact
     ? '<div class="hdr"><div><div class="co">' + e(co) + '</div><div class="sub">' + sub + '</div></div><div class="ttl"><div class="title">' + title + '</div></div></div>' +
       '<div class="info c2"><div>' + kvh('客戶', (pt.code ? pt.code + '　' : '') + (pt.name || '散客')) + kvh('統編', pt.taxId) + '</div><div class="rt">' + kvh('單號', o.no) + noQr + '</div>' +
-      '<div>' + kvh('聯絡人', os.contact) + kvh('電話', os.phone) + (os.special ? '<div style="margin:.3mm 0">' + kvh('送貨地址', os.addr) + spIn + '</div>' : kvh('送貨地址', os.addr)) + (os.spot ? kvh('指送地點', os.spot) : '') + (o.driver ? kvh('送貨員', o.driver) : '') + (o.truckPlate ? kvh('派車', o.truckPlate + ' ' + truckSlotTxt(o) + (o.truckSeq ? ' 第' + o.truckSeq + '站' : '')) : '') + '</div><div class="rt">' + kvh('日期', o.date) + urgentBlk + (o.deliveryDate && o.deliveryDate !== o.date ? kvh('預計送貨', o.deliveryDate) : '') + kvh('付款', term + (dueTxt ? '，' + dueTxt : '')) + '</div></div>'
+      '<div>' + kvh('聯絡人', os.contact) + kvh('電話', os.phone) + (os.special ? '<div style="margin:.3mm 0">' + kvh('送貨地址', os.addr) + spIn + '</div>' : kvh('送貨地址', os.addr)) + (os.spot ? kvh('指送地點', os.spot) : '') + (o.driver ? kvh('送貨員', o.driver) : '') + (o.truckPlate ? kvh('派車', o.truckPlate + ' ' + truckSlotTxt(o) + (o.truckSeq ? ' 第' + o.truckSeq + '站' : '')) : '') + '</div><div class="rt">' + kvh('日期', o.date) + (o.deliveryDate && o.deliveryDate !== o.date ? kvh('預計送貨', o.deliveryDate) : '') + kvh('付款', term + (dueTxt ? '，' + dueTxt : '')) + '</div></div>'
     : (co ? '<div class="co ctr">' + e(co) + '</div>' : '') + (sub ? '<div class="sub ctr">' + sub + '</div>' : '') + '<div class="title ctr big">' + title + '</div>' +
       '<div class="info">' + [['客戶', (pt.code ? pt.code + '　' : '') + (pt.name || '散客')], ['單號', o.no], ['統編', pt.taxId], ['日期', o.date], ['預計送貨日', o.deliveryDate && o.deliveryDate !== o.date ? o.deliveryDate : ''], ['電話', os.phone], ['開單人', o.byName || whoName(o.by)], ['送貨地址', os.addr], ['指送地點', os.spot], ['聯絡人', os.contact], ['送貨方式', o.shipMethod], ['送貨員', o.driver], ['付款條件', term],
-        o.srcNo ? ['訂單編號', o.srcNo] : null, dueTxt ? ['付款期限', dueTxt] : null].filter(x => x && x[1]).map(x => '<div>' + kvh(x[0], x[1]) + (x[0] === '送貨地址' ? spIn : '') + (x[0] === '單號' ? noQr : '') + (x[0] === '日期' ? urgentBlk : '') + '</div>').join('') + '</div>';
+        o.srcNo ? ['訂單編號', o.srcNo] : null, dueTxt ? ['付款期限', dueTxt] : null].filter(x => x && x[1]).map(x => '<div>' + kvh(x[0], x[1]) + (x[0] === '送貨地址' ? spIn : '') + (x[0] === '單號' ? noQr : '') + '</div>').join('') + '</div>';
   const taxTxt = o.tax ? '<span>銷售額 ' + n2(o.net) + '　營業稅 ' + n2(o.tax) + '</span>' : '';
   const pay = (paid > 0.004 || due > 0.004) ? '<span>' + (isRet ? '已退款 ' : '已收款 ') + n2(paid) + (due > 0.004 ? '　' + (isRet ? '未退 ' : '未收 ') + n2(due) : '') + '</span>' : '';
   const totalRow = showPrice
@@ -3421,16 +3440,16 @@ function slipEnv(L, local, opt, fs, title){
       '.form{position:relative;width:' + L.w + 'mm;height:' + L.h + 'mm;overflow:hidden;page-break-after:always;break-after:page}.form:last-child{page-break-after:auto;break-after:auto}' +
       '.in{position:absolute;left:' + ox + 'mm;top:' + oy + 'mm;width:100%;height:100%}' +
       '.f{position:absolute;white-space:nowrap;line-height:1;transform:translateY(-50%)}.f.ck{transform:translate(-50%,-50%)}.f.nt{transform:none;white-space:normal;overflow:hidden}' +
-      '.g{position:absolute;pointer-events:none}.gl{position:absolute;font:6pt sans-serif;color:#f33}.oqr{background:#fff}.oqr svg{display:block;width:100%;height:100%}' + STAMP_CSS + '.stp.stp-in{font-size:9.5pt;line-height:1.05;padding:.1mm 1.5mm;border-width:.5mm;letter-spacing:.3mm;transform:translateY(-50%) rotate(-4deg);transform-origin:center}' +
+      '.g{position:absolute;pointer-events:none}.gl{position:absolute;font:6pt sans-serif;color:#f33}.oqr{background:#fff}.oqr svg{display:block;width:100%;height:100%}' + STAMP_CSS + '.stp.stp-st{line-height:1.05;padding:.2mm 1.8mm;border-width:.55mm;letter-spacing:.4mm;transform:translateY(-100%) rotate(-3deg);transform-origin:left bottom}.stp.stp-in{font-size:9.5pt;line-height:1.05;padding:.1mm 1.5mm;border-width:.5mm;letter-spacing:.3mm;transform:translateY(-50%) rotate(-4deg);transform-origin:center}' +
       '@media screen{html,body{background:#dfe3e8}.form{margin:0 0 8px;background:#fff' + (opt.bg ? ' url(' + opt.bg + ') 0 0/100% 100% no-repeat' : '') + '}}' +
       '@media print{.bar{display:none!important}}';
     return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>' + e(title) + '</title><style>' + css + '</style></head><body>' +
       (opt.standalone ? '<div class="bar" style="position:fixed;right:8px;top:8px;z-index:9;font:14px sans-serif"><button onclick="window.print()">列印</button></div>' : '') + pages + '</body></html>';
   };
-  const dateAt = () => { const f = L.f || {}; if (!f.year || !f.day) return null; return {x:Math.round(((f.year.xr - 9 + f.day.xr) / 2) * 100) / 100, y:Math.round((f.day.y + 5.2) * 100) / 100}; };
+  const dateAt = () => { const f = L.f || {}; if (!f.year || !f.day) return null; return {x:Math.round((f.day.xr + (L.w < 200 ? 4.6 : 5.8)) * 100) / 100, y:Math.round((f.day.y + 0.5) * 100) / 100}; };
   const has = v => v !== undefined && v !== '' && v !== null;
-  const stamps = o => { const all = stampItems(o), items = all.filter(t => t !== '早一點'), rd = v => Math.round(v * 100) / 100; let urg = '';
-    if (all.includes('早一點')){ const da = dateAt() || {x:(L.stamp || {x:95}).x, y:(L.stamp || {y:6}).y + 12}; urg = '<div class="stp" style="position:absolute;left:' + rd(local && has(local.ux) ? toNum(local.ux) : da.x) + 'mm;top:' + rd(local && has(local.uy) ? toNum(local.uy) : da.y) + 'mm;font-size:11.5pt;padding:.3mm 1.8mm;letter-spacing:.3mm;transform:translateX(-50%) rotate(-6deg);transform-origin:center top">早一點</div>'; }
+  const stamps = o => { const all = stampItems(o), items = all.filter(t => t !== '早一點' && !isStoreStamp(t)), rd = v => Math.round(v * 100) / 100; let urg = '';
+    if (all.includes('早一點')){ const da = dateAt() || {x:(L.stamp || {x:95}).x, y:(L.stamp || {y:6}).y + 12}; urg = '<div class="stp" style="position:absolute;left:' + rd(local && has(local.ux) ? toNum(local.ux) : da.x) + 'mm;top:' + rd(local && has(local.uy) ? toNum(local.uy) : da.y) + 'mm;font-size:' + (L.w < 200 ? '9' : '11.5') + 'pt;padding:.3mm 1.6mm;letter-spacing:.3mm;transform:translateY(-50%) rotate(-5deg);transform-origin:left center">早一點</div>'; }
     if (!items.length) return urg; const sp = L.stamp || {x:95, y:6};
     const x = local && local.sx !== undefined && local.sx !== '' && local.sx !== null ? toNum(local.sx) : sp.x, y0 = local && local.sy !== undefined && local.sy !== '' && local.sy !== null ? toNum(local.sy) : sp.y;
     return urg + items.map((t, i) => '<div class="stp" style="position:absolute;left:' + rd(x) + 'mm;top:' + rd(y0 + i * 11) + 'mm;transform:rotate(' + STAMP_ROT[i % 3] + 'deg)">' + e(t) + '</div>').join(''); };
@@ -3441,13 +3460,19 @@ function slipEnv(L, local, opt, fs, title){
     const x = at.x + tw + 1.5 + (has(local && local.qdx) ? toNum(local.qdx) : 0), y = at.y + 1.7 - sz + (has(local && local.qdy) ? toNum(local.qdy) : 0);
     return '<div class="oqr" style="position:absolute;left:' + rd(x) + 'mm;top:' + rd(y) + 'mm;width:' + sz + 'mm;height:' + sz + 'mm">' + qrSvg(txt, sz, 'M') + '</div>';
   };
+  const storeStamp = (o, at) => {
+    if (!(o.type === 'sale' || o.type === 'sale_return') || (local && local.ss === false) || !at) return '';
+    const nm = storeStampName(o); if (!nm) return '';
+    const rd = v => Math.round(v * 100) / 100, big = [...nm].length <= 4, base = L.w < 200 ? 13 : 0, dx = has(local && local.ssx) ? toNum(local.ssx) : 0, dy = has(local && local.ssy) ? toNum(local.ssy) : 0;
+    return '<div class="stp stp-st" style="position:absolute;left:' + rd(at.x + base + dx) + 'mm;top:' + rd(at.y - 2.2 + dy) + 'mm;font-size:' + (big ? '11' : '9.5') + 'pt">' + e(nm) + '</div>';
+  };
   const spStamp = (o, at) => {
     if (!(o.type === 'sale' || o.type === 'sale_return') || !String(o.shipSpecial || '').trim() || (local && local.sp === false) || !at) return '';
     const rd = v => Math.round(v * 100) / 100, txt = shipPrint(o), f0 = at.fs >= 9 ? upFs(at.fs) : at.fs, fz = fitFs(txt, at.w, f0);
     let em = 0; for (const ch of txt) em += ch.charCodeAt(0) > 255 ? 1 : 0.6; const tw = Math.min(em * fz * 0.3528, at.w);
     return '<div class="stp stp-in" style="position:absolute;left:' + rd(at.x + tw + 3) + 'mm;top:' + rd(at.y - 0.8) + 'mm">' + (o.shipOnly ? '只送' : '指送') + '</div>';
   };
-  return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp};
+  return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp, storeStamp};
 }
 function slipRows(o, F, per){
   const c = invCalc(o, {mode:F.mode, taxType:F.taxType, merge:false});
@@ -3468,6 +3493,7 @@ function slipFormHTML(o, F, L, local, opt){
     const last = pi === pages.length - 1;
     let h = env.stamps(o) + env.qr(o, {x:f.no.x, y:f.no.y, w:36, fs:hfs});
     if (F.code) h += T(f.code.x, f.code.y, F.code, {w:60, fs:hfs});
+    h += env.storeStamp(o, {x:f.code.x, y:f.code.y});
     if (dt.length === 3 && dt[0]) h += T(f.year.xr, f.year.y, dt[0] - 1911, {r:1, w:10}) + T(f.month.xr, f.month.y, dt[1], {r:1, w:8}) + T(f.day.xr, f.day.y, dt[2], {r:1, w:8});
     h += T(f.no.x, f.no.y, o.no, {w:36, fs:hfs});
     if (F.name) h += T(f.name.x, f.name.y, F.name, {w:100, fs:hfs});
@@ -3514,6 +3540,7 @@ function slipSouthHTML(o, F, L, local, opt){
     let h = env.stamps(o) + env.qr(o, {x:f.no.x, y:f.no.y, w:24, fs:hfs});
     if (F.type) h += T(f.type.x, f.type.y, F.type, {w:30, fs:hfs});
     if (F.code) h += T(f.code.x, f.code.y, F.code, {w:30, fs:hfs});
+    h += env.storeStamp(o, {x:f.code.x, y:f.code.y});
     if (F.short) h += T(f.short.x, f.short.y, F.short, {w:19.4, fs:hfs});
     if (F.tel) h += T(f.tel.x, f.tel.y, F.tel, {w:34, fs:hfs});
     h += T(f.no.x, f.no.y, o.no, {w:24, fs:hfs});
@@ -3564,6 +3591,8 @@ const buyOn = () => see('cost') && !!S.ui.showBuy;
 const buyT = t => t === 'purchase' || t === 'purchase_return';
 const deliveryOf = o => (o && (o.deliveryDate || o.date)) || '';
 const storeInfoOf = (pt, name) => (pt && pt.storeInfo && name && pt.storeInfo[name]) || {};
+const isStoreStamp = t => / 叫貨$/.test(String(t));
+const storeStampName = o => { const nm = o && o.type === 'sale' ? String(o.store || '').trim() : ''; return nm ? nm + ' 叫貨' : ''; };
 function orderShip(o){ const pt = S.partners[o.partnerId] || {}, si = storeInfoOf(pt, o.store), own = !!o.shipAddress, sp = String(o.shipSpecial || '').trim(); return {special:sp, only:!!(sp && o.shipOnly), addr:sp || o.shipAddress || si.addr || pt.shipAddress || pt.address || '', spot:o.shipSpot || (own ? '' : (si.spot || pt.shipSpot || '')), contact:o.shipContact || si.contact || pt.contactName || '', phone:o.shipPhone || si.phone || pt.contactPhone || pt.phone || ''}; }
 const shipLine = o => { const x = orderShip(o); return (x.special ? (x.only ? '【只送】' : '【指送】') : '') + x.addr + (x.spot ? '（指送：' + x.spot + '）' : ''); };
 const shipPrint = o => { const x = orderShip(o); return x.addr + (x.spot ? '（' + x.spot + '）' : ''); };
@@ -3757,7 +3786,7 @@ function openPrint(ref){
   const fullCtl = h('div', null,
     h('div', {class:'f2'}, fld('紙張', paperSel), fld('字級', fsSel)),
     customRow,
-    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（勾了「只送特別地址」就蓋「只送」）'),
+    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（勾了「只送特別地址」就蓋「只送」）'), chk('ss', '單據選了叫貨店面時，把「○○店 叫貨」戳章印在客戶名稱後面，不再蓋在右上角'),
     h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'進階：邊界與位置微調（mm）'}),
       h('div', {style:'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px'}, num_('mt', '上邊界'), num_('mr', '右邊界'), num_('mb', '下邊界'), num_('ml', '左邊界')),
       h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, num_('ox', '整體右移'), num_('oy', '整體下移')),
@@ -3786,9 +3815,11 @@ function openPrint(ref){
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px'},
           ...[['ox', '整體右移'], ['oy', '整體下移']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k], 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { local[k] = toNum(e.target.value); saveSlipFormLocal(local, tp.id); paint(); }})))),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['sx', '郵戳 X（mm）'], ['sy', '郵戳 Y（mm）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + (k === 'sx' ? slipFormLayout(tp.id).stamp.x : slipFormLayout(tp.id).stamp.y), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))),
-        h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['ux', '早一點郵戳 X（mm）'], ['uy', '早一點郵戳 Y（mm）']].map(([k, t]) => { const f2 = slipFormLayout(tp.id).f || {}, dflt = f2.year && f2.day ? (k === 'ux' ? Math.round(((f2.year.xr - 9 + f2.day.xr) / 2) * 100) / 100 : Math.round((f2.day.y + 5.2) * 100) / 100) : ''; return h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設（日期正下方）' + (dflt !== '' ? ' ' + dflt : ''), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})); })),
+        h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['ux', '早一點郵戳 X（mm，左邊緣，在日期右邊）'], ['uy', '早一點郵戳 Y（mm，垂直中心）']].map(([k, t]) => { const f2 = slipFormLayout(tp.id).f || {}, dflt = f2.year && f2.day ? (k === 'ux' ? Math.round((f2.day.xr + ((slipFormLayout(tp.id).w || 241) < 200 ? 4.6 : 5.8)) * 100) / 100 : Math.round((f2.day.y + 0.5) * 100) / 100) : ''; return h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設（日期正下方）' + (dflt !== '' ? ' ' + dflt : ''), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})); })),
         h('label', {class:'check', style:'margin-top:10px'}, h('input', {type:'checkbox', checked:local.qr !== false, 'aria-label':'套表印單號QR', onchange:e => { if (e.target.checked) delete local.qr; else local.qr = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（勾了「只送特別地址」就蓋「只送」；送貨地址本身一定改印特別地址）'),
+        h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ss !== false, 'aria-label':'套表印分店戳章', onchange:e => { if (e.target.checked) delete local.ss; else local.ss = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單據選了叫貨店面時，把「○○店 叫貨」戳章蓋在客戶編號上方（例如「八德店 叫貨」；中南區表單會稍微靠右，避開預印的單據類別）'),
+        local.ss !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['ssx', '分店戳章 再往右（mm，可填負數）'], ['ssy', '分店戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
         local.qr !== false ? h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px'}, ...[['qs', 'QR 大小（mm）', (slipFormLayout(tp.id).w || 241) < 200 ? '11' : '12'], ['qdx', 'QR 再往右（mm，可填負數）', '0'], ['qdy', 'QR 再往下（mm，可填負數）', '0']].map(([k, t, d0]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + d0, 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
         h('ol', {style:'margin:10px 0 0 18px;font-size:14px;color:var(--ink2)'},
           h('li', {text:'Windows「印表機與掃描器」→ 列印伺服器內容 → 建立新格式（例如「' + tp.name + '」），尺寸 ' + tp.paperMm + '；LQ-690C 的列印喜好設定選這個紙張，進紙來源選後方拖曳進紙，導入紙張讓第一行對齊列印頭。'}),
@@ -6057,7 +6088,7 @@ function openCustody(){
 
 /* ================= 考勤：打卡（員工代號＋密碼、照片、位置）、請假、特休、統計與異常表 ================= */
 const EMP_TYPES = {office:'內勤人員', field:'外勤人員'};
-const attCfg = () => ({officeStart:'08:00', officeEnd:'17:00', fieldStart:'08:20', fieldEnd:'17:20', graceMin:3, graceMax:3, lunchMin:60, unitMin:30, ...(S.set.att || {})});
+const attCfg = () => ({officeStart:'08:00', officeEnd:'17:00', fieldStart:'08:20', fieldEnd:'17:20', graceMin:3, graceMax:3, lunchMin:60, unitMin:30, punchWin:30, ...(S.set.att || {})});
 const empHours = e => { const c = attCfg(); return e.type === 'field' ? [c.fieldStart, c.fieldEnd] : [c.officeStart, c.officeEnd]; };
 const canAttView = () => S.isAdmin || rolePerm('attview') || rolePerm('attmgr');
 const canAttMgr = () => S.isAdmin || rolePerm('attmgr');
@@ -6198,18 +6229,24 @@ async function punchAndShow(emp, kind, after){
   put(sh.bodyEl, h('div', {class:'panel pad', style:'text-align:center'}, h('div', {style:'font-size:40px;color:var(--ok)', text:'✓'}), h('b', {class:'big', text:emp.name}), h('div', {style:'margin:6px 0', 'aria-label':'打卡結果', text:msg}), flags.length ? h('small', {class:'soon', text:flags.join('、')}) : null));
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'完成', onclick:() => sh.forceClose()}, '完成')); tmr = setTimeout(() => sh.forceClose(), 7000);
 }
+const mm2hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+function punchPhase(e){
+  const [s0, e0] = empHours(e), now = minOfDay(Date.now()), sm = hmMin(s0), em = hmMin(e0), w = Math.max(Number(attCfg().punchWin) >= 0 ? Number(attCfg().punchWin) : 30, 0);
+  return {s0, e0, now, sm, em, w, canIn:now >= sm - w && now <= sm + w, canOut:now >= em, inFrom:sm - w, inTo:sm + w};
+}
 function quickPunchCard(){
   const e = S.emp; if (!e || !S.canWrite) return null;
-  const st = punchState(e), [s0, e0] = empHours(e), off = isOffDay(st.date);
+  const st = punchState(e), ph = punchPhase(e), [s0, e0] = [ph.s0, ph.e0], off = isOffDay(st.date), hasIn = st.ins.length > 0, showIn = ph.canIn && !hasIn, showOut = ph.canOut;
+  const hint = showIn || showOut ? '' : (ph.now < ph.inFrom ? '上班打卡 ' + mm2hm(ph.inFrom) + ' 開始' : (hasIn ? (ph.now < ph.em ? '已打上班卡；下班打卡 ' + e0 + ' 之後開放' : '') : '上班打卡時間（' + mm2hm(ph.inFrom) + '～' + mm2hm(ph.inTo) + '）已過；要補打卡，請到「更多 → 上下班打卡」'));
   const btn = (kind, label, primary) => h('button', {class:'btn grow' + (primary ? '' : ' ghost'), style:'min-height:60px;font-size:19px', 'aria-label':label, onclick:() => punchAndShow(e, kind, () => draw())}, label);
   return h('section', {class:'sec', 'aria-label':'快速打卡'}, h('div', {class:'panel pad'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap'}, h('b', {text:'上下班打卡'}), h('small', {text:e.name + '　' + EMP_TYPES[e.type] + ' ' + s0 + '～' + e0})),
     h('div', {style:'margin:6px 0 10px', 'aria-label':'今天的打卡紀錄', text:'今天　上班 ' + (st.ins[0] ? hmOf(st.ins[0].t) : '—') + '　下班 ' + (st.outs.length ? hmOf(st.outs[st.outs.length - 1].t) : '—') + (off ? '　（今天是假日）' : '')}),
-    h('div', {class:'btns'}, btn('in', '上班打卡', st.next === 'in'), btn('out', '下班打卡', st.next === 'out'))));
+    showIn || showOut ? h('div', {class:'btns'}, showIn ? btn('in', '上班打卡', true) : null, showOut ? btn('out', '下班打卡', !st.outs.length) : null) : h('div', {class:'note', 'aria-label':'打卡提示', style:'margin:0', text:hint})));
 }
 function offerPunch(e){
   if (S.emp !== e || !S.canWrite || S.set.punchPrompt === false) return;
   const st = punchState(e); if (!st.next || isOffDay(st.date)) return;
-  const [s0, e0] = empHours(e); if (st.next === 'out' && minOfDay(Date.now()) < (hmMin(e0) || 1020)) return;
+  const ph = punchPhase(e), [s0, e0] = [ph.s0, ph.e0]; if (st.next === 'in' && !ph.canIn) return; if (st.next === 'out' && !ph.canOut) return;
   const kind = st.next, label = kind === 'in' ? '上班打卡' : '下班打卡', sh = sheet({title:'歡迎 ' + e.name});
   put(sh.bodyEl, h('div', {class:'panel pad', style:'text-align:center'}, h('b', {class:'big', text:kind === 'in' ? '今天還沒打上班卡' : '今天還沒打下班卡'}), h('div', {style:'margin:6px 0', text:'現在 ' + hmOf(Date.now()) + '　上班時間 ' + s0 + '～' + e0}), h('small', {class:'hint', text:'打卡時系統會自動拍照並記錄位置。'})));
   sh.footEl.append(h('button', {class:'btn grow', style:'min-height:56px;font-size:19px', 'aria-label':'馬上' + label, onclick:() => { sh.forceClose(); punchAndShow(e, kind, () => draw()); }}, label), h('button', {class:'btn ghost', 'aria-label':'稍後再說', onclick:() => sh.forceClose()}, '稍後再說'));
@@ -6355,9 +6392,9 @@ function openAttAdmin(){
     if (U.tab === 'bal'){ const ds = dsLeaveBal(), emps = Object.values(S.employees).filter(e => e.active !== false).sort((a, b) => String(a.code).localeCompare(String(b.code)));
       content = [h('div', {class:'btns', style:'margin-bottom:8px'}, canExport() ? h('button', {class:'btn ghost sm', onclick:() => openExport(ds)}, '匯出（PDF／Excel）') : null), emps.length ? h('div', {class:'panel'}, emps.map(e => { const a = annualSummary(e).cur; return h('div', {class:'row', style:'align-items:flex-start', 'aria-label':'餘額 ' + e.code}, h('span', {style:'min-width:0'}, h('b', {text:e.name + '（' + e.code + '）'}), h('br'), h('small', {text:'到職 ' + (e.hireDate || '未填') + (a ? '　特休 ' + a.start + '～' + a.end : '')})), h('span', {class:'right'}, h('b', {text:a ? '特休剩 ' + r2((a.hours - a.used) / 8) + ' / ' + a.days + ' 天' : '特休 0 天'}), h('br'), h('small', {text:LEAVE_VIS().filter(([k]) => k !== 'annual').map(([k, t]) => t.name + ' ' + r2(leaveBalance(e, k).used / 8) + ' 天').join('・') || '　'}))); })) : h('div', {class:'panel empty', text:'還沒有人員'})]; }
     if (U.tab === 'cfg'){ const c = attCfg(), inp = (k, label, type) => fld(label, h('input', {class:'in', type:type || 'text', value:c[k], 'aria-label':label, id:'attc_' + k}));
-      content = [h('p', {class:'note', text:'上班時間、遲到寬限等規則。改了以後，統計表和異常表會用新規則重新計算（包含過去的月份）。'}), h('div', {class:'f2'}, inp('officeStart', '內勤上班', 'time'), inp('officeEnd', '內勤下班', 'time')), h('div', {class:'f2'}, inp('fieldStart', '外勤上班', 'time'), inp('fieldEnd', '外勤下班', 'time')), h('div', {class:'f2'}, inp('graceMin', '寬限分鐘數'), inp('graceMax', '寬限每月次數')), h('div', {class:'f2'}, inp('lunchMin', '午休分鐘（扣工時）'), inp('unitMin', '補假最小單位（分鐘）')), h('div', {class:'f'}, h('label', {text:'請假時可以選的假別'}), h('div', {class:'chips', style:'padding:4px 0 0;flex-wrap:wrap'}, ...Object.entries(LEAVE_TYPES).map(([k, t]) => h('label', {class:'check', style:'margin-right:14px'}, h('input', {type:'checkbox', class:'lvshow', value:k, checked:leaveShown().includes(k), 'aria-label':'顯示假別 ' + t.name}), t.name)))),
+      content = [h('p', {class:'note', text:'上班時間、遲到寬限等規則。改了以後，統計表和異常表會用新規則重新計算（包含過去的月份）。'}), h('div', {class:'f2'}, inp('officeStart', '內勤上班', 'time'), inp('officeEnd', '內勤下班', 'time')), h('div', {class:'f2'}, inp('fieldStart', '外勤上班', 'time'), inp('fieldEnd', '外勤下班', 'time')), h('div', {class:'f2'}, inp('graceMin', '寬限分鐘數'), inp('graceMax', '寬限每月次數')), h('div', {class:'f2'}, inp('lunchMin', '午休分鐘（扣工時）'), inp('unitMin', '補假最小單位（分鐘）')), h('div', {class:'f2'}, inp('punchWin', '首頁「上班打卡」鍵：上班前後幾分鐘內出現'), h('div')), h('div', {class:'f'}, h('label', {text:'請假時可以選的假別'}), h('div', {class:'chips', style:'padding:4px 0 0;flex-wrap:wrap'}, ...Object.entries(LEAVE_TYPES).map(([k, t]) => h('label', {class:'check', style:'margin-right:14px'}, h('input', {type:'checkbox', class:'lvshow', value:k, checked:leaveShown().includes(k), 'aria-label':'顯示假別 ' + t.name}), t.name)))),
         fld('國定假日／公司休假日（YYYY-MM-DD，用逗號或換行分隔）', h('textarea', {class:'in', rows:4, id:'attc_hol', 'aria-label':'假日清單'}, (S.set.holidays || []).join('\n'))),
-        h('button', {class:'btn', style:'width:100%', 'aria-label':'儲存考勤設定', onclick:async () => { const g = k => $('#attc_' + k).value, hol = $('#attc_hol').value.split(/[\s,，;；]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); const att = {officeStart:g('officeStart'), officeEnd:g('officeEnd'), fieldStart:g('fieldStart'), fieldEnd:g('fieldEnd'), graceMin:toNum(g('graceMin')), graceMax:toNum(g('graceMax')), lunchMin:toNum(g('lunchMin')), unitMin:Math.max(toNum(g('unitMin')), 1), leaveShow:[...document.querySelectorAll('.lvshow')].filter(x => x.checked).map(x => x.value)}; if (await run(async () => { await S.db.doc('settings/main').update({att, holidays:hol}); return true; })) toast('已儲存考勤設定'); }}, '儲存設定'),
+        h('button', {class:'btn', style:'width:100%', 'aria-label':'儲存考勤設定', onclick:async () => { const g = k => $('#attc_' + k).value, hol = $('#attc_hol').value.split(/[\s,，;；]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); const att = {officeStart:g('officeStart'), officeEnd:g('officeEnd'), fieldStart:g('fieldStart'), fieldEnd:g('fieldEnd'), graceMin:toNum(g('graceMin')), graceMax:toNum(g('graceMax')), lunchMin:toNum(g('lunchMin')), unitMin:Math.max(toNum(g('unitMin')), 1), punchWin:Math.max(toNum(g('punchWin')), 0), leaveShow:[...document.querySelectorAll('.lvshow')].filter(x => x.checked).map(x => x.value)}; if (await run(async () => { await S.db.doc('settings/main').update({att, holidays:hol}); return true; })) toast('已儲存考勤設定'); }}, '儲存設定'),
         S.isAdmin ? [h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'打卡照片清理'})), h('p', {class:'hint', text:'照片佔空間。可以刪除指定月份以前的打卡照片（出勤時間和位置紀錄都保留）。'}), h('div', {class:'btns'}, h('input', {class:'in', type:'month', 'aria-label':'清理到月份', id:'attc_purge', style:'max-width:180px'}), h('button', {class:'btn ghost', 'aria-label':'清理打卡照片', onclick:async () => { const m = $('#attc_purge').value; if (!m) return toast('請選擇月份'); const ids = []; Object.values(S.attdays).filter(d => d.ym < m).forEach(d => Object.values(d.d || {}).forEach(r => r.ev.forEach(e => { if (e.ph) ids.push(e.ph); }))); if (!ids.length) return toast('沒有可清理的照片'); if (!await dialog({title:'刪除 ' + ids.length + ' 張照片？', msg:m + ' 以前的打卡照片會被刪除，無法復原。', ok:'刪除', danger:true})) return; await Promise.all(ids.map(i => S.db.doc('attphotos/' + i).delete().catch(() => null))); toast('已刪除 ' + ids.length + ' 張打卡照片'); }}, '清理'))] : null]; }
     const body = h('div', null, h('div', {class:'chips', style:'padding-top:0'}, tabs.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('attdays'); }}, t))), ['stats', 'abn'].includes(U.tab) ? fld('月份', ymIn) : null, content);
     return {body, foot:mgr && U.tab === 'emp' ? [h('button', {class:'btn grow', 'aria-label':'新增人員', onclick:() => openEmpForm()}, icon('plus'), '新增人員')] : []};
@@ -8068,7 +8105,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-j';
+const APP_VERSION = '2026.10.02-l';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],

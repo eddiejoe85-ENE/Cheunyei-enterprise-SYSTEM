@@ -1,7 +1,7 @@
 /* 啟動程式：登入畫面、讀取使用者層級、把 Firebase 接成系統要用的介面。 */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const PFX = window.INV_PREFIX || 'inv_';
 const cfg = window.FIREBASE_CONFIG || {};
@@ -28,8 +28,17 @@ function start() {
   const app = initializeApp(cfg);
   const auth = getAuth(app);
   let fs;
-  try { fs = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }), ignoreUndefinedProperties: true }); }
+  /* 手機（尤其 iPhone Safari）把頁面放在背景一段時間後，瀏覽器可能關掉本機資料庫（IndexedDB），
+     Firestore 就會出現「The client has already been terminated」。發生過一次後，這個分頁改用不寫本機的記憶體快取，
+     並自動重新載入；下次重新打開網站會再用一般模式。 */
+  const noPersist = (() => { try { return sessionStorage.getItem('fbNoPersist') === '1'; } catch (_) { return false; } })();
+  try { fs = noPersist ? initializeFirestore(app, { localCache: memoryLocalCache(), ignoreUndefinedProperties: true }) : initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }), ignoreUndefinedProperties: true }); }
   catch (_) { fs = initializeFirestore(app, { ignoreUndefinedProperties: true }); }
+  window.__fbRecover = () => { try { sessionStorage.setItem('fbNoPersist', '1'); } catch (_) {} location.reload(); };
+  const isTerm = e => /already been terminated/i.test(String((e && (e.message || e)) || ''));
+  const autoRecover = () => { try { const t = Number(sessionStorage.getItem('fbRecoverAt') || 0); if (Date.now() - t < 60000) return; sessionStorage.setItem('fbRecoverAt', String(Date.now())); } catch (_) {} window.__fbRecover(); };
+  window.addEventListener('unhandledrejection', ev => { if (isTerm(ev.reason)) autoRecover(); });
+  window.addEventListener('error', ev => { if (isTerm(ev.error || ev.message)) autoRecover(); });
   const fsApi = { doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction };
   const A = window.FirebaseAdapter;
   const db = A.makeDb(fsApi, fs, PFX);
@@ -97,6 +106,12 @@ function start() {
     if (!booted) { booted = true; window.__fbResolve({ db, user: A.makeUser(info), downloads: A.makeDownloads(document, window) }); }
   }
 
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden){ hiddenAt = Date.now(); return; }
+    if (!booted || !auth.currentUser || Date.now() - hiddenAt < 20000) return;
+    try { await getDoc(usersDoc(auth.currentUser.uid)); } catch (e) { if (isTerm(e)) autoRecover(); }
+  });
   onAuthStateChanged(auth, u => {
     if (u) { if (!booted) bootUser(u); }
     else if (booted) location.reload();
