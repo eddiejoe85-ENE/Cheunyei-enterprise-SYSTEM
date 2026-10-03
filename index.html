@@ -400,7 +400,7 @@ const S = {
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
   tab:'home',
-  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null}}
+  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null}}
 };
 
 /* ================= 小工具 ================= */
@@ -917,7 +917,7 @@ function openProduct(id){
     const body = h('div', null,
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
         h('small', {text:p.sku + (p.category ? '　' + p.category : '')}),
-        h('div', {style:'display:flex;gap:12px;align-items:center'}, p.photoThumb ? h('button', {type:'button', 'aria-label':'查看商品照片', onclick:() => openProductPhoto(p)}, h('img', {src:p.photoThumb, alt:p.name, style:'width:84px;height:84px;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'})) : null, h('div', {class:'lg', style:'margin:2px 0 6px', text:p.name})),
+        h('div', null, h('div', {class:'lg', style:'margin:2px 0 6px', text:p.name}), productGallery(p)),
         h('div', {style:'display:flex;align-items:baseline;gap:8px'}, h('span', {class:'bigqty qty ' + lv, text:num(s)}), h('span', {text:p.unit || ''}), p.active === false ? h('span', {class:'pill', text:'已停用'}) : null),
         gauge(p)),
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
@@ -996,9 +996,11 @@ function openProductForm(id){
   const labelSpecIn = h('input', {class:'in', value:ex ? ex.labelSpec || '' : '', placeholder:'例：500ml × 24 瓶／箱', 'aria-label':'標籤規格文字', autocomplete:'off'});
   const shelfIn = h('input', {class:'in', value:ex ? ex.shelf || '' : '', placeholder:'例：A-03-2（走道-櫃-層）', 'aria-label':'架位', autocomplete:'off'});
   const shelfWh = {}; if (multiWh()) whActive().filter(w => w.id !== WH_MAIN).forEach(w => { shelfWh[w.id] = h('input', {class:'in', value:(ex && ex.shelves && ex.shelves[w.id]) || '', placeholder:'沒填就用主倉庫的架位', 'aria-label':w.name + ' 架位', autocomplete:'off'}); });
-  const photoSt = {removed:false}, photoPk = photoPicker({max:1}), photoBox = h('div');
-  const paintPhoto = () => setKids(photoBox, ex && ex.photoThumb && !photoSt.removed ? h('div', {style:'display:flex;gap:10px;align-items:center;margin-bottom:8px'}, h('img', {src:ex.photoThumb, alt:ex.name, style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'}), h('button', {class:'btn ghost sm', type:'button', 'aria-label':'移除商品照片', onclick:() => { photoSt.removed = true; paintPhoto(); }}, '移除這張照片')) : null, photoPk.el);
-  paintPhoto();
+  const PH = {photo:{label:'商品', name:'產品', lid:'photoId', lth:'photoThumb', list:'pics'}, pack:{label:'包裝', name:'包裝', lid:'packId', lth:'packThumb', list:'packs'}};
+  const phCur = {photo:[...prodPics(ex)], pack:[...prodPacks(ex)]}, phGone = {photo:[], pack:[]}, phPk = {}, phBox = {photo:h('div'), pack:h('div')};
+  const paintPh = k => setKids(phBox[k], phCur[k].length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px'}, ...phCur[k].map((m, i) => h('div', {style:'position:relative'}, h('img', {src:m.thumb, alt:(ex ? ex.name : '') + PH[k].name + (i + 1), style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'}), h('button', {class:'ic sm', type:'button', 'aria-label':'移除' + PH[k].label + '照片 ' + (i + 1), style:'position:absolute;top:-6px;right:-6px;background:var(--panel);border:1px solid var(--line);border-radius:50%', onclick:() => { phGone[k].push(phCur[k][i]); phCur[k].splice(i, 1); paintPh(k); }}, icon('x'))))) : null, phPk[k].el);
+  phPk.photo = photoPicker({max:PROD_PH_MAX, existing:() => phCur.photo.length}); phPk.pack = photoPicker({max:PROD_PH_MAX, existing:() => phCur.pack.length});
+  paintPh('photo'); paintPh('pack');
   let saving = false;
   const saveBtn = h('button', {class:'btn grow', onclick:save}, '儲存');
   const sh = sheet({title:ex ? '編輯商品' : '新增商品'});
@@ -1019,7 +1021,8 @@ function openProductForm(id){
     h('details', {class:'fold', open:!!(ex && ex.bom && ex.bom.length)}, h('summary', {text:'產品組成 BOM（選填，組裝／拆解用）'}), h('div', {class:'fold-b'}, f.bomEd.el)),
     fld('備註', f.note),
     h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'標籤與揀貨資訊'})), fld('標籤規格（印在產品標籤上的文字）', labelSpecIn), fld('架位（貨架位置）' + (multiWh() ? '：' + whName(WH_MAIN) : ''), shelfIn), ...Object.entries(shelfWh).map(([k, inp]) => fld(whName(k) + ' 架位', inp)),
-    h('div', {class:'f'}, h('label', {text:'商品照片（揀貨時顯示，換照片請先移除舊的）'}), photoBox),
+    h('div', {class:'f'}, h('label', {text:'產品照片（商品本身，最多 ' + PROD_PH_MAX + ' 張；揀貨時顯示）'}), phBox.photo),
+    h('div', {class:'f'}, h('label', {text:'包裝照片（外箱、包裝袋、標籤，最多 ' + PROD_PH_MAX + ' 張；揀貨時和產品照片一起顯示）'}), phBox.pack),
     ex ? h('label', {class:'check'}, f.active, '啟用（取消勾選代表停用，不會出現在開單搜尋）') : null,
     ex ? h('div', {style:'margin-top:8px'}, h('button', {class:'btn plain', onclick:del}, '刪除商品')) : null);
   sh.footEl.append(saveBtn);
@@ -1036,9 +1039,12 @@ function openProductForm(id){
       cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:Math.max(toNum(f.dimL.value), 0), dimW:Math.max(toNum(f.dimW.value), 0), dimH:Math.max(toNum(f.dimH.value), 0), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), shelf:shelfIn.value.trim(), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = shelfWh[k].value.trim(); if (v) a[k] = v; return a; }, {})};
     saving = true; saveBtn.disabled = true;
     const ok = await run(async () => {
-      let photoPatch = {}; const np = photoPk.list()[0];
-      if (np){ await savePhotoDocs([np]); photoPatch = {photoId:np.id, photoThumb:np.thumb}; if (ex && ex.photoId) deletePhotoDocs([ex.photoId]); }
-      else if (ex && photoSt.removed){ photoPatch = {photoId:'', photoThumb:''}; if (ex.photoId) deletePhotoDocs([ex.photoId]); }
+      const photoPatch = {};
+      for (const k of ['photo', 'pack']){ const P = PH[k], add = phPk[k].list().slice(0, Math.max(PROD_PH_MAX - phCur[k].length, 0));
+        if (add.length || phGone[k].length){ if (add.length) await savePhotoDocs(add);
+          const fin = [...phCur[k], ...add].map(m => ({id:m.id, thumb:m.thumb, name:m.name || '', at:m.at || Date.now()}));
+          photoPatch[P.list] = fin; photoPatch[P.lid] = fin[0] ? fin[0].id : ''; photoPatch[P.lth] = fin[0] ? fin[0].thumb : '';
+          const gone = phGone[k].map(m => m.id).filter(Boolean); if (gone.length) deletePhotoDocs(gone); } }
       if (ex){ await S.db.doc('products/' + id).update({...data, ...photoPatch, active:f.active.checked}); }
       else {
         const ref = S.db.collection('products').doc();
@@ -1055,7 +1061,7 @@ function openProductForm(id){
     if (S.d.usedP.has(id)) return toast('此商品已有單據紀錄，無法刪除，請改為停用');
     if (!await dialog({title:'刪除商品？', msg:'「' + ex.name + '」將被永久刪除。', ok:'刪除', danger:true})) return;
     const ok = await run(async () => { await S.db.doc('products/' + id).delete(); return true; });
-    if (ok){ toast('已刪除'); sh.forceClose(); }
+    if (ok){ deletePhotoDocs([...prodPics(ex), ...prodPacks(ex)].map(m => m.id).concat([ex.photoId, ex.packId]).filter(Boolean)); toast('已刪除'); sh.forceClose(); }
   }
 }
 
@@ -2902,7 +2908,21 @@ function setQwarn(r, q){
   setKids(r.qwarn, ...(c ? [c.msg + '　', h('button', {class:'btn ghost sm', type:'button', 'aria-label':'套用建議數量 ' + r.p.sku, onclick:() => { const inp = r.qwarn.parentElement && r.qwarn.parentElement.querySelector('input[aria-label="數量"]'); if (inp){ inp.value = c.suggest; inp.dispatchEvent(new Event('input', {bubbles:true})); } }}, '改成 ' + num(c.suggest))] : []));
 }
 const buyRule = p => { const rf = replenOn() && p.id ? whRuleOf(p, factoryWh()) : {moq:Number(p.moq) || 0, lot:Number(p.lot) || 0}; return [rf.moq > 0 ? '最小量 ' + num(rf.moq) : '', rf.lot > 0 ? '批量 ' + num(rf.lot) : ''].filter(Boolean).join('　'); };
+const sugMode = () => (S.ui.sug && S.ui.sug.mode) || S.set.sugMode || 'simple';
+function suggestionsSimple(){
+  const out = [], ron = replenOn(), fw = factoryWh();
+  for (const p of activeProducts()){
+    if (p.procSrc === 'make') continue;
+    const rf = ron ? whRuleOf(p, fw) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
+    const onHand = ron ? stockAt(p.id, fw) : stockOf(p.id), inc = S.d.incoming[p.id] || 0, safety = rf.safety;
+    const raw = Math.ceil(r3(safety - onHand - inc) - 0.0004); if (!(raw > 0)) continue;
+    const need = roundBuy(raw, rf.moq, rf.lot);
+    out.push({p, onHand, commit:S.d.commit[p.id] || 0, inc, projected:r3(onHand + inc), safety, need, raw, moq:rf.moq, lot:rf.lot, daily:0, velDemand:0, days:0, atArrival:r3(onHand + inc), risk:false, reason:onHand + inc < -0.0004 ? '庫存為負數' : '低於安全存量', supplier:supplierOf(p), simple:true});
+  }
+  return out.sort((a, b) => cmpSku(a.p, b.p));
+}
 function suggestions(){
+  if (sugMode() === 'simple') return suggestionsSimple();
   const out = [], U = S.ui.sug, arrive = U.arrive || addDays(today(), leadOf('').max), days = Math.max(daysBetween(today(), arrive), 1);
   const useVel = U.vel === null || U.vel === undefined ? S.set.useVelocity !== false : !!U.vel, vd = Number(S.set.velDays) > 0 ? Number(S.set.velDays) : 60, vel = useVel ? salesVelocity(vd) : {};
   const incBefore = {}, ron = replenOn(), fw = factoryWh(), want = {}; if (ron) replenPlan().rows.forEach(r => { want[r.p.id] = r.want; });
@@ -3168,7 +3188,8 @@ async function makePOs(groups){
   }
 }
 function sugView(){
-  const U = S.ui.sug, list = suggestions(), wrap = h('div');
+  const U = S.ui.sug, list = suggestions(), wrap = h('div'), simple = sugMode() === 'simple';
+  wrap.append(h('div', {class:'chips', style:'padding-top:0'}, [['simple', '簡易公式：安全存量 − 庫存 − 在途'], ['forecast', '進階預估：含已訂未出、預估銷量']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':sugMode() === k, 'aria-label':'計算方式 ' + (k === 'simple' ? '簡易公式' : '進階預估'), onclick:() => { U.mode = k; if (S.isAdmin) S.db.doc('settings/main').update({sugMode:k}).catch(() => null); draw(); }}, t))));
   const eff = s => ({qty:U.qty[s.p.id] !== undefined ? toNum(U.qty[s.p.id]) : s.need, sup:U.sup[s.p.id] !== undefined ? U.sup[s.p.id] : s.supplier, on:!U.off[s.p.id]});
   { const leads = [...new Set(list.map(x => x.supplier).filter(Boolean))].map(id => leadOf(id)), lo = Math.min(leadOf('').min, ...leads.map(l => l.min)), hi = Math.max(leadOf('').max, ...leads.map(l => l.max));
     if (!U.arrive) U.arrive = addDays(today(), leadOf('').max);
@@ -3179,9 +3200,9 @@ function sugView(){
       h('div', {style:'height:6px'}), dInp, arrivalChips(lo, hi, () => U.arrive, day => { U.arrive = day; draw(); }),
       h('small', {class:'hint', style:'display:block;margin-top:6px', text:'建立的所有採購單都排在這一天到貨（同一趟回頭車）。' + (same.length ? mdw(U.arrive) + ' 已有 ' + same.length + ' 張採購單：' + same.map(x => (S.partners[x.partnerId] || {}).name || x.no).join('、') + '。' : '')}),
       bad.length ? h('small', {class:'soon', style:'display:block;margin-top:4px', text:'⚠ ' + bad.map(id => (S.partners[id] || {}).name + '通常 ' + leadOf(id).min + '～' + leadOf(id).max + ' 天').join('、') + '，這個日期可能來不及或太早。'}) : null,
-      h('label', {class:'check'}, h('input', {type:'checkbox', checked:vOn, 'aria-label':'估算到貨前用量', onchange:e => { U.vel = e.target.checked; draw(); }}), '把「到貨前這幾天的預估用量」算進去（依近 ' + (Number(S.set.velDays) || 60) + ' 天的平均銷量）')));
+      simple ? null : h('label', {class:'check'}, h('input', {type:'checkbox', checked:vOn, 'aria-label':'估算到貨前用量', onchange:e => { U.vel = e.target.checked; draw(); }}), '把「到貨前這幾天的預估用量」算進去（依近 ' + (Number(S.set.velDays) || 60) + ' 天的平均銷量）')));
   }
-  wrap.append(h('p', {class:'note', text:'預估可用 = 庫存 + 採購在途 − 到貨前的用量（訂單未出，或近期銷量推估，取較大者）。低於安全庫存（或為負數）的商品會列出，先算補到安全庫存 2 倍的缺口，再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。'}));
+  wrap.append(h('p', {class:'note', text:simple ? '採購建議量 = 安全存量 − 庫存量 − 採購在途量。庫存加上採購在途，已經達到安全存量的商品不會列出；沒設安全存量、庫存卻是負數的商品，會補回到 0。算出的數量再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。' : '預估可用 = 庫存 + 採購在途 − 到貨前的用量（訂單未出，或近期銷量推估，取較大者）。低於安全庫存（或為負數）的商品會列出，先算補到安全庫存 2 倍的缺口，再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。'}));
   if (!list.length){
     wrap.append(h('div', {class:'panel empty'}, h('b', {text:'目前沒有需要採購的商品'}), '庫存與在途足夠應付訂單與安全庫存。'));
     return wrap;
@@ -3205,8 +3226,8 @@ function sugView(){
     wrap.append(h('section', {class:'sec'}, head, h('div', {class:'panel'}, rows.map(r => h('div', {class:'sg'},
       h('input', {type:'checkbox', checked:r.on, 'aria-label':'選取 ' + r.p.name, onchange:e => { if (e.target.checked) delete U.off[r.p.id]; else U.off[r.p.id] = true; draw(); }}),
       h('div', {style:'min-width:0'}, h('b', {text:r.p.name}), h('br'),
-        h('small', {text:r.p.sku + '　庫存 ' + num(r.onHand) + '　訂單 −' + num(r.commit) + '　在途 +' + num(r.inc) + (r.safety > 0 ? '　安全 ' + num(r.safety) : '')}), h('br'),
-        h('small', {class:(r.reason === '訂單缺貨' || r.reason === '預估缺貨') ? 'overdue' : 'soon', text:r.reason + '，預估可用 ' + num(r.projected) + '，缺口 ' + num(r.raw)}), r.velDemand > 0 ? [h('br'), h('small', {text:'到貨前 ' + r.days + ' 天預估用量 ' + num(r.velDemand) + '（平均每天 ' + num(r3(r.daily)) + '）'})] : null, r.risk ? [h('br'), h('small', {class:'overdue', text:'⚠ 採購單到貨前，現有庫存可能就不夠了'})] : null,
+        h('small', {text:r.p.sku + '　庫存 ' + num(r.onHand) + (r.simple ? '' : '　訂單 −' + num(r.commit)) + '　在途 +' + num(r.inc) + (r.safety > 0 ? '　安全 ' + num(r.safety) : '')}), h('br'),
+        r.simple ? h('small', {class:'soon', text:r.reason + '：安全存量 ' + num(r.safety) + ' − 庫存 ' + num(r.onHand) + ' − 在途 ' + num(r.inc) + ' ＝ ' + num(r.raw)}) : h('small', {class:(r.reason === '訂單缺貨' || r.reason === '預估缺貨') ? 'overdue' : 'soon', text:r.reason + '，預估可用 ' + num(r.projected) + '，缺口 ' + num(r.raw)}), r.velDemand > 0 ? [h('br'), h('small', {text:'到貨前 ' + r.days + ' 天預估用量 ' + num(r.velDemand) + '（平均每天 ' + num(r3(r.daily)) + '）'})] : null, r.risk ? [h('br'), h('small', {class:'overdue', text:'⚠ 採購單到貨前，現有庫存可能就不夠了'})] : null,
         buyRule(r.p) ? [h('br'), h('small', {text:buyRule(r.p) + (r.need !== r.raw ? '　→ 建議 ' + num(r.need) : '')})] : null),
       h('div', {class:'right'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:r.qty, 'aria-label':'採購數量 ' + r.p.name, 'data-k':'sug-' + r.p.id, style:'height:40px;text-align:center',
         onfocus:e => e.target.select(), onchange:e => { U.qty[r.p.id] = e.target.value; draw(); }}), h('small', {text:buyOn() ? money(r2(r.qty * (r.p.cost || 0))) : ''})))))));
@@ -5452,7 +5473,9 @@ async function savePdfDs(ds, label){
 }
 
 /* ================= 照片：拍照或選取檔案，壓縮後存起來（銷貨退回作業用） ================= */
-const PH_MAX = 6, PH_BYTES = 170 * 1024;
+const PH_MAX = 6, PH_BYTES = 170 * 1024, PROD_PH_MAX = 4;
+const prodPics = p => p ? (Array.isArray(p.pics) ? p.pics : (p.photoThumb ? [{id:p.photoId || '', thumb:p.photoThumb, name:p.name}] : [])) : [];
+const prodPacks = p => p ? (Array.isArray(p.packs) ? p.packs : (p.packThumb ? [{id:p.packId || '', thumb:p.packThumb, name:p.name}] : [])) : [];
 const photoId = () => 'ph' + Date.now().toString(36) + rid();
 const dataBytes = d => Math.floor((String(d).length - String(d).indexOf(',') - 1) * 0.75);
 const dataToU8 = d => { const bin = atob(String(d).split(',')[1] || ''), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
@@ -5675,12 +5698,21 @@ function openReturnMgmt(){
 const shelfOf = (p, wid) => { if (!p) return ''; const m = p.shelves || {}; return String((wid && wid !== WH_MAIN && m[wid]) || p.shelf || '').trim(); };
 const shelfCmp = (a, b) => { if (!a && !b) return 0; if (!a) return 1; if (!b) return -1; return String(a).localeCompare(String(b), 'zh-TW', {numeric:true, sensitivity:'base'}); };
 const shelfText = p => { const parts = []; if (p.shelf) parts.push(multiWh() ? whName(WH_MAIN) + '：' + p.shelf : p.shelf); for (const w of whList()){ if (w.id !== WH_MAIN && p.shelves && p.shelves[w.id]) parts.push(w.name + '：' + p.shelves[w.id]); } return parts.join('　'); };
-async function openProductPhoto(p){
-  if (!p || !p.photoThumb) return;
-  const sh = sheet({title:p.name}), box = h('div'); put(sh.bodyEl, box);
-  setKids(box, h('img', {src:p.photoThumb, alt:p.name, style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:'讀取原圖中…'}));
-  let data = null; try { if (p.photoId){ const sn = await S.db.doc('photos/' + p.photoId).get(); if (sn.exists) data = (sn.data() || {}).data; } } catch (_) {}
-  setKids(box, h('img', {src:data || p.photoThumb, alt:p.name, 'aria-label':'商品照片', style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:p.sku + (data ? '' : '　（只顯示縮圖）')}));
+function productGallery(p){
+  const g = [['photo', '產品', prodPics(p)], ['pack', '包裝', prodPacks(p)]].filter(x => x[2].length); if (!g.length) return null;
+  return h('div', {style:'display:flex;flex-direction:column;gap:8px;margin-bottom:6px'}, ...g.map(([k, t, list]) => h('div', {style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap'}, h('small', {class:'hint', style:'width:34px;flex:none', text:t}), ...list.map((m, i) => h('button', {type:'button', 'aria-label':'查看' + (k === 'pack' ? '包裝' : '商品') + '照片' + (list.length > 1 ? ' ' + (i + 1) : ''), onclick:() => openProductPhoto(p, k, i)}, h('img', {src:m.thumb, alt:p.name + t + (i + 1), style:'width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block'}))))));
+}
+async function openProductPhoto(p, kind, idx){
+  const pack = kind === 'pack', list = p ? (pack ? prodPacks(p) : prodPics(p)) : []; if (!list.length) return;
+  let i = Math.min(Math.max(idx || 0, 0), list.length - 1); const both = prodPics(p).length && prodPacks(p).length;
+  const sh = sheet({title:p.name + (both ? (pack ? '（包裝）' : '（產品）') : '')}), box = h('div'); put(sh.bodyEl, box);
+  const show = async () => {
+    const m = list[i]; setKids(box, h('img', {src:m.thumb, alt:p.name, style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:'讀取原圖中…'}));
+    let data = null; try { if (m.id){ const sn = await S.db.doc('photos/' + m.id).get(); if (sn.exists) data = (sn.data() || {}).data; } } catch (_) {}
+    setKids(box, h('img', {src:data || m.thumb, alt:p.name, 'aria-label':pack ? '包裝照片' : '商品照片', style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:p.sku + '　' + (pack ? '包裝' : '產品') + '照片 ' + (i + 1) + ' / ' + list.length + (data ? '' : '　（只顯示縮圖）')}),
+      list.length > 1 ? h('div', {class:'btns'}, h('button', {class:'btn ghost', 'aria-label':'上一張', onclick:() => { i = (i + list.length - 1) % list.length; show(); }}, '‹ 上一張'), h('button', {class:'btn ghost', 'aria-label':'下一張', onclick:() => { i = (i + 1) % list.length; show(); }}, '下一張 ›')) : null);
+  };
+  show();
 }
 function openShelfEditor(){
   if (!S.isAdmin) return toast('只有管理員可以設定架位');
@@ -5688,7 +5720,7 @@ function openShelfEditor(){
   const val = p => U.wh === WH_MAIN ? String(p.shelf || '') : String((p.shelves && p.shelves[U.wh]) || '');
   const save = async (p, v) => { v = v.trim(); await run(async () => { await S.db.doc('products/' + p.id).update(U.wh === WH_MAIN ? {shelf:v} : {shelves:{...(p.shelves || {}), [U.wh]:v}}); return true; }); };
   const fill = () => { const q = U.q.trim().toLowerCase(), list = activeProducts().sort(cmpSku).filter(p => (!q || (p.name + ' ' + p.sku).toLowerCase().includes(q)) && (!U.empty || !val(p))).slice(0, 150);
-    setKids(box, list.length ? h('div', {class:'panel'}, list.map(p => h('div', {class:'row', style:'align-items:center'}, h('span', {style:'min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku + (p.photoThumb ? '　有照片' : '')})),
+    setKids(box, list.length ? h('div', {class:'panel'}, list.map(p => h('div', {class:'row', style:'align-items:center'}, h('span', {style:'min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku + (prodPics(p).length || prodPacks(p).length ? '　有照片' : '')})),
       h('input', {class:'in', value:val(p), placeholder:'例：A-03-2', 'aria-label':'架位 ' + p.sku, autocomplete:'off', style:'width:120px;height:38px;text-align:center', onfocus:e => e.target.select(), onchange:e => save(p, e.target.value)})))) : h('div', {class:'panel empty', text:'沒有符合的商品'})); };
   put(sh.bodyEl, h('p', {class:'note', text:'每個商品填一個貨架位置，揀貨時會依架位順序排列，並念給你聽。改完直接換下一格，會自動儲存。'}),
     multiWh() ? h('div', {class:'f'}, h('label', {text:'設定哪個倉庫的架位'}), (() => { const s2 = h('select', {class:'in', 'aria-label':'倉庫', onchange:e => { U.wh = e.target.value; fill(); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s2.value = U.wh; return s2; })()) : null,
@@ -5731,16 +5763,23 @@ function voiceBar(cfg, o){
 /* ---- 揀貨資料 ---- */
 function pickItems(o){
   const wid = orderWh(o), m = new Map();
-  for (const l of o.lines || []){ const p = S.products[l.pid], c = m.get(l.pid) || {pid:l.pid, name:l.name || (p && p.name) || '', sku:l.sku || (p && p.sku) || '', unit:l.unit || (p && p.unit) || '', qty:0, shelf:shelfOf(p, wid), thumb:p ? p.photoThumb || '' : '', stock:p ? stockAt(l.pid, wid) : 0}; c.qty = r3(c.qty + (Number(l.qty) || 0)); m.set(l.pid, c); }
+  for (const l of o.lines || []){ const p = S.products[l.pid], c = m.get(l.pid) || {pid:l.pid, name:l.name || (p && p.name) || '', sku:l.sku || (p && p.sku) || '', unit:l.unit || (p && p.unit) || '', qty:0, shelf:shelfOf(p, wid), thumb:p ? p.photoThumb || '' : '', packThumb:p ? p.packThumb || '' : '', pics:prodPics(p).map(m => m.thumb), packs:prodPacks(p).map(m => m.thumb), stock:p ? stockAt(l.pid, wid) : 0}; c.qty = r3(c.qty + (Number(l.qty) || 0)); m.set(l.pid, c); }
   return [...m.values()].sort((a, b) => shelfCmp(a.shelf, b.shelf) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
 }
 const emptyPick = () => ({items:{}, done:false});
 const pickHandled = (pk, pid) => !!(pk.items && pk.items[pid]);
 async function readPick(id){ try { const sn = await S.db.doc('picks/' + id).get(); return sn.exists ? {...emptyPick(), ...(sn.data() || {})} : emptyPick(); } catch (_) { return emptyPick(); } }
 const writePick = (id, pk) => run(async () => { await S.db.doc('picks/' + id).set({...pk, updatedAt:Date.now(), updatedBy:S.meId || null, updatedByName:myName()}); return true; });
-function pickImg(it, size){
-  return it.thumb ? h('button', {type:'button', 'aria-label':'放大商品照片 ' + it.sku, onclick:() => openProductPhoto(S.products[it.pid])}, h('img', {src:it.thumb, alt:it.name, style:'width:' + size + 'px;height:' + size + 'px;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'}))
-    : h('div', {style:'width:' + size + 'px;height:' + size + 'px;display:grid;place-items:center;background:var(--soft);border-radius:12px;color:var(--ink3);font-size:12px;flex:none', text:'沒有照片'});
+const PICK_IDX = {};
+function pickPhotos(it, repaint){
+  const col = (kind, cap) => {
+    const pack = kind === 'pack', list = pack ? (it.packs || []) : (it.pics || []), key = it.pid + '|' + kind, i = Math.min(PICK_IDX[key] || 0, Math.max(list.length - 1, 0)), lab = pack ? '包裝' : '商品';
+    const main = list.length ? h('button', {type:'button', 'aria-label':'放大' + lab + '照片 ' + it.sku, style:'display:block;width:100%', onclick:() => openProductPhoto(S.products[it.pid], kind, i)}, h('img', {src:list[i], alt:it.name + cap, style:'width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'}))
+      : h('div', {style:'width:100%;aspect-ratio:1/1;display:grid;place-items:center;background:var(--soft);border-radius:12px;color:var(--ink3);font-size:12px', text:pack ? '沒有包裝照片' : '沒有照片'});
+    const thumbs = list.length > 1 ? h('div', {style:'display:flex;gap:4px;justify-content:center;margin-top:4px;flex-wrap:wrap'}, ...list.map((th, j) => h('button', {type:'button', 'aria-label':'切換' + lab + '照片 ' + it.sku + ' ' + (j + 1), 'aria-pressed':String(j === i), style:'padding:0;border-radius:6px;overflow:hidden;line-height:0;border:2px solid ' + (j === i ? 'var(--brand)' : 'transparent'), onclick:() => { PICK_IDX[key] = j; if (repaint) repaint(); }}, h('img', {src:th, alt:'', style:'width:34px;height:34px;object-fit:cover;display:block'})))) : null;
+    return h('div', {style:'flex:1;min-width:0;max-width:200px;text-align:center'}, main, thumbs, h('small', {style:'display:block;margin-top:2px;font-weight:700', text:cap + (list.length > 1 ? ' ' + (i + 1) + '/' + list.length : '')}));
+  };
+  return h('div', {'aria-label':'揀貨照片', style:'display:flex;gap:10px;margin-bottom:10px'}, col('pack', '包裝'), col('photo', '產品'));
 }
 function openPicking(pre){
   if (!can('stock') && !can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
@@ -6632,7 +6671,7 @@ function openPickOrder(orderId, opts){
       h('div', {style:'height:10px;background:var(--soft);border-radius:6px;overflow:hidden;margin-bottom:4px'}, h('div', {style:'height:100%;background:var(--brand);width:' + (total ? Math.round(n / total * 100) : 0) + '%'})), h('small', {class:'hint', style:'display:block;margin-bottom:8px', 'aria-label':'揀貨進度', text:'已處理 ' + n + ' / ' + total + ' 項' + (skipN ? '　⚠ 略過掃描 ' + skipN + ' 項' : '') + (pk.done ? '　（已完成揀貨）' : '')}),
       vb.el,
       c ? h('div', {class:'panel pad', 'aria-label':'目前這一項', style:'margin-bottom:10px;border:2px solid var(--brand)'},
-        h('div', {style:'display:flex;gap:14px;align-items:center'}, pickImg(c, 120), h('div', {style:'min-width:0;flex:1'}, h('div', {style:'font-size:20px;font-weight:800;overflow-wrap:anywhere', text:c.name}), h('small', {text:c.sku}))),
+        pickPhotos(c, paint), h('div', {style:'min-width:0'}, h('div', {style:'font-size:20px;font-weight:800;overflow-wrap:anywhere', text:c.name}), h('small', {text:c.sku})),
         h('div', {style:'display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 4px;gap:10px'}, h('div', null, h('small', {text:'架位'}), h('div', {'aria-label':'架位', style:'font-size:34px;font-weight:800;color:var(--brand);line-height:1.1;overflow-wrap:anywhere', text:c.shelf || '—'})), h('div', {style:'text-align:right'}, h('small', {text:'數量'}), h('div', {'aria-label':'數量', style:'font-size:34px;font-weight:800;line-height:1.1;white-space:nowrap', text:num(c.qty) + ' ' + (c.unit || '')}))),
         h('small', {class:'hint', text:'庫存（扣除所有已開單據後）' + num(stockNow(c))}),
         disPrompt(c),
@@ -6640,7 +6679,7 @@ function openPickOrder(orderId, opts){
         h('div', {class:'btns', style:'margin-top:10px'}, !scan ? h('button', {class:'btn grow', style:'min-height:56px;font-size:18px', 'aria-label':'揀好了', onclick:() => mark(c, c.qty)}, '揀好了') : null, h('button', {class:'btn ghost', 'aria-label':'數量不足', onclick:() => shortSheet(c)}, '數量不足'), h('button', {class:'btn ghost', 'aria-label':'跳過這一項', onclick:() => skip(c)}, '先揀別項'))) : h('div', {class:'note', style:'font-size:16px', text:'這張單據的商品都處理完了，按「完成揀貨」。'}),
       h('div', {class:'sec-h'}, h('h2', {text:'全部商品（依架位排列）'})),
       h('div', {class:'panel'}, items.map((it, i) => { const d = pk.items && pk.items[it.pid], isCur = c && c.pid === it.pid;
-        return h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ focus = it.pid; paint(); speakCur(); } }}, pickImg(it, 44), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + '　' + num(it.qty) + ' ' + (it.unit || '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
+        return h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ focus = it.pid; paint(); speakCur(); } }}, h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + '　' + num(it.qty) + ' ' + (it.unit || '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
           d ? h('button', {class:'btn ghost sm', 'aria-label':'取消 ' + it.sku, onclick:() => unmark(it)}, '取消') : null); })),
       (pk.dis || []).length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'這張單據的拆解補貨'})), h('div', {class:'panel'}, pk.dis.map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'拆 ' + num(x.n) + '「' + x.fname + '」→ ' + num(x.yield) + '（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))))] : null);
     sh.footEl.replaceChildren(...clean([[all && !pk.done ? h('button', {class:'btn grow', style:'min-height:52px;font-size:17px', 'aria-label':'完成揀貨', onclick:finish}, '完成揀貨') : (pk.done && opts.queue && opts.queue.indexOf(orderId) >= 0 && opts.queue.indexOf(orderId) < opts.queue.length - 1 ? h('button', {class:'btn grow', 'aria-label':'下一張', onclick:() => { const nxt = opts.queue[opts.queue.indexOf(orderId) + 1]; sh.forceClose(); setTimeout(() => openPickOrder(nxt, opts), 60); }}, '下一張') : null)]]));
@@ -8029,7 +8068,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-g';
+const APP_VERSION = '2026.10.02-j';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
