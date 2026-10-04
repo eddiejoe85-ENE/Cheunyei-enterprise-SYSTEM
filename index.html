@@ -1680,7 +1680,7 @@ function ptView(){
     })));
   };
   page.append(h('div', {class:'sec'},
-    h('div', {class:'sec-h'}, h('h2', {text:'往來對象'}), h('div', {class:'btns'}, exportBtn(() => dsPartners(type)), can('partner') ? h('button', {class:'btn ghost sm', onclick:() => openPartnerImport(type)}, '匯入') : null, can('partner') ? h('button', {class:'btn sm', onclick:() => openPartnerForm(null, type)}, icon('plus'), '新增' + PLABEL[type]) : null)),
+    h('div', {class:'sec-h'}, h('h2', {text:'往來對象'}), h('div', {class:'btns'}, exportBtn(() => dsPartnerExport(type)), can('partner') ? h('button', {class:'btn ghost sm', onclick:() => openPartnerImport(type)}, '匯入') : null, can('partner') ? h('button', {class:'btn sm', onclick:() => openPartnerForm(null, type)}, icon('plus'), '新增' + PLABEL[type]) : null)),
     h('div', {class:'chips', style:'padding-top:0'}, ['customer', 'supplier'].map(k =>
       h('button', {class:'chip', 'aria-pressed':type === k, onclick:() => { S.ui.ptType = k; draw(); }}, PLABEL[k]))),
     h('label', {class:'search'}, icon('search'),
@@ -2940,8 +2940,25 @@ function suggestionsSimple(){
   }
   return out.sort((a, b) => cmpSku(a.p, b.p));
 }
+const SUG_WD = 3;
+function workdaysIn(from, to){ let n = 0; for (let d = from; d < to; d = addDays(d, 1)) if (isWorkday(d)) n++; return n; }
+function suggestions3d(){
+  const out = [], wid = sugWh(), mp = wid ? whMaps(wid) : null, vd = Number(S.set.velDays) > 0 ? Number(S.set.velDays) : 60, vel = salesVelocity(vd, wid), wd = Math.max(workdaysIn(addDays(today(), -vd), today()), 1);
+  const ron = replenOn(), fw = factoryWh(), want = {}; if (ron && wid === fw) replenPlan().rows.forEach(r => { want[r.p.id] = r.want; });
+  for (const p of activeProducts()){
+    if (p.procSrc === 'make') continue;
+    const perWd = r3((vel[p.id] || 0) * vd / wd), fc = r3(perWd * SUG_WD);
+    const rf = wid ? whRuleOf(p, wid) : {safety:p.safety || 0, moq:Number(p.moq) || 0, lot:Number(p.lot) || 0};
+    const onHand = wid ? stockAt(p.id, wid) : stockOf(p.id), commit = mp ? (mp.com[p.id] || 0) : (S.d.commit[p.id] || 0), inc = mp ? (mp.inc[p.id] || 0) : (S.d.incoming[p.id] || 0), demand = r3(Math.max(commit, fc) + (want[p.id] || 0));
+    const raw = Math.ceil(r3(demand - onHand - inc) - 0.0004); if (!(raw > 0)) continue;
+    const need = roundBuy(raw, rf.moq, rf.lot);
+    out.push({p, onHand, commit, inc, projected:r3(onHand + inc - demand), safety:rf.safety, need, raw, moq:rf.moq, lot:rf.lot, daily:perWd, velDemand:fc, days:SUG_WD, demand, atArrival:r3(onHand + inc - demand), risk:false, reason:commit > fc ? '訂單缺貨' : '預估缺貨', supplier:supplierOf(p), d3:true, wd});
+  }
+  return out.sort((a, b) => cmpSku(a.p, b.p));
+}
 function suggestions(){
   if (sugMode() === 'simple') return suggestionsSimple();
+  if (sugMode() === 'days3') return suggestions3d();
   const out = [], U = S.ui.sug, arrive = U.arrive || addDays(today(), leadOf('').max), days = Math.max(daysBetween(today(), arrive), 1), wid = sugWh(), mp = wid ? whMaps(wid) : null;
   const useVel = U.vel === null || U.vel === undefined ? S.set.useVelocity !== false : !!U.vel, vd = Number(S.set.velDays) > 0 ? Number(S.set.velDays) : 60, vel = useVel ? salesVelocity(vd, wid) : {};
   const incBefore = {}, ron = replenOn(), fw = factoryWh(), want = {}; if (ron && wid === fw) replenPlan().rows.forEach(r => { want[r.p.id] = r.want; });
@@ -3207,8 +3224,8 @@ async function makePOs(groups){
   }
 }
 function sugView(){
-  const U = S.ui.sug, list = suggestions(), wrap = h('div'), simple = sugMode() === 'simple';
-  wrap.append(h('div', {class:'chips', style:'padding-top:0'}, [['simple', '簡易公式：安全存量 − 庫存 − 在途'], ['forecast', '進階預估：含已訂未出、預估銷量']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':sugMode() === k, 'aria-label':'計算方式 ' + (k === 'simple' ? '簡易公式' : '進階預估'), onclick:() => { U.mode = k; if (S.isAdmin) S.db.doc('settings/main').update({sugMode:k}).catch(() => null); draw(); }}, t))));
+  const U = S.ui.sug, list = suggestions(), wrap = h('div'), simple = sugMode() === 'simple', d3 = sugMode() === 'days3';
+  wrap.append(h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['simple', '簡易公式：安全存量 − 庫存 − 在途'], ['forecast', '進階預估：含已訂未出、預估銷量'], ['days3', '3 個工作天預估：依銷售量']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':sugMode() === k, 'aria-label':'計算方式 ' + ({simple:'簡易公式', forecast:'進階預估', days3:'3個工作天預估'}[k]), onclick:() => { U.mode = k; if (S.isAdmin) S.db.doc('settings/main').update({sugMode:k}).catch(() => null); draw(); }}, t))));
   if (multiWh()) wrap.append(h('div', {class:'panel pad', style:'margin-bottom:12px'}, h('label', {style:'font-weight:700', text:'以哪個倉庫計算'}), (() => { const sel = h('select', {class:'in', 'aria-label':'採購建議倉庫', style:'margin-top:6px', onchange:e => { U.wh = e.target.value; draw(); }}, h('option', {value:'', text:'全部倉庫（合計庫存）'}), ...myWhs().map(w => h('option', {value:w.id, text:w.name + (w.office ? '（' + w.office + '）' : '')}))); sel.value = sugWh(); return sel; })(),
     h('small', {class:'hint', style:'display:block;margin-top:6px', text:sugWh() ? '用「' + ((whList().find(w => w.id === sugWh()) || {}).name || '') + '」的庫存、安全存量（倉庫規則）和送到這個倉庫的在途採購單來算；建立的採購單，收貨倉庫也是它。' : '用所有倉庫合計的庫存，和商品本身的安全存量來算。'})));
   const eff = s => ({qty:U.qty[s.p.id] !== undefined ? toNum(U.qty[s.p.id]) : s.need, sup:U.sup[s.p.id] !== undefined ? U.sup[s.p.id] : s.supplier, on:!U.off[s.p.id]});
@@ -3221,9 +3238,9 @@ function sugView(){
       h('div', {style:'height:6px'}), dInp, arrivalChips(lo, hi, () => U.arrive, day => { U.arrive = day; draw(); }),
       h('small', {class:'hint', style:'display:block;margin-top:6px', text:'建立的所有採購單都排在這一天到貨（同一趟回頭車）。' + (same.length ? mdw(U.arrive) + ' 已有 ' + same.length + ' 張採購單：' + same.map(x => (S.partners[x.partnerId] || {}).name || x.no).join('、') + '。' : '')}),
       bad.length ? h('small', {class:'soon', style:'display:block;margin-top:4px', text:'⚠ ' + bad.map(id => (S.partners[id] || {}).name + '通常 ' + leadOf(id).min + '～' + leadOf(id).max + ' 天').join('、') + '，這個日期可能來不及或太早。'}) : null,
-      simple ? null : h('label', {class:'check'}, h('input', {type:'checkbox', checked:vOn, 'aria-label':'估算到貨前用量', onchange:e => { U.vel = e.target.checked; draw(); }}), '把「到貨前這幾天的預估用量」算進去（依近 ' + (Number(S.set.velDays) || 60) + ' 天的平均銷量）')));
+      simple || d3 ? null : h('label', {class:'check'}, h('input', {type:'checkbox', checked:vOn, 'aria-label':'估算到貨前用量', onchange:e => { U.vel = e.target.checked; draw(); }}), '把「到貨前這幾天的預估用量」算進去（依近 ' + (Number(S.set.velDays) || 60) + ' 天的平均銷量）')));
   }
-  wrap.append(h('p', {class:'note', text:simple ? '採購建議量 = 安全存量 − 庫存量 − 採購在途量。庫存加上採購在途，已經達到安全存量的商品不會列出；沒設安全存量、庫存卻是負數的商品，會補回到 0。算出的數量再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。' : '預估可用 = 庫存 + 採購在途 − 到貨前的用量（訂單未出，或近期銷量推估，取較大者）。低於安全庫存（或為負數）的商品會列出，先算補到安全庫存 2 倍的缺口，再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。'}));
+  wrap.append(h('p', {class:'note', text:d3 ? '3 個工作天預估：先算「近 ' + (Number(S.set.velDays) || 60) + ' 天平均每個工作天的銷售量（不含週六日與休假日）」，乘以 3 個工作天，得到預估銷售量；已經接了客戶訂單、還沒出貨的數量如果比預估多，就用訂單數量。建議量 = 預估銷售量 − 庫存量 − 採購在途量，有缺口才列出，再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。不看安全存量。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入。' : simple ? '採購建議量 = 安全存量 − 庫存量 − 採購在途量。庫存加上採購在途，已經達到安全存量的商品不會列出；沒設安全存量、庫存卻是負數的商品，會補回到 0。算出的數量再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。' : '預估可用 = 庫存 + 採購在途 − 到貨前的用量（訂單未出，或近期銷量推估，取較大者）。低於安全庫存（或為負數）的商品會列出，先算補到安全庫存 2 倍的缺口，再依商品的「進貨最小數量」與「進貨批量」調整，供應商用商品的預設進貨廠商。數量、供應商都可以自行修改，再建立採購單。採購來源設為「自行生產」的商品不會列入，請改用組裝作業補貨。'}));
   if (!list.length){
     wrap.append(h('div', {class:'panel empty'}, h('b', {text:'目前沒有需要採購的商品'}), '庫存與在途足夠應付訂單與安全庫存。'));
     return wrap;
@@ -3248,7 +3265,7 @@ function sugView(){
       h('input', {type:'checkbox', checked:r.on, 'aria-label':'選取 ' + r.p.name, onchange:e => { if (e.target.checked) delete U.off[r.p.id]; else U.off[r.p.id] = true; draw(); }}),
       h('div', {style:'min-width:0'}, h('b', {text:r.p.name}), h('br'),
         h('small', {text:r.p.sku + '　庫存 ' + num(r.onHand) + (r.simple ? '' : '　訂單 −' + num(r.commit)) + '　在途 +' + num(r.inc) + (r.safety > 0 ? '　安全 ' + num(r.safety) : '')}), h('br'),
-        r.simple ? h('small', {class:'soon', text:r.reason + '：安全存量 ' + num(r.safety) + ' − 庫存 ' + num(r.onHand) + ' − 在途 ' + num(r.inc) + ' ＝ ' + num(r.raw)}) : h('small', {class:(r.reason === '訂單缺貨' || r.reason === '預估缺貨') ? 'overdue' : 'soon', text:r.reason + '，預估可用 ' + num(r.projected) + '，缺口 ' + num(r.raw)}), r.velDemand > 0 ? [h('br'), h('small', {text:'到貨前 ' + r.days + ' 天預估用量 ' + num(r.velDemand) + '（平均每天 ' + num(r3(r.daily)) + '）'})] : null, r.risk ? [h('br'), h('small', {class:'overdue', text:'⚠ 採購單到貨前，現有庫存可能就不夠了'})] : null,
+        r.d3 ? h('small', {class:r.reason === '訂單缺貨' ? 'overdue' : 'soon', text:r.reason + '：' + (r.commit > r.velDemand ? '客戶訂單未出 ' + num(r.commit) : '預估 3 個工作天銷量 ' + num(r.velDemand) + '（平均每個工作天 ' + num(r3(r.daily)) + '）') + ' − 庫存 ' + num(r.onHand) + ' − 在途 ' + num(r.inc) + ' ＝ ' + num(r.raw)}) : r.simple ? h('small', {class:'soon', text:r.reason + '：安全存量 ' + num(r.safety) + ' − 庫存 ' + num(r.onHand) + ' − 在途 ' + num(r.inc) + ' ＝ ' + num(r.raw)}) : h('small', {class:(r.reason === '訂單缺貨' || r.reason === '預估缺貨') ? 'overdue' : 'soon', text:r.reason + '，預估可用 ' + num(r.projected) + '，缺口 ' + num(r.raw)}), r.velDemand > 0 && !r.d3 ? [h('br'), h('small', {text:'到貨前 ' + r.days + ' 天預估用量 ' + num(r.velDemand) + '（平均每天 ' + num(r3(r.daily)) + '）'})] : null, r.risk ? [h('br'), h('small', {class:'overdue', text:'⚠ 採購單到貨前，現有庫存可能就不夠了'})] : null,
         buyRule(r.p) ? [h('br'), h('small', {text:buyRule(r.p) + (r.need !== r.raw ? '　→ 建議 ' + num(r.need) : '')})] : null),
       h('div', {class:'right'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:r.qty, 'aria-label':'採購數量 ' + r.p.name, 'data-k':'sug-' + r.p.id, style:'height:40px;text-align:center',
         onfocus:e => e.target.select(), onchange:e => { U.qty[r.p.id] = e.target.value; draw(); }}), h('small', {text:buyOn() ? money(r2(r.qty * (r.p.cost || 0))) : ''})))))));
@@ -5658,7 +5675,7 @@ function openArReturn(){
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -8138,7 +8155,7 @@ function openPartnerMgmt(type){
     const body = h('div', null, h('div', {class:'panel ledger'}, h('div', {class:'row'}, h('span', {text:PLABEL[type] + '數'}), h('b', {text:all.length})), h('div', {class:'row'}, h('span', {text:isCust ? '應收帳款合計' : '應付帳款合計'}), h('b', {text:money(r2(all.reduce((a, p) => a + (S.d.bal[p.id] || 0), 0)))}))),
       h('div', {style:'height:8px'}), search, isCust ? group('等級', 'level', uniq('level')) : null, isCust ? group('業務', 'sales', uniq('salesRep')) : null, group('地區', 'region', uniq('region')), listBox);
     fill();
-    return {body, foot:[see('export') ? h('button', {class:'btn ghost', onclick:() => openExport(dsPartners(type))}, icon('down'), '匯出') : null, can('partner') ? h('button', {class:'btn ghost', onclick:() => openPartnerImport(type)}, '匯入') : null, can('partner') ? h('button', {class:'btn grow', onclick:() => openPartnerForm(null, type)}, icon('plus'), '新增' + PLABEL[type]) : null].filter(Boolean)};
+    return {body, foot:[see('export') ? h('button', {class:'btn ghost', onclick:() => openExport(dsPartnerExport(type))}, icon('down'), type === 'customer' ? '匯出客戶資料' : '匯出') : null, can('partner') ? h('button', {class:'btn ghost', onclick:() => openPartnerImport(type)}, '匯入') : null, can('partner') ? h('button', {class:'btn grow', onclick:() => openPartnerForm(null, type)}, icon('plus'), '新增' + PLABEL[type]) : null].filter(Boolean)};
   });
 }
 
@@ -8427,7 +8444,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-x';
+const APP_VERSION = '2026.10.02-aa';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -8435,7 +8452,7 @@ const MENU_CATS = [
   ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
   ['收款與帳務', 'wallet', ['應收帳款報表', '應收帳款清單回傳表', '應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
   ['票據與現金', 'lock', ['支票代收作業', '保管管理', '其他收支作業']],
-  ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入']],
+  ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入', '資料匯入匯出']],
   ['人事與考核', 'clock', ['人員管理', '上下班打卡', '我的考勤', '考勤管理', '配送錯誤與考核', '獎金與薪資']],
   ['報表與稽核', 'chart', ['營運報表', '單據覆核', '期間封存']],
   ['系統與設定', 'sliders', ['系統設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
@@ -8451,7 +8468,7 @@ function menuGroups(){
   const goTab = (tab, ui) => () => { S.tab = tab; if (ui) Object.assign(S.ui, ui); window.scrollTo(0, 0); draw(); };
   const M = (label, ok, fn, desc) => ({label, ok:!!ok, fn, desc:desc || ''});
   const raw = [
-    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
+    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
     ['訂購', [M('國內報價作業', can('sale'), goTab('buy', {buySeg:'qt'}), '報價單，可轉客戶訂單'), M('國內訂單作業', can('sale'), goTab('buy', {buySeg:'co'}), '客戶訂單、未交查詢'), M('採購建議作業', can('purchase'), goTab('buy', {buySeg:'sug'}), '依安全庫存與最小量自動建議'), M('國內採購單', can('purchase'), goTab('buy', {buySeg:'po'}), '採購單、收貨進貨')]],
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
@@ -8610,7 +8627,7 @@ const PI_FIELDS = [
   ['address', '公司地址', ['公司地址', '地址']], ['shipAddress', '送貨地址', ['送貨地址', '交貨地址']], ['taxId', '統一編號', ['統一編號', '統編']], ['taxTitle', '統編抬頭', ['統編抬頭', '發票抬頭', '抬頭']], ['invoiceAddress', '發票地址', ['發票地址']],
   ['level', '分類等級', ['分類等級', '客戶等級', '等級', '分類']], ['payMethod', '付款方式', ['付款方式', '付款條件']], ['billDay', '結帳日期', ['結帳日期', '結帳日', '月結帳日']], ['termDays', '付款天數', ['付款天數', '帳期天數']],
   ['discount', '現金折讓%', ['現金折讓%', '現金折%', '折讓%', '現金折讓', '折讓']], ['invoiceMode', '開立發票方式', ['開立發票方式', '發票方式']], ['taxOpt', '稅別', ['稅別']],
-  ['bankAccount', '匯款帳號', ['匯款帳號', '匯入帳號', '匯入帳款帳號']], ['checkAccount', '支票帳號', ['支票帳號']], ['paymentNote', '收款注意事項', ['收款注意事項', '收款時間及注意事項', '收款注意']], ['note', '備註', ['備註', '基本資料']]];
+  ['custCat', '客戶類別', ['客戶類別', '類別']], ['office', '負責營業所', ['負責營業所', '營業所']], ['bankAccount', '匯款帳號', ['匯款帳號', '匯入帳號', '匯入帳款帳號']], ['checkAccount', '支票帳號', ['支票帳號']], ['paymentNote', '收款注意事項', ['收款注意事項', '收款時間及注意事項', '收款注意']], ['note', '備註', ['備註', '基本資料']]];
 const piNorm = t => String(t).replace(/[\s　]/g, '').toUpperCase();
 function decodeCsv(buf){
   const u = new Uint8Array(buf);
@@ -8645,6 +8662,8 @@ function planPartnerImport(text, type, mode){
     if (g('termDays')){ const td = Math.round(toNum(g('termDays'))); if (td >= 0) data.termDays = td; }
     const tx = piTax(g('taxOpt')); if (tx === null) warn.push('稅別「' + g('taxOpt') + '」看不懂，已略過'); else if (tx){ const [a, b] = tx.split(':'); data.taxType = a; data.taxMode = b; }
     const iv = piInv(g('invoiceMode')); if (iv === null) warn.push('開立發票方式「' + g('invoiceMode') + '」看不懂，已略過'); else if (iv) data.invoiceMode = iv;
+    const cc = g('custCat'); if (cc){ if (custCatList().some(c => c.name === cc)) data.custCat = cc; else warn.push('客戶類別「' + cc + '」不在設定的類別裡，已略過'); }
+    const of0 = g('office'); if (of0){ if (officeList().includes(of0)) data.office = of0; else warn.push('負責營業所「' + of0 + '」不在系統設定的營業所裡，已略過'); }
     const ex = (code && byCode.get(code.toUpperCase())) || byName.get(name);
     if (ex){ if (mode === 'add'){ nSkip++; issues.push('第 ' + line + ' 列：「' + name + '」已存在，略過'); return; } items.push({line, action:'update', id:ex.id, name, data:{...data, ...(name !== ex.name ? {name} : {})}, warn}); nUp++; }
     else { items.push({line, action:'new', name, data:{...data, name}, warn}); nNew++; }
@@ -8670,7 +8689,7 @@ function openPartnerImport(type){
   };
   const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px',
     onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { st.text = decodeCsv(rd.result); paint(); }; rd.readAsArrayBuffer(f); }});
-  const modeChips = h('div', {class:'chips', style:'padding-top:0'}, [['upsert', '新增，並更新已存在的'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
+  const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['upsert', '新增，並更新已存在的'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   goBtn.addEventListener('click', async () => {
     const p = st.plan; if (!p || !p.items.length) return;
     if (p.nUp && !await dialog({title:'更新 ' + p.nUp + ' 筆既有' + L + '？', msg:'只會覆蓋檔案裡有填的欄位，空白欄位不會清掉原本的資料。', ok:'開始匯入'})) return;
@@ -8687,7 +8706,7 @@ function openPartnerImport(type){
     goBtn.textContent = '開始匯入';
     if (ok){ toast('已匯入：新增 ' + p.nNew + '、更新 ' + p.nUp + ' 筆'); sh.forceClose(); } else goBtn.disabled = false;
   });
-  const HEAD = PI_FIELDS.filter(([k]) => type === 'customer' || !['salesRep', 'shipAddress', 'invoiceAddress', 'level', 'invoiceMode', 'checkAccount', 'discount'].includes(k));
+  const HEAD = PI_FIELDS.filter(([k]) => type === 'customer' || !['salesRep', 'shipAddress', 'invoiceAddress', 'level', 'invoiceMode', 'checkAccount', 'discount', 'custCat', 'office'].includes(k));
   put(sh.bodyEl, h('p', {class:'note', text:'用 CSV 檔批次建立或更新' + L + '。第一列是欄位名稱，只有「' + (type === 'customer' ? '客戶名稱' : '客戶名稱') + '」必填，其他欄位有就填。Excel 請另存成 CSV（中文編碼 UTF-8 或一般 CSV 都可以）。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', onclick:() => saveFile(L + '資料匯入範本.csv', csvText([HEAD.map(x => x[1]),
       HEAD.map(([k]) => ({code:'C001', name:'大同食品有限公司', shortName:'大同', salesRep:'小王', region:'北區', owner:'陳大同', phone:'02-2222-3333', fax:'02-2222-3334', lineId:'datong', contactName:'王小姐', contactPhone:'0912-345-678', address:'台北市中山區中山北路二段55號3樓', shipAddress:'台北市內湖區瑞光路100號', taxId:'22555003', taxTitle:'大同食品有限公司', invoiceAddress:'台北市中山區中山北路二段55號3樓', level:'批發', payMethod:'月結', billDay:25, termDays:0, discount:'', invoiceMode:'月結開立', taxOpt:'應稅（未稅價）', bankAccount:'', checkAccount:'', paymentNote:'每月 5 日前付款', note:''})[k] ?? ''),
@@ -9579,6 +9598,20 @@ function dsOrders(){
   return {title:'單據查詢', sub:'篩選：' + ((S.ui.ordType ? (TYPES[S.ui.ordType] || {}).label : '全部類型') + (S.ui.ordQ.trim() ? '　搜尋「' + S.ui.ordQ.trim() + '」' : '')) + '　共 ' + list.length + ' 張　' + today(), filename:'單據查詢',
     sections:[{name:'單據', cols, rows, foot}, {name:'品項明細', opt:true, cols:[XC('日期', 'text', 12), XC('單號', 'text', 20), XC('類型', 'text', 10), XC('倉庫', 'text', 12), XC('往來對象', 'text', 20), XC('料號', 'text', 12), XC('品名', 'text', 26), XC('數量', 'qty', 10), XC('單位', 'text', 8), XC('單價', 'money', 10), XC('金額', 'money', 12), XC('狀態', 'text', 8)], rows:det}]};
 }
+const piPayOut = p => { const m = payMethodOf(p); return m === 'days' ? '開單後' + (Number(p.termDays) || 0) + '天' : (PAYM[m] || ''); };
+const piTaxOut = p => (TAXOPTS.find(([k]) => k === (p.taxType || '') + ':' + (p.taxMode || 'excl')) || ['', ''])[1];
+function dsCustomerMaster(){
+  const ag = aging('customer'), bi = t => billingOf(t);
+  const list = Object.values(S.partners).filter(p => p.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true}) || cmpName(a, b));
+  const val = (p, k) => { switch (k){
+    case 'level': return p.level || ''; case 'payMethod': return piPayOut(p); case 'taxOpt': return piTaxOut(p); case 'invoiceMode': return INVM[p.invoiceMode] || '';
+    case 'discount': return p.discount ? Number(p.discount) : ''; case 'billDay': return p.billDay === undefined || p.billDay === '' ? '' : Number(p.billDay); case 'termDays': return Number(p.termDays) || 0;
+    case 'taxId': return p.taxId || ''; default: return p[k] == null ? '' : String(p[k]); } };
+  const cols = [...PI_FIELDS.map(([k, label]) => XC(label, ['discount', 'billDay', 'termDays'].includes(k) ? 'number' : 'text', ['address', 'shipAddress', 'invoiceAddress', 'paymentNote', 'note', 'name', 'taxTitle'].includes(k) ? 26 : 13)), XC('有效價格等級（參考）', 'text', 14), XC('叫貨店面（參考）', 'text', 20), XC('應收帳款（參考）', 'money', 14), XC('逾期金額（參考）', 'money', 14)];
+  const rows = list.map(p => [...PI_FIELDS.map(([k]) => val(p, k)), levelOf(p), (p.stores || []).join('、'), S.d.bal[p.id] || 0, ag.byP[p.id] ? lateOf(ag.byP[p.id].b) : 0]);
+  return {title:'客戶基本資料', sub:'共 ' + list.length + ' 位客戶　' + today() + '　欄位和「客戶資料匯入」相同，修改後可以存成 CSV 再匯入來更新', filename:'客戶基本資料_' + today(), sections:[{name:'客戶基本資料', cols, rows}]};
+}
+const dsPartnerExport = type => type === 'customer' ? dsCustomerMaster() : dsPartners(type);
 function dsPartners(type){
   const ag = aging(type), q = S.ui.ptQ.trim().toLowerCase(), isCust = type === 'customer';
   const list = Object.values(S.partners).filter(p => p.type === type && (!q || (p.name + ' ' + (p.phone || '') + ' ' + (p.code || '')).toLowerCase().includes(q))).sort(cmpName);
@@ -9663,7 +9696,8 @@ function dsStatement(pid){
 }
 
 const COLS = {sku:['料號', 'sku', '編號'], barcode:['條碼', 'barcode', 'ean', 'upc'], name:['品名', 'name', '名稱', '商品名稱'], category:['分類', 'category'], unit:['單位', 'unit'],
-  cost:['進價', '成本', 'cost'], price:['售價', 'price'], safety:['安全庫存', 'safety'], shelf:['架位', '貨架', '儲位', 'shelf', 'location'], labelSpec:['標籤規格', '標籤', 'label'], opening:['期初庫存', '庫存', 'opening', 'stock']};
+  cost:['進價', '成本', 'cost'], price:['售價', 'price'], safety:['安全庫存', 'safety'], shelf:['架位', '貨架', '儲位', 'shelf', 'location'], labelSpec:['標籤規格', '標籤', 'label'], opening:['期初庫存', '庫存', 'opening', 'stock'],
+  supplier:['供應商', '進貨廠商', '廠商', 'supplier'], moq:['最小採購量', '最小進貨量', '進貨最小數量', 'moq'], lot:['進貨批量', '採購批量', '批量', 'lot'], volume:['材積', '材積（才）', '才數', 'volume'], procSrc:['採購來源', '來源'], status:['狀態', '停用']};
 function parseCSV(t){
   t = String(t).replace(/^\ufeff/, '');
   const rows = []; let row = [], cur = '', q = false;
@@ -9678,73 +9712,121 @@ function parseCSV(t){
   if (cur !== '' || row.length){ row.push(cur); rows.push(row); }
   return rows.filter(r => r.some(x => String(x).trim() !== ''));
 }
-function planImport(text){
+const piSup = t => { t = String(t || '').trim(); if (!t) return ''; const sup = Object.values(S.partners).find(x => x.type === 'supplier' && [x.name, x.shortName, x.code].some(v => v && String(v).trim() === t)); return sup ? sup.id : null; };
+const piSrc = t => { t = String(t || '').replace(/[\s　]/g, ''); if (!t) return ''; if (/生產|自製|自行|make/i.test(t)) return 'make'; if (/採購|進貨|buy/i.test(t)) return 'buy'; return null; };
+const piActive = t => { t = String(t || '').replace(/[\s　]/g, ''); if (!t) return ''; if (/停用|停售|下架|否|^n$|no|false|0/i.test(t)) return false; if (/啟用|使用|上架|是|^y$|yes|true|1/i.test(t)) return true; return null; };
+const PROD_NUM = ['cost', 'price', 'safety', 'moq', 'lot', 'volume'];
+function planImport(text, mode){
+  mode = mode || 'upsert';
   const rows = parseCSV(text);
   if (rows.length < 2) return {error:'檔案沒有資料列'};
   const head = rows[0].map(x => String(x).trim().toLowerCase()), idx = {};
-  for (const k in COLS) idx[k] = head.findIndex(x => COLS[k].includes(x));
+  for (const k in COLS) idx[k] = head.findIndex(x => COLS[k].map(y => y.toLowerCase()).includes(x));
   if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」'};
-  const seen = new Set(Object.values(S.products).map(p => String(p.sku).toLowerCase()));
-  const items = [], skipped = [];
+  const bySku = new Map(Object.values(S.products).map(p => [String(p.sku).toLowerCase(), p]));
+  const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0;
   rows.slice(1).forEach((r, n) => {
-    const g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
+    const line = n + 2, g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
     const bc = g('barcode'), sku = g('sku') || bc, name = g('name');
-    if (!sku || !name){ skipped.push('第 ' + (n + 2) + ' 列：缺少料號或品名'); return; }
-    if (seen.has(sku.toLowerCase())){ skipped.push('第 ' + (n + 2) + ' 列：料號 ' + sku + ' 重複'); return; }
+    if (!sku || !name){ skipped.push('第 ' + line + ' 列：缺少料號或品名'); return; }
+    if (seen.has(sku.toLowerCase())){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 在檔案中重複'); return; }
     seen.add(sku.toLowerCase());
-    items.push({sku, barcode:bc && bc !== sku ? bc : '', name, category:g('category'), unit:g('unit') || '個', cost:Math.max(toNum(g('cost')), 0), price:Math.max(toNum(g('price')), 0), safety:Math.max(toNum(g('safety')), 0), shelf:g('shelf'), labelSpec:g('labelSpec'), opening:Math.max(toNum(g('opening')), 0)});
+    const data = {}, warn = [];
+    for (const k of ['category', 'unit', 'shelf', 'labelSpec']){ const v = g(k); if (v) data[k] = v; }
+    if (bc && bc !== sku) data.barcode = bc;
+    for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const t = v.replace(/[,，\s$＄元]/g, ''), x = /^\d+(\.\d+)?$/.test(t) ? Number(t) : null; if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字，已略過'); } }
+    const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
+    const ps = piSrc(g('procSrc')); if (ps === null) warn.push('採購來源「' + g('procSrc') + '」看不懂（請寫國內採購或自行生產），已略過'); else if (ps) data.procSrc = ps;
+    const ac = piActive(g('status')); if (ac === null) warn.push('狀態「' + g('status') + '」看不懂（請寫啟用或停用），已略過'); else if (ac !== '') data.active = ac;
+    const ex = bySku.get(sku.toLowerCase());
+    if (warn.length){ nWarn += warn.length; warn.forEach(w => issues.push('第 ' + line + ' 列「' + sku + '」：' + w)); }
+    if (ex){
+      if (mode === 'add'){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 已存在，略過'); return; }
+      const patch = {}; if (name !== ex.name) patch.name = name;
+      for (const [k, v] of Object.entries(data)){ const cur = ex[k]; if (typeof v === 'number' ? Number(cur || 0) !== v : (k === 'active' ? (ex.active !== false) !== v : (k === 'procSrc' ? (ex.procSrc === 'make' ? 'make' : 'buy') !== v : String(cur == null ? '' : cur) !== String(v)))) patch[k] = v; }
+      if (!Object.keys(patch).length){ nSame++; return; }
+      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch}); nUp++;
+    } else {
+      items.push({line, action:'new', sku, name, data:{sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', ...data}, opening:Math.max(toNum(g('opening')), 0)}); nNew++;
+    }
   });
-  return {items, skipped};
+  return {items, skipped, issues, nNew, nUp, nSame, nWarn};
+}
+const dsProductMaster = () => {
+  const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '';
+  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
+  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, p.shelf || '', p.labelSpec || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', stockOf(p.id)]);
+  return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和「匯入商品」相同，修改後存成 CSV 再匯入，就會依料號更新', filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
+};
+/* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
+function openDataHub(){
+  if (!can('partner') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  liveSheet({title:'資料匯入匯出'}, ['partners', 'products'], sh => {
+    const nCust = Object.values(S.partners).filter(x => x.type === 'customer').length, nSup = Object.values(S.partners).filter(x => x.type === 'supplier').length, nProd = Object.keys(S.products).length;
+    const card = (key, title, n, unit, desc, exp, imp) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 ' + title},
+      h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:title}), h('span', {class:'hint', text:n + ' ' + unit})),
+      h('p', {class:'hint', style:'margin:4px 0 10px', text:desc}),
+      h('div', {class:'btns'}, see('export') ? h('button', {class:'btn', style:'flex:1', 'aria-label':'匯出' + title, onclick:exp}, icon('down'), '匯出') : null, can('partner') || S.isAdmin ? h('button', {class:'btn ghost', style:'flex:1', 'aria-label':'匯入' + title, onclick:imp}, '匯入／更新') : null));
+    const body = h('div', null,
+      h('div', {class:'note', style:'margin-top:0', text:'匯出的 CSV，欄位和匯入完全一樣：先匯出、在 Excel 改好，再匯入，就能批次更新。匯入時，檔案裡空白的欄位不會清掉原本的資料。'}),
+      card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
+      card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
+      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、進價、售價、安全庫存、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
+      S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
+    return {body};
+  });
 }
 function openImport(){
-  const sh = sheet({title:'匯入商品'});
-  const info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
-  let plan = null;
-  const file = h('input', {type:'file', accept:'.csv,text/csv', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px',
-    onchange:e => {
-      const f = e.target.files && e.target.files[0]; if (!f) return;
-      const rd = new FileReader();
-      rd.onload = () => {
-        plan = planImport(rd.result);
-        if (plan.error){ setKids(info, h('div', {class:'note bad', text:plan.error})); goBtn.disabled = true; return; }
-        const over = docCount() + plan.items.length + (plan.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
-        setKids(info,
-          h('div', {class:'note', text:'可匯入 ' + plan.items.length + ' 項商品，略過 ' + plan.skipped.length + ' 列。'}),
-          over ? h('div', {class:'note bad', text:'匯入後會超過資料量上限（' + DOC_LIMIT + '）。'}) : null,
-          plan.skipped.length ? h('ul', null, plan.skipped.slice(0, 8).map(t => h('li', null, h('small', {text:t})))) : null);
-        goBtn.disabled = !plan.items.length || over;
-      };
-      rd.readAsText(f, 'utf-8');
-    }});
+  const sh = sheet({title:'產品基本資料匯入／匯出'});
+  const st = {mode:'upsert', text:null, plan:null}, info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
+  const paint = () => {
+    if (st.text == null){ setKids(info); goBtn.disabled = true; return; }
+    const pl = st.plan = planImport(st.text, st.mode);
+    if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error})); goBtn.disabled = true; return; }
+    const over = docCount() + pl.nNew + (pl.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
+    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+      over ? h('div', {class:'note bad', text:'匯入後會超過資料量上限（' + DOC_LIMIT + '）。'}) : null,
+      pl.nUp ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的商品（前 5 項）'}), h('ul', null, pl.items.filter(i => i.action === 'update').slice(0, 5).map(i => h('li', null, h('small', {text:i.sku + ' ' + i.name + '：' + Object.keys(i.data).map(k => ({name:'品名', category:'分類', unit:'單位', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態'}[k] || k)).join('、')}))))) : null,
+      (pl.issues.length || pl.skipped.length) ? h('div', {style:'margin-top:8px'}, h('b', {text:'注意事項'}), h('ul', null, [...pl.issues, ...pl.skipped].slice(0, 8).map(t => h('li', null, h('small', {text:t}))), pl.issues.length + pl.skipped.length > 8 ? h('li', null, h('small', {text:'…還有 ' + (pl.issues.length + pl.skipped.length - 8) + ' 項'})) : null)) : null);
+    goBtn.disabled = !(pl.nNew + pl.nUp) || over;
+  };
+  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { st.text = decodeCsv(rd.result); paint(); }; rd.readAsArrayBuffer(f); }});
+  const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['upsert', '新增，並更新已存在的（依料號）'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'匯入方式 ' + t, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   goBtn.addEventListener('click', async () => {
-    if (!plan || !plan.items.length) return;
+    const pl = st.plan; if (!pl || !(pl.nNew + pl.nUp)) return;
+    if (pl.nUp && !await dialog({title:'更新 ' + pl.nUp + ' 項既有商品？', msg:'只會覆蓋檔案裡有填的欄位，空白欄位不會清掉原本的資料。庫存不會因為匯入而改變（「期初庫存」只用在新增的商品）。', ok:'開始匯入'})) return;
     goBtn.disabled = true;
     const opening = []; let done = 0;
     const ok = await run(async () => {
-      for (let i = 0; i < plan.items.length; i += 5){
-        const chunk = plan.items.slice(i, i + 5);
+      for (let i = 0; i < pl.items.length; i += 5){
+        const chunk = pl.items.slice(i, i + 5);
         const write = () => Promise.all(chunk.map(async it => {
-          const ref = S.db.collection('products').doc();
-          const {opening:op, ...data} = it;
-          await ref.set({...data, ...(data.supplierId ? {} : (defaultSupplierId() ? {supplierId:defaultSupplierId()} : {})), active:true, createdBy:S.meId, createdAt:Date.now()});
-          if (op > 0) opening.push({pid:ref.id, name:it.name, sku:it.sku, unit:it.unit, qty:op, counted:op, before:0, price:0, cost:it.cost});
+          if (it.action === 'update'){ await S.db.doc('products/' + it.id).update(it.data); return; }
+          const ref = S.db.collection('products').doc(), data = {...it.data};
+          await ref.set({...data, ...(data.supplierId ? {} : (defaultSupplierId() ? {supplierId:defaultSupplierId()} : {})), active:data.active === false ? false : true, createdBy:S.meId, createdAt:Date.now()});
+          if (it.opening > 0) opening.push({pid:ref.id, name:it.name, sku:it.sku, unit:data.unit || '個', qty:it.opening, counted:it.opening, before:0, price:0, cost:data.cost || 0});
         }));
         try { await write(); } catch (e) { if (e && e.code === 'resource_exhausted'){ await new Promise(r => setTimeout(r, 1200)); await write(); } else throw e; }
-        done += chunk.length; goBtn.textContent = '匯入中 ' + done + ' / ' + plan.items.length;
+        done += chunk.length; goBtn.textContent = '匯入中 ' + done + ' / ' + pl.items.length;
       }
       if (opening.length) await createOrder('adjust', {lines:opening, note:'期初庫存匯入'});
       return true;
     });
     goBtn.textContent = '開始匯入';
-    if (ok){ toast('已匯入 ' + plan.items.length + ' 項商品'); sh.forceClose(); } else goBtn.disabled = false;
+    if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + ' 項'); sh.forceClose(); } else goBtn.disabled = false;
   });
-  sh.bodyEl.append(
-    h('p', {class:'note', text:'CSV 第一列為欄位名稱：料號、品名、分類、單位、進價、售價、安全庫存、期初庫存、條碼（選填）。料號與品名為必填，重複的料號會略過。'}),
-    h('div', {class:'btns', style:'margin-bottom:14px'}, h('button', {class:'btn ghost sm', onclick:() => saveFile('商品匯入範本.csv', csvText([
-      ['料號', '品名', '分類', '單位', '進價', '售價', '安全庫存', '期初庫存', '條碼'],
-      ['A001', '礦泉水 600ml', '飲料', '瓶', 8, 15, 48, 120, '4710000000017'],
-      ['A002', '綠茶 500ml', '飲料', '瓶', 12, 25, 24, 60, '']]))}, icon('down'), '下載範本')),
-    fld('選擇 CSV 檔', file), info);
+  const HEAD = ['料號', '品名', '分類', '單位', '進價', '售價', '安全庫存', '期初庫存', '條碼', '架位', '標籤規格', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態'];
+  put(sh.bodyEl,
+    h('div', {class:'sec-h', style:'margin-top:0'}, h('h2', {text:'匯出'})),
+    h('p', {class:'note', text:'把全部商品的基本資料匯出成 Excel、PDF 或 CSV。要修改後再匯入，請選 CSV：欄位和下面的匯入完全一樣。'}),
+    see('export') ? h('button', {class:'btn ghost', style:'width:100%;margin-bottom:14px', 'aria-label':'匯出產品基本資料', onclick:() => openExport(dsProductMaster())}, icon('down'), '匯出產品基本資料（' + Object.keys(S.products).length + ' 項）') : null,
+    h('div', {class:'sec-h'}, h('h2', {text:'匯入'})),
+    h('p', {class:'note', text:'CSV 第一列是欄位名稱。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
+    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD,
+      ['A001', '礦泉水 600ml', '飲料', '瓶', 8, 15, 48, 120, '4710000000017', 'A-01', '', '鑫城實業股份有限公司', 24, 12, 0.02, '國內採購', '啟用'],
+      ['A002', '綠茶 500ml', '飲料', '瓶', 12, 25, 24, 60, '', '', '', '', '', '', '', '國內採購', '啟用']]))}, icon('down'), '下載範本')),
+    fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。'}))));
   sh.footEl.append(goBtn);
 }
 
