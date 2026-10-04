@@ -3,6 +3,8 @@
 (function (root) {
   function fixErr(e) {
     if (e && typeof e === 'object') e.code = String(e.code || '').replace(/^firestore\//, '').replace(/-/g, '_');
+    /* 資料庫突然說「沒有權限」：可能是費用保護把資料庫暫時鎖住了，通知啟動程式去確認（它會問雲端函式，不是每個錯誤都會問） */
+    if (e && e.code === 'permission_denied' && typeof root.__onPermDenied === 'function') { try { root.__onPermDenied(e); } catch (_) {} }
     return e;
   }
   const wrap = p => Promise.resolve(p).catch(e => { throw fixErr(e); });

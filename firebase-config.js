@@ -11,3 +11,6 @@ window.FIREBASE_CONFIG = {
 /* 集合名稱前綴：這套系統的資料都會放在「inv_」開頭的集合（例如 inv_orders），
  * 避免和你原本資料庫裡的集合撞名。建立好資料後請不要再改這個值。 */
 window.INV_PREFIX = "inv_";
+
+/* 雲端函式（LINE、備份、費用保護）所在的區域；要和 line-functions/index.js 裡的 REGION 一樣 */
+window.FUNCTIONS_REGION = 'asia-east1';

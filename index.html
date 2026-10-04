@@ -394,8 +394,8 @@ const S = {
   db:null, user:null, dl:null,
   me:null, meId:null, canWrite:true, isAdmin:false,
   products:{}, partners:{}, orders:{}, payments:{}, notes:{}, counts:{}, countlines:{}, corders:{}, porders:{}, prules:{},
-  set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{},
-  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, settings:false},
+  set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{}, lineorders:{}, alerts:{}, handovers:{},
+  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
   d:{stock:{}, stockW:{}, vehOdo:{}, bal:{}, alloc:{}, fill:{}, commit:{}, incoming:{}, lastSup:{}, usedP:new Set(), usedPt:new Set(), cats:[]},
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
@@ -558,6 +558,14 @@ function dialog({title, msg, ok = '確定', cancel = '取消', danger = false, s
           single ? null : h('button', {class:'btn ghost', onclick:() => done(false)}, cancel),
           h('button', {class:'btn' + (danger ? ' danger' : ''), onclick:() => done(true)}, ok))));
     document.body.append(scrim);
+  });
+}
+
+function promptText(title, val){
+  return new Promise(res => {
+    const inp = h('input', {class:'in', value:val || '', 'aria-label':title, autocomplete:'off', style:'width:100%;margin:8px 0 4px'}), done = v => { scrim.remove(); res(v); };
+    const scrim = h('div', {class:'dlg-scrim', onmousedown:e => { if (e.target === scrim) done(null); }}, h('div', {class:'dlg', role:'alertdialog', 'aria-modal':'true'}, h('h3', {text:title}), inp, h('div', {class:'btns'}, h('button', {class:'btn ghost', onclick:() => done(null)}, '取消'), h('button', {class:'btn', onclick:() => done(inp.value)}, '確定'))));
+    document.body.append(scrim); setTimeout(() => inp.focus(), 30); inp.addEventListener('keydown', e => { if (e.key === 'Enter') done(inp.value); });
   });
 }
 
@@ -777,6 +785,11 @@ function orderRow(o){
 function pHome(){
   const page = h('div', {class:'wrap page'}), qp = quickPunchCard(); if (qp) page.append(qp);
   { const dc = driverHomeCard(); if (dc) page.append(dc); }
+  { const ac = alertsHomeCard(); if (ac) page.append(ac); }
+  { const sb = salesBoard(); if (sb) page.append(sb); }
+  { const hc = handHomeCard(); if (hc) page.append(hc); }
+  { const cc = cycHomeCard(); if (cc) page.append(cc); }
+  { const lc = lineHomeCard(); if (lc) page.append(lc); }
   page.append(homeTiles()); page.append(homeFavs());
   if (can('stock') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'調庫補貨提示', onclick:openReplenish}, h('span', null, h('b', {text:whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存'}), h('br'), h('small', {text:'可以依規則從「' + whName(pl.src) + '」調庫補貨'})), h('small', {class:'chev', text:'›'}))))); }
   if (reviewOn() && canReviewPerm()){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'待覆核單據', onclick:openReviewQueue}, h('span', null, h('b', {text:'待覆核單據 ' + pend.length + ' 張'}), h('br'), h('small', {text:'覆核後單據鎖定，不能再修改或作廢'})), h('small', {class:'chev', text:'›'}))))); }
@@ -1114,6 +1127,7 @@ async function createOrder(type, o){
   const doc = {no:type === 'sale' ? await nextSerialNo(T.pref, date) : T.pref + date.slice(2).replace(/-/g, '') + '-' + rid(), type, date, partnerId:o.partnerId || null, lines:o.lines,
     total:o.total || 0, paid:o.paid || 0, note:o.note || '', status:'posted', ...stamp(), at:Date.now(), ...(o.extra || {})};
   if (o.tax){ doc.net = o.tax.net; doc.tax = o.tax.tax; doc.taxType = o.tax.type; doc.taxMode = o.tax.mode; }
+  if ((type === 'sale' || type === 'sale_return') && !doc.bu) doc.bu = buOf(S.partners[o.partnerId]);
   const ref = S.db.collection('orders').doc();
   await ref.set(doc);
   if (type === 'purchase') { try { await autoCost(doc, stockBefore); } catch (e) { console.error(e); } }
@@ -1756,11 +1770,13 @@ function openPartnerForm(id, type){
     region:h('input', {class:'in', list:'regionList', value:ex ? ex.region || '' : '', autocomplete:'off', 'aria-label':'地區'}),
     invoiceMode:(() => { const s2 = h('select', {class:'in', 'aria-label':'開立發票方式'}, h('option', {value:'', text:'未指定'}), ...Object.entries(INVM).map(([k, t]) => h('option', {value:k, text:t}))); s2.value = ex ? ex.invoiceMode || '' : ''; return s2; })(),
     discount:(() => { const rs = [...new Set([0, ...discRates(), ...(ex && Number(ex.discount) ? [Number(ex.discount)] : [])])].sort((a, b) => a - b); const s2 = h('select', {class:'in', 'aria-label':'收款折讓'}, ...rs.map(r => h('option', {value:r, text:r ? r + '%' : '無折讓'}))); s2.value = String(ex ? Number(ex.discount) || 0 : 0); return s2; })(),
+    bu:(() => { const s2 = h('select', {class:'in', 'aria-label':'事業部'}, ...buList().map(b => h('option', {value:b.id, text:b.name}))); s2.value = ex && ex.bu && buList().some(b => b.id === ex.bu) ? ex.bu : buList()[0].id; return s2; })(),
     custCat:(() => { const cs = [...new Set([...custCatList().map(c => c.name), ...(ex && ex.custCat ? [ex.custCat] : [])])], s2 = h('select', {class:'in', 'aria-label':'客戶類別'}, h('option', {value:'', text:'未指定'}), ...cs.map(c => h('option', {value:c, text:c + ((custCatList().find(x => x.name === c) || {}).level ? '（' + custCatList().find(x => x.name === c).level + '）' : '')}))); s2.value = ex ? ex.custCat || '' : ''; return s2; })(),
     level:(() => { const lv = [...new Set([...(S.set.levels || []), ...(ex && ex.level ? [ex.level] : [])])]; const s2 = h('select', {class:'in', 'aria-label':'客戶等級'}, h('option', {value:'', text:'未指定'}), ...lv.map(l => h('option', {value:l, text:l}))); s2.value = ex ? ex.level || '' : ''; return s2; })(),
     taxOpt:(() => { const s2 = h('select', {class:'in', 'aria-label':'稅別'}, ...TAXOPTS.map(([k, t]) => h('option', {value:k, text:t}))); s2.value = ex ? taxOptOf(ex) : 'taxable:excl'; return s2; })(),
     tax:h('input', {class:'in', type:'text', inputmode:'numeric', maxlength:12, value:ex ? ex.taxId || '' : ''}),
-    note:h('input', {class:'in', value:ex ? ex.note || '' : ''})
+    note:h('input', {class:'in', value:ex ? ex.note || '' : ''}),
+    lineRemind:h('input', {type:'checkbox', checked:!!(ex && ex.lineRemind), 'aria-label':'LINE 對帳與逾期提醒'})
   };
   const t = t0;
   f.payMethod.addEventListener('change', () => { const v = f.payMethod.value === 'cash3' ? '3' : (f.payMethod.value === 'cash5' ? '5' : null); if (v !== null){ if (![...f.discount.options].some(o => o.value === v)) f.discount.append(h('option', {value:v, text:v + '%'})); f.discount.value = v; } });
@@ -1775,7 +1791,7 @@ function openPartnerForm(id, type){
       contactName:f.contactName.value.trim(), contactPhone:f.contactPhone.value.trim(), taxTitle:f.taxTitle.value.trim(),
       billDay:f.billDay.value.trim() ? Math.min(Math.max(Math.round(toNum(f.billDay.value)), 0), 28) : '',
       bankAccount:f.bankAccount.value.trim(), checkAccount:f.checkAccount.value.trim(), paymentNote:f.paymentNote.value.trim(),
-      note:f.note.value.trim(), termDays:Math.max(Math.round(toNum(f.term.value)), 0), taxId:f.tax.value.trim(), billing:pmBilling, level:f.level.value, custCat:f.custCat ? f.custCat.value : '', taxType:txType, taxMode:txMode, discount:pmDisc, payMethod:pm, salesRep:f.salesRep.value.trim(), owner:f.owner.value.trim(), region:f.region.value.trim(), invoiceMode:f.invoiceMode.value};
+      note:f.note.value.trim(), termDays:Math.max(Math.round(toNum(f.term.value)), 0), taxId:f.tax.value.trim(), billing:pmBilling, level:f.level.value, custCat:f.custCat ? f.custCat.value : '', taxType:txType, taxMode:txMode, discount:pmDisc, payMethod:pm, salesRep:f.salesRep.value.trim(), owner:f.owner.value.trim(), region:f.region.value.trim(), invoiceMode:f.invoiceMode.value, ...(isCust ? {lineRemind:!!f.lineRemind.checked, bu:f.bu.value} : {})};
     saving = true; btn.disabled = true;
     const ok = await run(async () => {
       if (ex) await S.db.doc('partners/' + id).update(data);
@@ -1792,7 +1808,9 @@ function openPartnerForm(id, type){
     h('div', {class:'f2'}, fld('公司電話', f.phone), fld('傳真', f.fax)),
     isCust ? h('div', {class:'f2'}, fld('負責業務', f.salesRep), fld('地區', f.region)) : null,
     fld('公司負責人', f.owner),
-    fld('LINE ID', f.lineId), fld('公司地址', f.address),
+    fld('LINE ID', f.lineId),
+    isCust ? h('div', {class:'f'}, h('label', {class:'check', style:'margin:2px 0'}, f.lineRemind, h('span', {text:'啟用 LINE 對帳與逾期提醒（每月一則對帳通知、每週一則逾期提醒）'})), h('small', {class:'hint', 'aria-label':'LINE 綁定狀態', text:ex && ex.lineUserId ? '這位客戶已綁定 LINE，勾選後就會收到。' : '這位客戶還沒綁定 LINE，要先綁定才收得到（更多 → 系統與設定 → LINE 通知設定 → 管理客戶綁定）。'})) : null,
+    fld('公司地址', f.address),
     h('datalist', {id:'salesList'}, ...[...new Set([...Object.values(S.members).map(m => m.name), ...Object.values(S.partners).map(x => x.salesRep)].filter(Boolean))].map(v => h('option', {value:v}))),
     h('datalist', {id:'regionList'}, ...[...new Set(Object.values(S.partners).map(x => x.region).filter(Boolean))].map(v => h('option', {value:v}))),
     isCust ? [fld('送貨地址', f.shipAddress), fld('指送特別地點（沒有多家店時填這裡）', f.shipSpot)] : null,
@@ -1805,7 +1823,7 @@ function openPartnerForm(id, type){
     h('div', {class:'f2'}, fld('付款方式', f.payMethod), fld('結帳日期（選填，覆蓋系統預設）', f.billDay)),
     isCust ? fld('開立發票方式', f.invoiceMode) : null,
     fld('付款天數（月結：結帳日後幾天；天數制：開單日後幾天）', f.term),
-    isCust ? h('div', {class:'f2'}, fld('客戶類別', f.custCat), fld('價格等級（空白＝依客戶類別）', f.level)) : null, h('div', {class:'f2'}, isCust ? null : fld('分類等級（可套用等級價）', f.level), fld('稅別', f.taxOpt)),
+    isCust ? h('div', {class:'f2'}, fld('客戶類別', f.custCat), fld('價格等級（空白＝依客戶類別）', f.level)) : null, isCust && buList().length > 1 ? fld('事業部（計算營業績效用）', f.bu) : null, h('div', {class:'f2'}, isCust ? null : fld('分類等級（可套用等級價）', f.level), fld('稅別', f.taxOpt)),
     isCust ? fld('現金折讓 %（收款時系統依此計算並審核金額）', f.discount) : null,
     isCust ? h('div', {class:'f2'}, fld('匯入帳款帳號', f.bankAccount), fld('支票帳號', f.checkAccount)) : fld('匯款帳號（付款給供應商用）', f.bankAccount),
     fld(isCust ? '收款時間及注意事項' : '付款注意事項', f.paymentNote),
@@ -2502,7 +2520,7 @@ function beep(good){
     if (navigator.vibrate) navigator.vibrate(good ? 20 : [60, 40, 60]);
   } catch (_) {}
 }
-const scopeOf = sess => activeProducts().filter(p => !sess.cat || p.category === sess.cat);
+const scopeOf = sess => sess.pids ? sess.pids.map(id => S.products[id]).filter(p => p && p.active !== false) : activeProducts().filter(p => !sess.cat || p.category === sess.cat);
 function countTotals(sid, myDocId, myItems){
   const tot = {}, by = {};
   const feed = (uid, items) => {
@@ -2773,6 +2791,7 @@ function openReview(sid){
     const shown = rows.filter(r => opt.f === 'all' || (opt.f === 'un' ? r.un : (r.diff != null && Math.abs(r.diff) > 0.0004)));
     const can = S.isAdmin || sess.by === S.meId;
     const body = h('div', null,
+      sess.cycle ? h('div', {class:'note', 'aria-label':'循環盤點提示', text:'這是循環盤點：沒有盤到的商品不會調整，會留在之後的清單。差異大的商品（用紅字標示）建議先回架位再數一次。'}) : null,
       moved ? h('div', {class:'note warn', text:'盤點開始後有 ' + moved + ' 張單據異動過庫存，差異可能受影響，請確認。'}) : null,
       h('div', {class:'panel ledger'},
         h('div', {class:'row'}, h('span', {text:'已盤 / 未盤'}), h('span', {text:(rows.length - nUn) + ' / ' + nUn + ' 項'})),
@@ -2782,7 +2801,7 @@ function openReview(sid){
       nUn ? h('label', {class:'check', style:'margin-top:10px'}, h('input', {type:'checkbox', checked:opt.zero, onchange:e => { opt.zero = e.target.checked; render('counts'); }}), '未盤的 ' + nUn + ' 項視為庫存 0（全面盤點時使用）') : null,
       h('div', {class:'chips'}, [['diff', '有差異'], ['all', '全部'], ['un', '未盤']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':opt.f === k, onclick:() => { opt.f = k; render('counts'); }}, t))),
       shown.length ? h('div', {class:'panel'}, shown.slice(0, 300).map(r => h('div', {class:'row'},
-        h('span', {style:'min-width:0'}, h('b', {text:r.p.name}), h('br'), h('small', {text:r.p.sku + '　帳 ' + num(r.book) + '　盤 ' + (r.c == null ? '未盤' : num(r.c))})),
+        h('span', {style:'min-width:0'}, h('b', {text:r.p.name}), h('br'), h('small', {text:r.p.sku + '　帳 ' + num(r.book) + '　盤 ' + (r.c == null ? '未盤' : num(r.c))}), sess.cycle && r.diff != null && Math.abs(r.diff) >= Math.max(cycCfg().minDiff, 0.1 * Math.max(r.book, 1)) ? h('small', {class:'overdue', style:'display:block', 'aria-label':'建議複盤', text:'差異大，建議複盤'}) : null),
         r.diff == null ? h('small', {text:'略過'}) : h('b', {class:r.diff > 0 ? 'diff-up' : (r.diff < 0 ? 'diff-dn' : ''), text:(r.diff > 0 ? '+' : '') + num(r.diff)}))))
         : h('div', {class:'panel empty', text:opt.f === 'diff' ? '沒有差異，帳面與實盤一致' : '沒有資料'}),
       can ? null : h('p', {class:'note', style:'margin-top:12px', text:'只有管理員或盤點發起人可以完成盤點並調整庫存。'}));
@@ -5400,7 +5419,7 @@ function vehLoad(v, day){
   const va = volOfTrip(getTrip(day, v.id, 'am')), vb = volOfTrip(getTrip(day, v.id, 'pm')), cap = bedCap(v), merged = mergeEff(day, v.id) === 'merged', peak = merged ? r2(va + vb) : Math.max(va, vb);
   return {cap, va, vb, total:r2(va + vb), merged, peak, pct:loadPct(peak, cap), pa:loadPct(va, cap), pb:loadPct(vb, cap), pt:loadPct(va + vb, cap)};
 }
-async function syncTripOrders(t, removedIds){
+async function syncTripOrders0(t, removedIds){
   const v = S.vehicles[t.vehicleId], merged = isMerged(t), drv = tripDriver(t); let skipped = 0;
   for (const [i, st] of (t.stops || []).entries()){ const o = ordOf(st.orderId); if (!o) continue; if (!isCo(o) && reviewLock('order', o)){ skipped++; continue; }
     const patch = {truckPlate:(v && v.plate) || '', truckSlot:merged ? 'day' : t.slot, truckDate:t.date, truckSeq:i + 1, truckMerged:merged}; if (drv) patch.driver = drv;
@@ -5433,6 +5452,7 @@ function runInfo(runs){
 }
 const minsBetween = (a, b) => Math.max(Math.round((b - a) / 60000), 0);
 const countTxt = i => i.n + ' 張' + (i.cos ? '（銷貨單 ' + i.sales + '、客戶訂單 ' + i.cos + '）' : '');
+async function syncTripOrders(t, removedIds){ const x = await syncTripOrders0(t, removedIds); lineDeliveryNotices(t).catch(e => console.error(e)); return x; }
 function openDriverRun(){
   if (!S.canWrite) return toast('這個帳號是唯讀的，不能記錄出車時間');
   healTripStops();
@@ -5675,8 +5695,587 @@ function openArReturn(){
     return {body, foot:[h('button', {class:'btn grow', 'aria-label':'列印回傳表', disabled:!M.offices.length, onclick:() => { const m = arReturnModel(U); printNow(arReturnHTML(m, false), '應收帳款回傳表_' + m.month + '.html', () => arReturnHTML(m, true)); }}, '列印 A4（每營業所一頁）'), h('button', {class:'btn ghost', 'aria-label':'匯出回傳表', disabled:!M.offices.length, onclick:() => openExport(dsArReturn(arReturnModel(U)))}, icon('down'), '匯出')]};
   });
 }
+/* ================= LINE：客戶用 LINE 下訂單 → 管理者審核 → 通知客戶；管理者每日彙總 ================= */
+const LINE_TPL_CONFIRM = '【{公司}】{客戶}您好，您的訂單已確認建立（單號 {單號}）：\n{品項}\n合計 {金額}。目前等候安排配送，確認配送時間後會再通知您。';
+const LINE_TPL_DELIVER = '【{公司}】{客戶}您好，您的訂單 {單號} 已安排配送：{日期}（{時段}）{送貨員}。如有問題請與我們聯絡。';
+const LINE_TPL_REJECT = '【{公司}】{客戶}您好，抱歉，您 {時間} 傳來的訂單目前無法確認{原因}。請與我們聯絡，謝謝。';
+const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, tplConfirm:LINE_TPL_CONFIRM, tplDeliver:LINE_TPL_DELIVER, tplReject:LINE_TPL_REJECT, ...(S.set.line || {})});
+const lineFill = (tpl, v) => String(tpl || '').replace(/\{([^}]+)\}/g, (m, k) => v[k] !== undefined ? v[k] : m);
+const linePending = () => Object.values(S.lineorders || {}).filter(x => x.status === 'pending').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+const lineOriginOf = o => o ? (o.lineOrderId || ((S.corders[o.srcId] || {}).lineOrderId) || '') : '';
+const lineTimeTxt = ms => { const d = new Date(ms || Date.now()); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const lineAgoTxt = ms => { const m = Math.max(Math.round((Date.now() - (ms || Date.now())) / 60000), 0); return m < 60 ? m + ' 分鐘' : (m < 1440 ? Math.floor(m / 60) + ' 小時' : Math.floor(m / 1440) + ' 天'); };
+async function queueLine(key, data){
+  const id = 'o_' + String(key).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 140), ref = S.db.doc('lineoutbox/' + id);
+  try { const sn = await ref.get(); if (sn.exists) return false; } catch (_) {}
+  await ref.set({...data, key:String(key), status:'queued', at:Date.now(), by:S.meId || ''}); return true;
+}
+function lineItemsTxt(lines){ const a = (lines || []).map(l => l.name + ' ×' + num(l.qty) + (l.unit || '')); return a.slice(0, 8).join('、') + (a.length > 8 ? '…等 ' + a.length + ' 項' : ''); }
+async function lineNotifyConfirm(doc, lo){
+  const L = LINE(); if (!L.on || !L.notifyConfirm || !lo.lineUserId) return false;
+  const pt = S.partners[doc.partnerId] || {};
+  return queueLine('conf_' + doc.id, {to:lo.lineUserId, type:'confirm', partnerId:doc.partnerId, orderId:doc.id, text:lineFill(L.tplConfirm, {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 單號:doc.no, 品項:lineItemsTxt(doc.lines), 金額:money(doc.total)})});
+}
+async function lineDeliveryNotices(t){
+  const L = LINE(); if (!L.on || !L.notifyDeliver) return;
+  const by = {};
+  for (const st of t.stops || []){ const o = ordOf(st.orderId); if (!o || !lineOriginOf(o)) continue; const pt = S.partners[o.partnerId]; if (!pt || !pt.lineUserId) continue; (by[pt.id] = by[pt.id] || {pt, os:[]}).os.push(o); }
+  for (const g of Object.values(by)){
+    const nos = g.os.map(o => o.no).sort(), drv = tripDriver(t);
+    await queueLine(['deliv', g.pt.id, t.date, t.slot, nos.join('+')].join('_'), {to:g.pt.lineUserId, type:'deliver', partnerId:g.pt.id, orderIds:g.os.map(o => o.id), text:lineFill(L.tplDeliver, {公司:S.set.co || S.set.name || '', 客戶:g.pt.shortName || g.pt.name || '', 單號:nos.join('、'), 日期:mdw(t.date), 時段:SLOTS[t.slot] || '', 送貨員:drv ? '，送貨員 ' + drv : ''})});
+  }
+}
+
+const LINE_TPL_STATEMENT = '【{公司}】{客戶}您好，{月份}對帳通知：\n本月銷貨 {單據數} 張，未稅 {未稅}，稅金 {稅金}，應收 {應收}。\n已收 {已收}；前期未收 {前期未收}。\n目前累計未收 {累計未收}。{付款資訊}\n如與您的帳不符，請與我們聯絡，謝謝。';
+const LINE_TPL_OVERDUE = '【{公司}】{客戶}您好，提醒您目前有 {逾期張數} 張單據已逾期，逾期金額 {逾期金額}（最久逾期 {最久天數} 天）。{付款資訊}\n如已付款請忽略，謝謝。';
+const lineRemindCfg = () => { const r = (S.set.line || {}).remind || {}; return {monthly:{on:false, time:'09:30', ...(r.monthly || {})}, weekly:{on:false, wd:1, time:'09:30', ...(r.weekly || {})}, tplStatement:r.tplStatement || LINE_TPL_STATEMENT, tplOverdue:r.tplOverdue || LINE_TPL_OVERDUE}; };
+const rocMonthTxt = bm => { const [y, m] = bm.split('-').map(Number); return '民國 ' + (y - 1911) + ' 年 ' + m + ' 月帳'; };
+const linePayInfo = p => { const a = []; if (p.bankAccount) a.push('匯款帳號：' + p.bankAccount); if (p.paymentNote) a.push(String(p.paymentNote).trim()); return a.length ? '\n' + a.join('；') : ''; };
+const lineMoney = x => { const n = Math.round(Number(x) || 0); return (n < 0 ? '-' : '') + (S.set.cur || 'NT$') + Math.abs(n).toLocaleString('en-US'); };
+/* 這位客戶「現在」會收到的對帳通知和逾期提醒內容（用網站自己的帳款計算；雲端程式用同一套規則，兩邊有對照測試） */
+function remindPreview(pt){
+  const R = lineRemindCfg(), t = today(), c = cutoffOf(pt), out = {statement:null, overdue:null};
+  const base = {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 付款資訊:linePayInfo(pt)};
+  const rows = Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return')).map(o => ({o, f:arFig(o), month:billMonth(o.date, c)}));
+  if (billingOf(pt) === 'cycle'){
+    const M = prevMonth(billMonth(t, c)), cur = rows.filter(r => r.month === M), prior = r2(rows.filter(r => r.month < M).reduce((a, r) => a + r.f.due, 0)), due = r2(cur.reduce((a, r) => a + r.f.due, 0)), cum = r2(prior + due);
+    if (cur.length || Math.abs(cum) > 0.004) out.statement = {month:M, text:lineFill(R.tplStatement, {...base, 月份:rocMonthTxt(M), 單據數:cur.length, 未稅:lineMoney(cur.reduce((a, r) => a + r.f.net, 0)), 稅金:lineMoney(cur.reduce((a, r) => a + r.f.tax, 0)), 應收:lineMoney(cur.reduce((a, r) => a + r.f.total, 0)), 已收:lineMoney(cur.reduce((a, r) => a + r.f.rec, 0)), 前期未收:lineMoney(prior), 累計未收:lineMoney(cum)})};
+  }
+  const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && daysBetween(dueDateOf(r.o), t) > 0);
+  if (late.length) out.overdue = {text:lineFill(R.tplOverdue, {...base, 逾期張數:late.length, 逾期金額:lineMoney(late.reduce((a, r) => a + r.f.due, 0)), 最久天數:late.reduce((a, r) => Math.max(a, daysBetween(dueDateOf(r.o), t)), 0)})};
+  return out;
+}
+const alertLabel = t => ({line_quota:'LINE 額度', push_failed:'LINE 沒送出', backup_failed:'備份失敗', budget:'費用提醒', summary_failed:'每日彙總', remind_failed:'對帳提醒', guard_tripped:'費用保護暫停', guard_resumed:'費用保護恢復', guard_warn:'用量異常', guard_blind:'費用保護失效'}[t] || '系統提醒');
+const openAlertList = () => Object.values(S.alerts || {}).filter(a => !a.resolved).sort((a, b) => (b.at || 0) - (a.at || 0));
+function alertsHomeCard(){
+  if (!S.isAdmin) return null; const n = openAlertList().length; if (!n) return null;
+  return h('button', {class:'card-btn', 'aria-label':'系統提醒', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--late);background:var(--lates, #fdecea)', onclick:openAlerts}, h('b', {class:'overdue', text:'系統提醒 ' + n + ' 則'}), h('br'), h('small', {text:alertLabel(openAlertList()[0].type) + '：' + String(openAlertList()[0].text).slice(0, 40) + (n > 1 ? '…' : '') + '　點這裡處理'}));
+}
+function openAlerts(){
+  if (!S.isAdmin) return toast('只有管理員可以看');
+  const U = {tab:'open'};
+  liveSheet({title:'系統提醒'}, ['alerts'], sh => {
+    const open = openAlertList(), done = Object.values(S.alerts || {}).filter(a => a.resolved).sort((a, b) => (b.resolvedAt || b.at || 0) - (a.resolvedAt || a.at || 0)).slice(0, 20);
+    const chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('alerts'); }}, t);
+    const list = U.tab === 'open' ? open : done;
+    return {body:h('div', null, h('div', {class:'chips', style:'padding-top:0'}, chip('open', '未處理（' + open.length + '）'), chip('done', '已處理（' + done.length + '）')),
+      list.length ? h('div', {class:'panel', 'aria-label':'提醒清單'}, list.map(a => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:flex-start', 'data-id':a.id}, h('span', {style:'min-width:0'}, h('b', {text:alertLabel(a.type)}), h('small', {class:'hint', style:'margin-left:8px', text:lineTimeTxt(a.at)}), h('br'), h('span', {style:'white-space:pre-wrap', text:a.text})), U.tab === 'open' ? h('button', {class:'btn ghost sm', 'aria-label':'已處理 ' + a.id, onclick:() => run(() => S.db.doc('alerts/' + a.id).update({resolved:true, resolvedAt:Date.now(), resolvedBy:S.meId || ''}))}, '已處理') : h('small', {class:'hint', text:'已處理'})))) : h('div', {class:'panel empty', text:U.tab === 'open' ? '沒有需要處理的提醒' : '還沒有處理過的提醒'}),
+      open.length > 1 && U.tab === 'open' ? h('button', {class:'btn plain', style:'margin-top:8px', 'aria-label':'全部標為已處理', onclick:() => run(async () => { for (const a of open) await S.db.doc('alerts/' + a.id).update({resolved:true, resolvedAt:Date.now(), resolvedBy:S.meId || ''}); return true; })}, '全部標為已處理') : null)};
+  });
+}
+/* ================= 循環盤點：每天自動排出「最值得盤」的商品（風險評分），盤完自動學習 ================= */
+const CYC_DEF = {perDay:30, intA:14, intB:30, intC:90, blind:true, wh:'', minDiff:3};
+const cycCfg = () => ({...CYC_DEF, ...(S.set.cycle || {})});
+const cycMs = o => (o.at && o.at > 1e11) ? o.at : Date.parse((o.date || today()) + 'T12:00:00');
+const cycDay = ms => ymd(new Date(ms));
+/* 每個商品過去每次盤點的結果（新到舊）：盤了多少、帳面多少、差多少。盤點沒有差異就不會有調整單的明細，所以「盤過」用盤點紀錄，「差多少」用調整單。 */
+function cycHistory(){
+  const adj = {}, by = {};
+  for (const o of Object.values(S.orders)) if (o.type === 'adjust' && o.status !== 'void' && o.stocktakeId){ const m = adj[o.stocktakeId] || (adj[o.stocktakeId] = {}); for (const l of o.lines || []) m[l.pid] = l; }
+  for (const c of Object.values(S.counts)){
+    if (c.status !== 'done') continue;
+    const {tot} = countTotals(c.id), at = c.finishedAt || c.startedAt || 0;
+    for (const [pid, q] of Object.entries(tot)){ const l = (adj[c.id] || {})[pid]; (by[pid] = by[pid] || []).push({at, diff:l ? Number(l.qty) || 0 : 0, book:l ? Number(l.before) || 0 : q, counted:q, sid:c.id}); }
+  }
+  for (const k in by) by[k].sort((a, b) => b.at - a.at);
+  return by;
+}
+function cycPlan(opt){
+  opt = opt || {};
+  const cfg = cycCfg(), t = opt.today || today(), wid = opt.wid !== undefined ? opt.wid : (cfg.wh || (multiWh() ? defaultWh() : '')), hist = opt.hist || cycHistory();
+  const stockOfP = pid => wid ? stockAt(pid, wid) : stockOf(pid);
+  const sold = {}, mv = {}, lastMove = {}, bigAdj = {}, retRecent = {}, soldRecent = {};
+  for (const o of Object.values(S.orders)){
+    if (o.status === 'void' || !TYPES[o.type]) continue;
+    const ms = cycMs(o), age = daysBetween(o.date || cycDay(ms), t), isCount = o.type === 'adjust' && o.stocktakeId;
+    if (age < 0) continue;
+    if (wid && o.type !== 'transfer' && (o.wh || WH_MAIN) !== wid) continue;
+    if (wid && o.type === 'transfer' && (o.whFrom || WH_MAIN) !== wid && (o.whTo || WH_MAIN) !== wid) continue;
+    for (const l of o.lines || []){
+      const q = Math.abs(Number(l.qty) || 0); if (!l.pid) continue;
+      if (!isCount){ (mv[l.pid] = mv[l.pid] || []).push(ms); lastMove[l.pid] = Math.max(lastMove[l.pid] || 0, ms); }
+      if (o.type === 'sale'){ if (age <= 90) sold[l.pid] = (sold[l.pid] || 0) + q; if (age <= 7) soldRecent[l.pid] = (soldRecent[l.pid] || 0) + q; }
+      if (o.type === 'sale_return' && age <= 14) retRecent[l.pid] = (retRecent[l.pid] || 0) + q;
+      if (o.type === 'adjust' && !o.stocktakeId && age <= 30) bigAdj[l.pid] = Math.max(bigAdj[l.pid] || 0, q);
+    }
+  }
+  const prods = activeProducts().map(p => { const stock = stockOfP(p.id), cost = Number(p.cost) || Number(p.price) || 0; return {p, stock, cost, v90:sold[p.id] || 0, usage:(sold[p.id] || 0) * cost, sval:Math.max(stock, 0) * cost}; })
+    .filter(x => !(x.stock <= 0 && x.v90 === 0 && !lastMove[x.p.id] && !(hist[x.p.id] || []).length) && !(x.stock === 0 && x.v90 === 0 && (lastMove[x.p.id] || 0) < Date.parse(t + 'T12:00:00') - 180 * 864e5));
+  // ABC: the items that make 70% of the sales value are A, the next 20% B, the rest C; slow items holding a lot of stock value are B
+  const withUse = prods.filter(x => x.usage > 0).sort((a, b) => b.usage - a.usage), tot = withUse.reduce((a, x) => a + x.usage, 0); let cum = 0;
+  for (const x of withUse){ x.cls = cum < tot * 0.7 ? 'A' : (cum < tot * 0.9 ? 'B' : 'C'); cum += x.usage; }
+  const svals = prods.map(x => x.sval).filter(v => v > 0).sort((a, b) => a - b), p80 = svals.length ? svals[Math.floor(svals.length * 0.8)] : 0, p90 = Math.max(svals.length ? svals[Math.floor(svals.length * 0.9)] : 0, 1);
+  const base = {A:cfg.intA, B:cfg.intB, C:cfg.intC}, tms = Date.parse(t + 'T12:00:00'), rows = [];
+  for (const x of prods){
+    const p = x.p, pid = p.id, h = hist[pid] || [], last = h[0] || null;
+    if (!x.cls) x.cls = x.sval > 0 && x.sval >= p80 ? 'B' : 'C';
+    let clean = 0; for (const e of h){ if (e.diff === 0) clean++; else break; }
+    const factor = !last ? 1 : (last.diff !== 0 ? 0.5 : Math.min(1 + 0.25 * clean, 2)), interval = Math.max(Math.round(base[x.cls] * factor), 1);
+    const since = last ? daysBetween(cycDay(last.at), t) : null, dueRatio = last ? since / interval : 2;
+    const movesSince = (mv[pid] || []).filter(m => m > (last ? last.at : 0)).length;
+    const reasons = [];
+    let anom = 0;
+    const verified = !!last && (lastMove[pid] || 0) <= last.at;      // 上次盤點之後沒有任何異動：已經確認過了，不再因為「最近的事」重複盤
+    if (x.stock < 0){ anom = 1; reasons.push('庫存為負'); }
+    else if (!verified && x.stock === 0 && (soldRecent[pid] || 0) > 0){ anom = Math.max(anom, 0.8); reasons.push('帳面 0 但最近有出貨'); }
+    if (!verified && (bigAdj[pid] || 0) >= Math.max(5, 0.2 * Math.max(Math.abs(x.stock), 1))){ anom = Math.max(anom, 0.7); reasons.push('最近有大量手動調整'); }
+    if (!verified && (retRecent[pid] || 0) >= 5){ anom = Math.max(anom, 0.3); reasons.push('最近有退貨'); }
+    const ratio = last ? Math.abs(last.diff) / Math.max(last.book, 1) : 0, recent3 = h.slice(0, 3).filter(e => e.diff !== 0).length / 3, varF = Math.max(Math.min(ratio * 2, 1), recent3);
+    if (last && last.diff !== 0) reasons.push('上次差 ' + (last.diff > 0 ? '+' : '') + num(last.diff));
+    else if (recent3 > 0) reasons.push('近 3 次有 ' + Math.round(recent3 * 3) + ' 次有差異');
+    const act = Math.min(Math.sqrt(movesSince) / 4, 1); if (movesSince >= 5) reasons.push('上次盤點後異動 ' + movesSince + ' 次');
+    const valF = Math.min(x.sval / p90, 1), dueF = Math.min(dueRatio, 2) / 2;
+    if (!last) reasons.unshift('從來沒盤過'); else if (dueRatio >= 1) reasons.unshift('已 ' + since + ' 天沒盤（' + x.cls + ' 類每 ' + interval + ' 天）');
+    let score = 100 * (0.30 * dueF + 0.20 * anom + 0.20 * varF + 0.15 * act + 0.15 * valF);
+    if (x.cls === 'A' && dueRatio >= 1) score += 10;
+    if (x.stock < 0 || (!verified && x.stock === 0 && (soldRecent[pid] || 0) > 0) || (x.cls === 'A' && !last)) score = Math.max(score, 90);
+    if (last && since < Math.min(3, Math.floor(interval / 4)) && anom < 0.7) continue;      // 剛盤過，除非有異常，先不重複盤
+    rows.push({p, cls:x.cls, stock:x.stock, cost:x.cost, v90:x.v90, score:Math.round(score * 10) / 10, reasons, since, interval, movesSince, last, dueRatio});
+  }
+  const cand = rows.filter(r => r.score >= 15).sort((a, b) => b.score - a.score || cmpSku(a.p, b.p));
+  const items = cand.slice(0, cfg.perDay).sort((a, b) => (a.p.shelf ? 0 : 1) - (b.p.shelf ? 0 : 1) || String(a.p.shelf || '').localeCompare(String(b.p.shelf || ''), 'zh-TW', {numeric:true}) || cmpSku(a.p, b.p));
+  const cls = {A:0, B:0, C:0}, classOf = {}; prods.forEach(x => { cls[x.cls]++; classOf[x.p.id] = x.cls; });
+  return {items, more:Math.max(cand.length - cfg.perDay, 0), cand, cls, classOf, total:prods.length, wid, cfg};
+}
+function cycStats(plan){
+  const hist = cycHistory(), t = today(), cfg = cycCfg(), by = {A:{n:0, ok:0}, B:{n:0, ok:0}, C:{n:0, ok:0}}; let in90 = 0;
+  for (const [pid, c] of Object.entries(plan.classOf)){ const h = hist[pid] || [], d = h[0] ? daysBetween(cycDay(h[0].at), t) : 9999; by[c].n++; if (d <= (c === 'A' ? cfg.intA : (c === 'B' ? cfg.intB : cfg.intC))) by[c].ok++; if (d <= 90) in90++; }
+  const sessions = Object.values(S.counts).filter(c => c.status === 'done' && c.cycle).sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0)).slice(0, 8).map(c => { const {tot} = countTotals(c.id), n = Object.keys(tot).length, ord = c.orderId && S.orders[c.orderId], nd = ord ? (ord.lines || []).length : 0, lost = ord ? r2((ord.lines || []).reduce((a, l) => a + Math.min(Number(l.qty) || 0, 0) * (Number(l.cost) || 0), 0)) : 0; return {c, n, nd, lost, rate:n ? nd / n : 0}; });
+  const items = sessions.reduce((a, x) => a + x.n, 0), diffs = sessions.reduce((a, x) => a + x.nd, 0);
+  return {by, in90, total:plan.total, sessions, match:items ? 1 - diffs / items : null, items, diffs};
+}
+async function cycStart(items, plan){
+  const t = today(), open = Object.values(S.counts).find(c => c.status === 'open' && c.cycle);
+  if (open){ openCount(open.id); return; }
+  if (!items.length) return toast('今天沒有需要盤的商品');
+  const cfg = cycCfg(), snap = {}; items.forEach(x => { snap[x.p.id] = {s:Math.round(x.score), r:x.reasons.slice(0, 4), c:x.cls, b:x.stock}; });
+  const ref = S.db.collection('counts').doc(), rec = {no:'CC' + t.slice(2).replace(/-/g, '') + '-' + rid(), name:'循環盤點 ' + t, cat:'', cycle:true, date:t, pids:items.map(x => x.p.id), plan:snap, wh:plan.wid || WH_MAIN, blind:cfg.blind !== false, status:'open', startedAt:Date.now(), by:S.meId || null};
+  const ok = await run(async () => { await ref.set(rec); return true; });
+  if (ok){ [...layers].forEach(l => l.forceClose()); S.counts[ref.id] = S.counts[ref.id] || {id:ref.id, ...rec}; openCount(ref.id); }
+}
+function openCycleCount(){
+  if (!can('stock') && !S.isAdmin) return toast('你的角色沒有盤點的權限');
+  const U = {tab:'plan', skip:new Set(), add:[], cfg:null};
+  liveSheet({title:'循環盤點'}, ['products', 'orders', 'counts', 'countlines', 'settings'], sh => {
+    const cfg = cycCfg(), plan = cycPlan({}), open = Object.values(S.counts).find(c => c.status === 'open' && c.cycle), chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('counts'); }}, t);
+    const body = h('div', null, h('div', {class:'chips', style:'padding-top:0'}, chip('plan', '今日清單'), chip('stats', '成效'), chip('set', '設定')));
+    if (U.tab === 'plan'){
+      const manual = U.add.map(id => S.products[id]).filter(Boolean).filter(p => !plan.items.some(x => x.p.id === p.id)).map(p => ({p, cls:plan.classOf[p.id] || 'C', stock:plan.wid ? stockAt(p.id, plan.wid) : stockOf(p.id), score:0, reasons:['手動加入'], manual:true}));
+      const items = [...plan.items.filter(x => !U.skip.has(x.p.id)), ...manual];
+      if (open){
+        const {tot} = countTotals(open.id), n = (open.pids || []).length;
+        body.append(h('div', {class:'panel pad', 'aria-label':'進行中的循環盤點', style:'margin-top:10px'}, h('b', {text:open.name + ' 進行中'}), h('div', {text:'已盤 ' + Object.keys(tot).filter(k => (open.pids || []).includes(k)).length + ' / ' + n + ' 項'}), h('button', {class:'btn', style:'width:100%;margin-top:8px', 'aria-label':'繼續循環盤點', onclick:() => { sh.forceClose(); openCount(open.id); }}, '繼續盤點')));
+      }
+      body.append(h('div', {class:'panel pad', 'aria-label':'今日摘要', style:'margin-top:10px'}, h('b', {class:'big', text:'今天建議盤 ' + items.length + ' 項'}), h('div', {class:'hint', text:'約 ' + Math.max(Math.round(items.length * 1.5), 1) + ' 分鐘（每項約 1.5 分鐘）。依架位排好，順著走就不會繞路。商品共 ' + plan.total + ' 項：A 類 ' + plan.cls.A + '、B 類 ' + plan.cls.B + '、C 類 ' + plan.cls.C + '。' + (plan.more ? '還有 ' + plan.more + ' 項也建議盤，明天接著排。' : '')})));
+      body.append(items.length ? h('div', {class:'panel', 'aria-label':'今日盤點清單', style:'margin-top:10px'}, items.map(x => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:flex-start', 'data-pid':x.p.id}, h('span', {style:'min-width:0'}, h('b', {text:x.p.name}), h('br'), h('small', {text:x.p.sku + '　' + (x.p.shelf ? '架位 ' + x.p.shelf : '沒設架位') + '　' + x.cls + ' 類'}), h('div', {style:'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px'}, x.reasons.slice(0, 4).map(r => h('span', {class:'tag ' + (/為負|差|調整|0 但/.test(r) ? 'out' : 'adj'), text:r})))), h('span', {class:'right'}, x.manual ? h('small', {text:'手動'}) : h('b', {text:Math.round(x.score) + ' 分'}), h('br'), h('button', {class:'btn plain sm', 'aria-label':'今天不盤 ' + x.p.sku, onclick:() => { if (x.manual) U.add = U.add.filter(i => i !== x.p.id); else U.skip.add(x.p.id); render('counts'); }}, '今天不盤'))))) : h('div', {class:'panel empty', style:'margin-top:10px', text:'今天沒有需要盤的商品。'}));
+      body.append(h('div', {style:'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap'}, h('button', {class:'btn ghost sm', 'aria-label':'手動加入商品', onclick:() => lineSearchSheet('加入要盤的商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.shelf ? '架位 ' + x.shelf : '')})), id => { if (!U.add.includes(id)) U.add.push(id); render('counts'); })}, '＋ 手動加入商品'), U.skip.size ? h('button', {class:'btn plain sm', 'aria-label':'恢復全部', onclick:() => { U.skip.clear(); render('counts'); }}, '恢復今天不盤的 ' + U.skip.size + ' 項') : null));
+      body.append(h('small', {class:'hint', style:'display:block;margin-top:10px', text:'評分依據：已多久沒盤（依商品重要程度）、上次盤點有沒有差異、帳面是否異常（負數、最近大量調整、剛有退貨）、上次盤點後動了幾次、庫存金額。這是用你自己的資料算出來的風險分數，每一項都看得到原因；不是語言模型猜的。'}));
+      return {body, foot:[h('button', {class:'btn grow', 'aria-label':'開始今天的循環盤點', disabled:!items.length && !open, onclick:() => cycStart(items, plan)}, open ? '繼續盤點' : '開始今天的循環盤點（' + items.length + ' 項）')]};
+    }
+    if (U.tab === 'stats'){
+      const st = cycStats(plan), pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—', monthFull = plan.total, monthCyc = cfg.perDay * 26;
+      body.append(h('div', {class:'panel pad', style:'margin-top:10px', 'aria-label':'盤點涵蓋率'}, h('b', {text:'盤點涵蓋率'}), kv('A 類（每 ' + cfg.intA + ' 天）', st.by.A.ok + ' / ' + st.by.A.n + '　' + pct(st.by.A.ok, st.by.A.n)), kv('B 類（每 ' + cfg.intB + ' 天）', st.by.B.ok + ' / ' + st.by.B.n + '　' + pct(st.by.B.ok, st.by.B.n)), kv('C 類（每 ' + cfg.intC + ' 天）', st.by.C.ok + ' / ' + st.by.C.n + '　' + pct(st.by.C.ok, st.by.C.n)), kv('90 天內有盤過', st.in90 + ' / ' + st.total + '　' + pct(st.in90, st.total))));
+      body.append(h('div', {class:'panel pad', style:'margin-top:10px', 'aria-label':'帳實吻合率'}, h('b', {text:'帳實吻合率（最近 ' + st.sessions.length + ' 次循環盤點）'}), st.match == null ? h('p', {class:'hint', text:'還沒有完成過循環盤點。'}) : [kv('盤了 / 有差異', st.items + ' 項 / ' + st.diffs + ' 項'), kv('吻合率', Math.round(st.match * 1000) / 10 + '%')]));
+      body.append(h('div', {class:'panel pad', style:'margin-top:10px', 'aria-label':'省下的工夫'}, h('b', {text:'省下的工夫'}), h('p', {class:'hint', style:'margin:4px 0 0', text:'每月全面盤點要看 ' + monthFull + ' 項；循環盤點每月約 ' + monthCyc + ' 項（每天 ' + cfg.perDay + ' 項 × 26 天），而且挑的是最容易出錯的。'})));
+      body.append(st.sessions.length ? h('div', {class:'panel', style:'margin-top:10px', 'aria-label':'循環盤點紀錄'}, st.sessions.map(x => h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:x.c.date || ''}), h('br'), h('small', {text:'盤 ' + x.n + ' 項，有差異 ' + x.nd + ' 項（' + Math.round(x.rate * 100) + '%）'})), h('span', {class:'right'}, x.lost ? h('small', {class:'overdue', text:'盤虧 ' + money(-x.lost)}) : h('small', {text:'無盤虧'})))) ) : null);
+      return {body};
+    }
+    const adm = S.isAdmin, c = U.cfg = U.cfg || {...cfg}, num0 = (k, t, hint) => fld(t, h('input', {class:'in', type:'text', inputmode:'numeric', value:String(c[k]), disabled:!adm, 'aria-label':t, onchange:e => { c[k] = Math.max(Math.round(toNum(e.target.value)), 1); }}), hint);
+    body.append(!adm ? h('div', {class:'note', style:'margin-top:10px', text:'只有管理員可以修改設定。'}) : null,
+      h('div', {style:'margin-top:10px'}, num0('perDay', '每天最多盤幾項', '依你每天能花多少時間決定；每項約 1.5 分鐘'), h('div', {class:'f2'}, num0('intA', 'A 類每幾天盤一次'), num0('intB', 'B 類每幾天盤一次')), num0('intC', 'C 類每幾天盤一次', '賣得最好的前 70% 銷售金額是 A 類，接著 20% 是 B 類，其餘 C 類。上次有差異的商品週期會縮短一半；連續幾次都吻合的商品週期會拉長（最多 2 倍）。'),
+        h('label', {class:'check'}, h('input', {type:'checkbox', checked:c.blind !== false, disabled:!adm, 'aria-label':'預設盲盤', onchange:e => { c.blind = e.target.checked; }}), '盲盤（盤點時不顯示帳面庫存，避免影響清點）'),
+        multiWh() ? fld('盤點哪個倉庫', whPicker(() => c.wh || defaultWh(), v => { c.wh = v; }, '盤點倉庫')) : null));
+    return {body, foot:adm ? [h('button', {class:'btn grow', 'aria-label':'儲存循環盤點設定', onclick:async () => { const ok = await run(() => S.db.doc('settings/main').update({cycle:{perDay:c.perDay, intA:c.intA, intB:c.intB, intC:c.intC, blind:c.blind !== false, wh:c.wh || '', minDiff:c.minDiff || 3}})); if (ok !== undefined) toast('已儲存'); }}, '儲存')] : []};
+  });
+}
+function cycHomeCard(){
+  if (!can('stock') && !S.isAdmin) return null;
+  const open = Object.values(S.counts).find(c => c.status === 'open' && c.cycle);
+  if (!open && !Object.values(S.counts).some(c => c.cycle) && !Object.keys(S.products).length) return null;
+  const n = open ? (open.pids || []).length : 0, done = open ? Object.keys(countTotals(open.id).tot).filter(k => (open.pids || []).includes(k)).length : 0;
+  return h('button', {class:'card-btn', 'aria-label':'循環盤點', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openCycleCount}, h('b', {text:open ? '循環盤點進行中：已盤 ' + done + ' / ' + n + ' 項' : '今天的循環盤點'}), h('br'), h('small', {class:'hint', text:open ? '點這裡繼續' : '系統已經排好今天要盤的商品，點這裡看清單'}));
+}
+/* ================= 費用保護：看狀態、調整門檻、緊急暫停 ================= */
+const GUARD_DEF = {on:true, multiple:1000, maxUsdPerHour:10};
+const guardCfg = () => ({...GUARD_DEF, ...(S.set.guard || {})});
+const usd = x => 'US$' + (Number(x) || 0).toLocaleString('en-US', {minimumFractionDigits:(Number(x) || 0) < 1 ? 4 : 2, maximumFractionDigits:(Number(x) || 0) < 1 ? 4 : 2});
+function openGuard(){
+  if (!S.isAdmin) return toast('只有管理員可以看');
+  const U = {g:null, u:null, loading:true, cfg:null};
+  const load = async () => { U.loading = true; render('settings'); try { const a = await S.db.doc('sys/guard').get(), b = await S.db.doc('sys/usage').get(); U.g = a.exists ? a.data() : {}; U.u = b.exists ? b.data() : null; } catch (e) { U.g = {}; U.u = null; U.err = errMsg(e); } U.loading = false; render('settings'); };
+  liveSheet({title:'費用保護'}, ['settings'], sh => {
+    const cfg = U.cfg = U.cfg || {...guardCfg()}, g = U.g || {}, u = U.u, hasFn = !!(window.appGuard);
+    const tripped = g.state === 'tripped';
+    const body = h('div', null,
+      h('div', {class:'note', style:'margin-top:0', text:'防止程式錯誤或被攻擊讓資料庫費用暴增：雲端函式每 10 分鐘看一次資料庫的讀寫次數。暴增到平常的設定倍數（預設 1000 倍），或一小時的估計費用超過上限，就自動把資料庫暫時鎖住，等管理員確認沒事再恢復。Google 的用量資料會晚幾分鐘才到，所以這是「很快止血」，不是「一毛錢都不會多花」。'}),
+      U.loading ? h('p', {class:'hint', text:'讀取中…'}) : h('div', {class:'panel pad', 'aria-label':'保護狀態'},
+        h('b', {class:'big ' + (tripped ? 'overdue' : ''), text:tripped ? '資料庫已暫停' : (u && u.ok ? '保護中' : (u ? '保護沒有生效' : '還沒有收到第一次檢查'))}),
+        tripped ? h('p', {style:'margin:4px 0', text:'暫停時間：' + fmtDT(g.at) + '　原因：' + ({ratio:'用量暴增到平常的 ' + Math.round((g.info || {}).ratio || 0) + ' 倍', hour:'一小時的估計費用 ' + usd((g.info || {}).hour), manual:'管理員手動暫停'}[g.why] || g.why || '') + '　請用管理員帳號登入網站的暫停畫面按「恢復使用」。'}) : null,
+        u ? [kv('最近檢查', fmtDT(u.at)), u.ok ? [kv('最近 30 分鐘最高（每 10 分鐘）', usd(u.peakUsd)), kv('平常平均（每 10 分鐘）', usd(u.baselineUsd)), kv('是平常的', (Math.round((u.ratio || 0) * 10) / 10) + ' 倍'), kv('最近 1 小時', usd(u.hourUsd)), u.warming ? h('small', {class:'hint', style:'display:block', text:'還沒有累積滿 1 天的用量紀錄，這段時間只用「一小時上限」保護。'}) : null] : kv('讀不到用量', u.error || '')] : h('p', {class:'hint', text:'還沒有檢查紀錄：要先部署雲端函式 usageGuard，並啟用 Cloud Monitoring API。'}),
+        U.err ? h('small', {class:'overdue', text:U.err}) : null),
+      h('div', {class:'sec-h'}, h('h2', {text:'門檻'})),
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.on !== false, 'aria-label':'啟用費用保護', onchange:e => { cfg.on = e.target.checked; }}), '啟用費用保護'),
+      h('div', {class:'f2'}, fld('暴增到平常的幾倍就暫停', h('input', {class:'in', type:'text', inputmode:'numeric', value:String(cfg.multiple), 'aria-label':'暫停倍數', onchange:e => { cfg.multiple = Math.max(Math.round(toNum(e.target.value)), 2); }}), '你要求的是 1000 倍。倍數越小越敏感；建議先用 1000，觀察一個月後可以降到 100～300。'), fld('一小時估計費用上限（美元）', h('input', {class:'in', type:'text', inputmode:'decimal', value:String(cfg.maxUsdPerHour), 'aria-label':'每小時費用上限', onchange:e => { cfg.maxUsdPerHour = Math.max(toNum(e.target.value), 0.5); }}), '平常用量很大時，倍數永遠到不了，這個上限是第二道保險。10 美元約 320 元台幣。')),
+      h('div', {class:'panel pad', style:'margin-top:12px'}, h('b', {text:'緊急暫停'}), h('p', {class:'hint', style:'margin:4px 0 8px', text:'發現網站怪怪的（例如突然很慢、或收到不明的登入提醒），可以馬上把資料庫鎖住。鎖住之後所有人（包含你）都讀寫不了，要在暫停畫面用管理員帳號按「恢復使用」。'}), h('button', {class:'btn', style:'background:var(--bad,#b93a2b);width:100%', disabled:!hasFn, 'aria-label':'立即暫停資料庫', onclick:async () => { if (!await dialog({title:'立即暫停資料庫？', msg:'所有人馬上讀寫不了，你也會被擋在外面，要在暫停畫面按「恢復使用」才能回來。', ok:'立即暫停', danger:true})) return; try { await window.appGuard.pause(); toast('已暫停，網站會顯示「系統暫停中」'); } catch (e) { toast(errMsg(e)); } }}, '立即暫停資料庫'), !hasFn ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'這裡需要網站版（Firebase）並已部署雲端函式。'}) : null));
+    return {body, foot:[h('button', {class:'btn ghost', 'aria-label':'重新整理保護狀態', onclick:load}, '重新整理'), h('button', {class:'btn grow', 'aria-label':'儲存費用保護設定', onclick:async () => { const ok = await run(() => S.db.doc('settings/main').update({guard:{on:cfg.on !== false, multiple:cfg.multiple, maxUsdPerHour:cfg.maxUsdPerHour}})); if (ok !== undefined) toast('已儲存'); }}, '儲存')]};
+  });
+  load();
+}
+/* ================= 事業部（網路事業部…）與營業績效 ================= */
+const BU_DEF = [{id:'main', name:'一般業務'}, {id:'online', name:'網路事業部'}];
+const buList = () => (Array.isArray(S.set.bus) && S.set.bus.length ? S.set.bus : BU_DEF);
+const buName = id => (buList().find(b => b.id === id) || buList()[0]).name;
+const buOf = pt => (pt && pt.bu && buList().some(b => b.id === pt.bu)) ? pt.bu : buList()[0].id;
+const buOfOrder = o => (o.bu && buList().some(b => b.id === o.bu)) ? o.bu : buOf(S.partners[o.partnerId]);
+function buReport(month){
+  const rows = {}; for (const b of buList()) rows[b.id] = {id:b.id, name:b.name, n:0, ret:0, sales:0, returns:0, tax:0, cost:0, custs:new Map(), days:new Map()};
+  for (const o of Object.values(S.orders)){
+    if (o.status === 'void' || (o.type !== 'sale' && o.type !== 'sale_return') || String(o.date).slice(0, 7) !== month) continue;
+    const r = rows[buOfOrder(o)]; if (!r) continue; const sg = o.type === 'sale' ? 1 : -1, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : (Number(o.total) || 0) - tax;
+    const cost = (o.lines || []).reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.cost) || 0), 0);
+    if (sg === 1){ r.n++; r.sales += net; } else { r.ret++; r.returns += net; }
+    r.tax += sg * tax; r.cost += sg * cost; const k = o.partnerId || '', c = r.custs.get(k) || {id:k, net:0, n:0}; c.net += sg * net; if (sg === 1) c.n++; r.custs.set(k, c);
+    const d = r.days.get(o.date) || 0; r.days.set(o.date, d + sg * net);
+  }
+  const [y, m] = month.split('-').map(Number), dim = new Date(y, m, 0).getDate(), t = today(), elapsed = month === t.slice(0, 7) ? Number(t.slice(8)) : (month < t.slice(0, 7) ? dim : 0);
+  for (const r of Object.values(rows)){ r.net = r2(r.sales - r.returns); r.sales = r2(r.sales); r.returns = r2(r.returns); r.tax = r2(r.tax); r.cost = r2(r.cost); r.gp = r2(r.net - r.cost); r.gpRate = r.net ? r.gp / r.net : 0; r.nCust = [...r.custs.values()].filter(c => c.net !== 0).length; r.avg = r.n ? r.net / r.n : 0; r.perDay = elapsed ? r.net / elapsed : 0; r.top = [...r.custs.values()].sort((a, b) => b.net - a.net).slice(0, 5); }
+  return {month, rows, list:buList().map(b => rows[b.id]), dim, elapsed};
+}
+function dsBuReport(month){
+  const R = buReport(month), P = buReport(prevMonth(month)), cols = [XC('事業部', 'text', 16), XC('銷貨單數', 'int', 10), XC('銷貨額（未稅）', 'money', 14), XC('退貨（未稅）', 'money', 13), XC('淨營業額（未稅）', 'money', 15), XC('稅金', 'money', 11), XC('毛利', 'money', 13), XC('毛利率%', 'number', 10), XC('客戶數', 'int', 8), XC('客單價', 'money', 11), XC('日均營業額', 'money', 12), XC('上月淨營業額', 'money', 15), XC('比上月%', 'number', 10)];
+  const row = r => { const pv = P.rows[r.id] ? P.rows[r.id].net : 0; return [r.name, r.n, r.sales, r.returns, r.net, r.tax, r.gp, Math.round(r.gpRate * 1000) / 10, r.nCust, Math.round(r.avg), Math.round(r.perDay), pv, pv ? Math.round((r.net - pv) / pv * 1000) / 10 : null]; };
+  const tot = R.list.reduce((a, r) => ({n:a.n + r.n, sales:a.sales + r.sales, returns:a.returns + r.returns, net:a.net + r.net, tax:a.tax + r.tax, gp:a.gp + r.gp}), {n:0, sales:0, returns:0, net:0, tax:0, gp:0}), pvT = P.list.reduce((a, r) => a + r.net, 0);
+  return {title:'事業部營業績效　' + month, sub:month + '　營業額為未稅；毛利 ＝ 未稅營業額 − 銷貨成本（用開單當時的進價）；退貨已扣除　' + today(), filename:'事業部營業績效_' + month, landscape:true, sections:[{name:'事業部營業績效', cols, rows:R.list.map(row), foot:['合計', tot.n, r2(tot.sales), r2(tot.returns), r2(tot.net), r2(tot.tax), r2(tot.gp), tot.net ? Math.round(tot.gp / tot.net * 1000) / 10 : 0, null, null, null, r2(pvT), pvT ? Math.round((tot.net - pvT) / pvT * 1000) / 10 : null]}]};
+}
+function openBuReport(){
+  if (!see('report') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const U = {month:today().slice(0, 7), sel:''};
+  const mv = d => { const [y, m] = U.month.split('-').map(Number), dt = new Date(y, m - 1 + d, 1); U.month = dt.getFullYear() + '-' + pad(dt.getMonth() + 1); render('orders'); };
+  liveSheet({title:'事業部營業績效'}, ['orders', 'partners', 'settings'], sh => {
+    const R = buReport(U.month), P = buReport(prevMonth(U.month)), tot = R.list.reduce((a, r) => a + r.net, 0), sel = U.sel && R.rows[U.sel] ? U.sel : (R.rows.online ? 'online' : R.list[0].id), S0 = R.rows[sel];
+    const pct = (a, b) => b ? (a - b) / b : null, pctTxt = v => v == null ? '—' : (v >= 0 ? '+' : '') + Math.round(v * 1000) / 10 + '%';
+    const card = r => { const pv = (P.rows[r.id] || {net:0}).net, ch = pct(r.net, pv); return h('button', {class:'panel pad', style:'display:block;width:100%;text-align:left;margin-top:10px;' + (r.id === sel ? 'outline:2px solid var(--brand,#0f5c6e)' : ''), 'aria-label':'事業部 ' + r.name, 'data-bu':r.id, onclick:() => { U.sel = r.id; render('orders'); }},
+      h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:r.name}), h('small', {class:'hint', text:tot ? '占 ' + Math.round(r.net / tot * 100) + '%' : ''})),
+      h('div', {style:'font-size:22px;font-weight:800;margin:2px 0', 'aria-label':'淨營業額 ' + r.name, text:money(r.net)}),
+      h('small', {text:'毛利 ' + money(r.gp) + '（' + Math.round(r.gpRate * 1000) / 10 + '%）　銷貨 ' + r.n + ' 張　客戶 ' + r.nCust + ' 位'}), h('br'),
+      h('small', {class:ch != null && ch < 0 ? 'overdue' : 'hint', text:'上月 ' + money(pv) + '　' + pctTxt(ch)})); };
+    const bars = (() => { const mx = Math.max(...[...S0.days.values()], 1), days = Array.from({length:R.dim}, (_, i) => U.month + '-' + pad(i + 1)); return h('div', {'aria-label':'每日營業額', style:'display:flex;align-items:flex-end;gap:2px;height:70px;margin-top:6px'}, days.map(d => { const v = S0.days.get(d) || 0; return h('i', {title:d.slice(8) + ' 日　' + money(v), style:'flex:1;background:var(--brand,#0f5c6e);opacity:' + (v > 0 ? 1 : 0.15) + ';height:' + Math.max(Math.round(Math.max(v, 0) / mx * 100), v > 0 ? 4 : 2) + '%'}); })); })();
+    const body = h('div', null,
+      h('div', {style:'display:flex;gap:8px;align-items:center'}, h('button', {class:'ic', 'aria-label':'上個月', onclick:() => mv(-1)}, '‹'), h('input', {class:'in', type:'month', value:U.month, 'aria-label':'月份', style:'flex:1', onchange:e => { if (e.target.value){ U.month = e.target.value; render('orders'); } }}), h('button', {class:'ic', 'aria-label':'下個月', onclick:() => mv(1)}, '›')),
+      h('div', {class:'panel pad', 'aria-label':'全公司合計', style:'margin-top:10px'}, h('b', {text:'全公司合計'}), kv('淨營業額（未稅）', money(tot)), kv('毛利', money(R.list.reduce((a, r) => a + r.gp, 0))), kv('銷貨單', R.list.reduce((a, r) => a + r.n, 0) + ' 張')),
+      ...R.list.slice().sort((a, b) => (b.id === 'online') - (a.id === 'online') || b.net - a.net).map(card),
+      h('div', {class:'panel pad', 'aria-label':'事業部明細', style:'margin-top:10px'}, h('b', {text:S0.name + ' 明細'}), kv('銷貨額（未稅）', money(S0.sales)), kv('退貨（未稅）', '−' + money(S0.returns)), kv('淨營業額（未稅）', money(S0.net)), kv('稅金', money(S0.tax)), kv('銷貨成本', money(S0.cost)), kv('毛利', money(S0.gp) + '（' + Math.round(S0.gpRate * 1000) / 10 + '%）'), kv('客單價', money(Math.round(S0.avg))), kv('日均營業額', money(Math.round(S0.perDay)) + (R.elapsed && R.elapsed < R.dim ? '（已過 ' + R.elapsed + ' 天）' : '')), h('div', {class:'sec-h', style:'margin-top:8px'}, h('h2', {text:'每日營業額'})), bars,
+        S0.top.length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'前 5 大客戶'})), ...S0.top.map((c, i) => kv((i + 1) + '. ' + (c.id && S.partners[c.id] ? (S.partners[c.id].shortName || S.partners[c.id].name) : '散客／未指定'), money(c.net)))] : null),
+      h('small', {class:'hint', style:'display:block;margin-top:10px', text:'營業額是未稅金額，退貨已扣除。事業部以「客戶資料裡的事業部」決定，開單時記在單據上；以前沒記的舊單據，依客戶目前的事業部算。毛利用單據上的進價，進價沒填的商品會讓毛利偏高。'}));
+    return {body, foot:[h('button', {class:'btn ghost', 'aria-label':'匯出事業部績效', onclick:() => openExport(dsBuReport(U.month))}, icon('down'), '匯出'), see('report') || S.isAdmin ? h('button', {class:'btn ghost', 'aria-label':'事業部設定', onclick:() => openBuSettings()}, '事業部設定') : null]};
+  });
+}
+function openBuSettings(){
+  if (!S.isAdmin) return toast('只有管理員可以設定事業部');
+  liveSheet({title:'事業部設定'}, ['settings', 'partners'], sh => {
+    const list = buList(), used = id => Object.values(S.partners).filter(p => p.type === 'customer' && buOf(p) === id).length, save = async nl => run(() => S.db.doc('settings/main').update({bus:nl}));
+    return {body:h('div', null, h('div', {class:'note', style:'margin-top:0', text:'事業部用來分開計算營業額和毛利。第一個是預設的事業部（沒有指定的客戶、散客都算在它）。每位客戶在客戶資料裡選自己屬於哪個事業部；網路平台的訂單，建議各建一位客戶（例如「蝦皮」「官網」），事業部選「網路事業部」。'}),
+      h('div', {class:'panel', 'aria-label':'事業部名單'}, list.map((b, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center', 'data-id':b.id}, h('span', {style:'min-width:0'}, h('input', {class:'in', value:b.name, 'aria-label':'事業部名稱 ' + (i + 1), style:'height:38px', onchange:async e => { const v = e.target.value.trim(); if (!v) { e.target.value = b.name; return toast('名稱不能空白'); } if (list.some((x, j) => j !== i && x.name === v)) { e.target.value = b.name; return toast('已經有這個名稱'); } await save(list.map((x, j) => j === i ? {...x, name:v} : x)); }}), h('small', {class:'hint', text:(i === 0 ? '預設　' : '') + '客戶 ' + used(b.id) + ' 位'})), i === 0 ? h('small', {class:'hint', text:'不能刪'}) : h('button', {class:'btn plain sm', 'aria-label':'刪除事業部 ' + b.name, onclick:async () => { if (used(b.id)) return toast('還有 ' + used(b.id) + ' 位客戶屬於這個事業部，請先改掉'); if (await dialog({title:'刪除事業部「' + b.name + '」？', ok:'刪除', danger:true})) await save(list.filter((x, j) => j !== i)); }}, '刪除')))),
+      h('button', {class:'btn ghost', style:'margin-top:10px;width:100%', 'aria-label':'新增事業部', onclick:async () => { const nm = await promptText('新事業部的名稱', ''); if (!nm || !nm.trim()) return; if (list.some(x => x.name === nm.trim())) return toast('已經有這個名稱'); await save([...list, {id:'bu' + Date.now().toString(36), name:nm.trim()}]); }}, '＋ 新增事業部'))};
+  });
+}
+/* ================= 外務收款 → 內勤簽收（現金與票據的保管轉移） ================= */
+const handKey = pm => pm.by || ('n:' + collectorOf(pm));
+function handPending(){
+  const m = {};
+  for (const pm of Object.values(S.payments)){
+    if (!pm.fieldNo || pm.status === 'void' || pm.handoverId || pm.dir !== 'in') continue;
+    if (pm.noteId && (!S.notes[pm.noteId] || S.notes[pm.noteId].status === 'void')) continue;
+    const k = handKey(pm), g = m[k] || (m[k] = {key:k, uid:pm.by || '', name:collectorOf(pm), pays:[], cashPays:[], checks:[], cash:0, checkAmt:0, oldest:pm.date, custs:new Set()});
+    g.pays.push(pm); g.custs.add(pm.partnerId); if (pm.date < g.oldest) g.oldest = pm.date;
+    if (pm.method === 'cash'){ g.cashPays.push(pm); g.cash = r2(g.cash + (pm.amount || 0)); }
+    else if (pm.noteId){ g.checks.push({pay:pm, note:S.notes[pm.noteId]}); g.checkAmt = r2(g.checkAmt + (pm.amount || 0)); }
+  }
+  for (const g of Object.values(m)){ g.checks.sort((a, b) => String(a.note.dueDate || '').localeCompare(String(b.note.dueDate || '')) || String(a.note.no).localeCompare(String(b.note.no))); g.total = r2(g.cash + g.checkAmt); g.ageDays = Math.max(daysBetween(g.oldest, today()), 0); }
+  return Object.values(m).sort((a, b) => a.oldest.localeCompare(b.oldest) || a.name.localeCompare(b.name, 'zh-TW'));
+}
+function handSlipHTML(hv, standalone){
+  const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c])), co = S.set.co || S.set.name || '';
+  const rows = (hv.items || []).map((it, i) => '<tr><td class="c">' + (i + 1) + '</td><td>' + e(it.fieldNo) + '</td><td>' + e(it.cust) + '</td><td class="r">' + n2s(it.cash) + '</td><td class="r">' + (it.checks ? it.checks + ' 張　' + n2s(it.checkAmt) : '') + '</td></tr>').join('');
+  const crows = (hv.checks || []).map((c, i) => '<tr><td class="c">' + (i + 1) + '</td><td>' + e(c.no) + '</td><td>' + e(c.bank || '') + '</td><td class="c">' + e(c.due || '') + '</td><td class="r">' + n2s(c.amount) + '</td><td class="c">' + (c.got ? '✓ 已收' : '✗ 未收') + '</td></tr>').join('');
+  const css = '@page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000}body{font:11pt/1.45 "Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif}.co{font-size:14pt;font-weight:700;text-align:center}.ttl{font-size:20pt;font-weight:700;letter-spacing:.3em;text-align:center;margin:3mm 0 5mm}.info{display:grid;grid-template-columns:1fr 1fr;gap:1.5mm 8mm;margin-bottom:4mm}.info b{font-weight:400;color:#444}.info span{font-weight:700}table{width:100%;border-collapse:collapse;margin-bottom:4mm}th,td{border:1px solid #000;padding:1.6mm 2mm;vertical-align:top}th{background:#eee}.c{text-align:center}.r{text-align:right;white-space:nowrap}.sum{border:1px solid #000;padding:2mm 3mm;margin-bottom:4mm;break-inside:avoid}.sum div{display:flex;justify-content:space-between}.warn{color:#b00;font-weight:700}.sign{display:grid;grid-template-columns:repeat(3,1fr);margin-top:10mm;border:1px solid #000;break-inside:avoid}.sign div{padding:2mm 3mm 22mm;border-left:1px solid #000}.sign div:first-child{border-left:0}@media screen{body{background:#dfe3e8;padding:12px}.paper{background:#fff;width:210mm;min-height:297mm;margin:0 auto;padding:14mm 12mm;box-shadow:0 1px 6px rgba(0,0,0,.25)}.bar{max-width:210mm;margin:0 auto 10px;font:14px sans-serif}.bar button{font:inherit;padding:6px 16px}}@media print{.bar{display:none!important}}';
+  return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>現金票據簽收單 ' + e(hv.no) + '</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>　紙張選 A4（直式），比例 100%。</span></div>' : '') + '<div class="paper"><div class="co">' + e(co) + '</div><div class="ttl">現金票據簽收單</div>' +
+    '<div class="info"><div><b>簽收單號：</b><span>' + e(hv.no) + '</span></div><div><b>簽收時間：</b><span>' + e(fmtDT(hv.at)) + '</span></div><div><b>交付人（外務）：</b><span>' + e(hv.fromName) + '</span></div><div><b>簽收人（內勤）：</b><span>' + e(hv.toName) + '</span></div></div>' +
+    '<table><thead><tr><th style="width:8%">項次</th><th style="width:24%">收款單號</th><th>客戶</th><th style="width:17%">現金</th><th style="width:22%">支票</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    (crows ? '<table><thead><tr><th style="width:8%">項次</th><th style="width:22%">票號</th><th>付款銀行</th><th style="width:16%">到期日</th><th style="width:15%">金額</th><th style="width:13%">點收</th></tr></thead><tbody>' + crows + '</tbody></table>' : '') +
+    '<div class="sum"><div><span>現金　應收</span><span>' + n2s(hv.cashExpected) + '</span></div><div><span>現金　實際點收</span><span>' + n2s(hv.cashCounted) + '</span></div><div class="' + (hv.cashDiff ? 'warn' : '') + '"><span>現金　差異</span><span>' + (hv.cashDiff > 0 ? '+' : '') + n2s(hv.cashDiff) + '</span></div><div><span>支票　應收 ' + hv.checkExpected.n + ' 張</span><span>' + n2s(hv.checkExpected.amount) + '</span></div><div class="' + (hv.checkGot.n !== hv.checkExpected.n ? 'warn' : '') + '"><span>支票　實收 ' + hv.checkGot.n + ' 張</span><span>' + n2s(hv.checkGot.amount) + '</span></div></div>' +
+    (hv.note ? '<div>備註：' + e(hv.note) + '</div>' : '') + '<div class="sign"><div>交付人（外務）簽章</div><div>簽收人（內勤）簽章</div><div>主管</div></div></div></body></html>';
+}
+function openHandSign(g0){
+  const st = {counted:'', got:{}, note:''}, key = g0.key;
+  const sh = liveSheet({title:'簽收 ' + g0.name + ' 的收款'}, ['payments', 'notes', 'partners', 'handovers'], sh => {
+    const g = handPending().find(x => x.key === key); if (!g) return false;
+    const self = !!(g.uid && g.uid === S.meId), exp = g.cash, cnt = st.counted === '' ? null : mInt(toNum(st.counted)), diff = cnt == null ? null : r2(cnt - exp), gotN = g.checks.filter(c => st.got[c.pay.id]).length, gotAmt = r2(g.checks.filter(c => st.got[c.pay.id]).reduce((a, c) => a + c.pay.amount, 0));
+    const byCust = {}; g.pays.forEach(p => { (byCust[p.fieldNo] = byCust[p.fieldNo] || {no:p.fieldNo, cust:partyName(p.partnerId), date:p.date, cash:0, checks:0, checkAmt:0}); const x = byCust[p.fieldNo]; if (p.method === 'cash') x.cash = r2(x.cash + p.amount); else { x.checks++; x.checkAmt = r2(x.checkAmt + p.amount); } });
+    const body = h('div', null,
+      self ? h('div', {class:'note bad', 'aria-label':'不能簽收自己', text:'這是你自己登記的收款，不能自己簽收自己的錢。請由另一位內勤人員簽收。'}) : null,
+      h('div', {class:'panel pad', 'aria-label':'待簽收摘要'}, h('b', {class:'big', text:g.name}), kv('現金', money(g.cash)), kv('支票', g.checks.length + ' 張　' + money(g.checkAmt)), kv('合計', money(g.total)), kv('最早收款日', g.oldest + (g.ageDays >= 1 ? '（' + g.ageDays + ' 天前）' : ''))),
+      h('div', {class:'sec-h'}, h('h2', {text:'收款明細'})), h('div', {class:'panel', 'aria-label':'收款明細'}, Object.values(byCust).map(x => h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('span', {style:'min-width:0'}, h('b', {text:x.cust}), h('br'), h('small', {text:x.no + '　' + x.date})), h('span', {class:'right'}, x.cash ? h('div', {text:'現金 ' + money(x.cash)}) : null, x.checks ? h('div', {text:'支票 ' + x.checks + ' 張 ' + money(x.checkAmt)}) : null)))),
+      h('div', {class:'sec-h'}, h('h2', {text:'現金：請當面點清'})),
+      g.cash ? h('div', {class:'panel pad'}, kv('外務登記的現金', money(exp)), fld('你實際點收的現金', h('input', {class:'in', type:'text', inputmode:'numeric', value:st.counted, placeholder:'輸入點收的金額', 'aria-label':'實際點收現金', onfocus:e => e.target.select(), onchange:e => { st.counted = e.target.value; render('payments'); }})), diff == null ? null : h('div', {'aria-label':'現金差異', class:diff ? 'overdue' : 'soon', style:'font-weight:700', text:diff === 0 ? '金額吻合' : (diff > 0 ? '多收 ' + money(diff) : '短收 ' + money(-diff))})) : h('p', {class:'hint', text:'這位外務沒有現金。'}),
+      h('div', {class:'sec-h'}, h('h2', {text:'支票：請逐張核對票號'})),
+      g.checks.length ? h('div', {class:'panel', 'aria-label':'支票清單'}, g.checks.map(c => h('label', {class:'row', style:'grid-template-columns:auto 1fr auto;align-items:center;gap:10px;cursor:pointer', 'data-pay':c.pay.id}, h('input', {type:'checkbox', checked:!!st.got[c.pay.id], 'aria-label':'已收到 ' + c.note.no, onchange:e => { st.got[c.pay.id] = e.target.checked; render('payments'); }}), h('span', {style:'min-width:0'}, h('b', {text:c.note.no + '　' + partyName(c.pay.partnerId)}), h('br'), h('small', {text:(c.note.bank || '未填銀行') + '　到期 ' + (c.note.dueDate || '—')})), h('b', {text:money(c.pay.amount)})))) : h('p', {class:'hint', text:'這位外務沒有支票。'}),
+      g.checks.length ? h('div', {style:'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap'}, h('button', {class:'btn ghost sm', 'aria-label':'支票全部收到', onclick:() => { g.checks.forEach(c => { st.got[c.pay.id] = true; }); render('payments'); }}, '全部收到'), h('small', {class:'hint', style:'align-self:center', text:'已收 ' + gotN + ' / ' + g.checks.length + ' 張　' + money(gotAmt)})) : null,
+      h('div', {style:'margin-top:12px'}, fld('備註（有差異或沒收到的票，一定要寫原因）', h('input', {class:'in', value:st.note, 'aria-label':'簽收備註', oninput:e => { st.note = e.target.value; }}))),
+      h('p', {class:'hint', text:'簽收後，這些現金和支票的保管責任就從外務轉到你身上。沒收到的支票，會繼續留在外務名下。'}));
+    const foot = [h('button', {class:'btn grow', disabled:self, 'aria-label':'確認簽收', onclick:async () => {
+      if (g.cash && cnt == null) return toast('請先輸入實際點收的現金金額（沒有現金就填 0）');
+      const miss = g.checks.length - gotN, bad = (g.cash && diff !== 0) || miss > 0;
+      if (bad && !st.note.trim()) return toast('有差異或沒收到的支票，請在備註寫明原因');
+      if (!gotN && !(g.cash && cnt >= 0 && g.cashPays.length)) return toast('沒有可簽收的東西');
+      if (!await dialog({title:'簽收？', msg:'現金 ' + money(g.cash ? cnt : 0) + (g.cash && diff ? '（' + (diff > 0 ? '多' : '少') + ' ' + money(Math.abs(diff)) + '）' : '') + '，支票 ' + gotN + ' 張 ' + money(gotAmt) + (miss ? '，還有 ' + miss + ' 張沒收到' : '') + '。簽收後保管責任轉到你身上。', ok:'確認簽收', danger:bad})) return;
+      const date = today(), no = 'HV' + date.slice(2).replace(/-/g, '') + '-' + rid(), ref = S.db.collection('handovers').doc();
+      const takePays = [...(g.cash ? g.cashPays : []), ...g.checks.filter(c => st.got[c.pay.id]).map(c => c.pay)], itemMap = {};
+      takePays.forEach(p => { const x = itemMap[p.fieldNo] || (itemMap[p.fieldNo] = {fieldNo:p.fieldNo, cust:partyName(p.partnerId), cash:0, checks:0, checkAmt:0}); if (p.method === 'cash') x.cash = r2(x.cash + p.amount); else { x.checks++; x.checkAmt = r2(x.checkAmt + p.amount); } });
+      const rec = {no, date, fromKey:g.key, fromId:g.uid, fromName:g.name, toId:S.meId || '', toName:myName(), cashExpected:g.cash, cashCounted:g.cash ? cnt : 0, cashDiff:g.cash ? diff : 0, checkExpected:{n:g.checks.length, amount:g.checkAmt}, checkGot:{n:gotN, amount:gotAmt}, checks:g.checks.map(c => ({noteId:c.note.id, no:c.note.no, bank:c.note.bank || '', due:c.note.dueDate || '', amount:c.pay.amount, got:!!st.got[c.pay.id]})), items:Object.values(itemMap), payIds:takePays.map(p => p.id), note:st.note.trim(), status:bad ? 'diff' : 'ok', at:Date.now()};
+      const ok = await run(async () => { await ref.set(rec); for (let i = 0; i < takePays.length; i += 8) await Promise.all(takePays.slice(i, i + 8).map(p => S.db.doc('payments/' + p.id).update({handoverId:ref.id, handoverNo:no, handoverAt:rec.at, handoverBy:S.meId || '', handoverByName:myName()}))); return true; });
+      if (ok){ toast('已簽收 ' + g.name + ' 的收款（' + no + '）'); sh.forceClose(); if (await dialog({title:'簽收完成', msg:'要現在列印簽收單（A4，兩邊簽名留存）嗎？', ok:'列印', cancel:'稍後'})) printNow(handSlipHTML({...rec, id:ref.id}, false), '簽收單_' + no + '.html', () => handSlipHTML({...rec, id:ref.id}, true)); }
+    }}, '確認簽收')];
+    return {body, foot};
+  });
+}
+function openHandover(){
+  if (!can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const U = {tab:'todo'};
+  liveSheet({title:'現金票據簽收'}, ['payments', 'notes', 'handovers', 'partners'], sh => {
+    const todo = handPending(), done = Object.values(S.handovers || {}).filter(x => x.status !== 'void').sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 40), chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('payments'); }}, t);
+    const body = h('div', null, h('p', {class:'note', style:'margin-top:0', text:'外務人員收了客戶的現金和支票，回公司後交給內勤。內勤當面點清現金、核對每一張票，簽收後，保管責任就從外務轉到內勤。'}), h('div', {class:'chips', style:'padding-top:0'}, chip('todo', '待簽收（' + todo.length + '）'), chip('done', '已簽收（' + done.length + '）')));
+    if (U.tab === 'done'){
+      body.append(done.length ? h('div', {class:'panel', 'aria-label':'簽收紀錄'}, done.map(x => h('button', {class:'row', style:'grid-template-columns:1fr auto;align-items:flex-start', 'aria-label':'簽收單 ' + x.no, onclick:() => openHandDetail(x.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:x.fromName + ' → ' + x.toName}), h('br'), h('small', {text:x.no + '　' + fmtDT(x.at)}), h('br'), h('small', {text:'現金 ' + money(x.cashCounted) + '　支票 ' + x.checkGot.n + ' 張 ' + money(x.checkGot.amount)})), h('span', {class:'right'}, h('span', {class:'tag ' + (x.status === 'ok' ? 'in' : 'out'), text:x.status === 'ok' ? '吻合' : '有差異'}), x.cashDiff ? [h('br'), h('small', {class:'overdue', text:(x.cashDiff > 0 ? '多 ' : '短 ') + money(Math.abs(x.cashDiff))})] : null)))) : h('div', {class:'panel empty', text:'還沒有簽收紀錄'}));
+      return {body};
+    }
+    body.append(todo.length ? h('div', {class:'panel', 'aria-label':'待簽收清單'}, todo.map(g => h('button', {class:'row', style:'grid-template-columns:1fr auto;align-items:flex-start', 'aria-label':'簽收 ' + g.name, 'data-key':g.key, onclick:() => openHandSign(g)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:g.name}), h('br'), h('small', {text:g.custs.size + ' 位客戶、' + g.pays.length + ' 筆　最早 ' + g.oldest}), h('br'), h('small', {text:'現金 ' + money(g.cash) + '　支票 ' + g.checks.length + ' 張 ' + money(g.checkAmt)})), h('span', {class:'right'}, h('b', {text:money(g.total)}), g.ageDays >= 1 ? [h('br'), h('small', {class:'overdue', text:'已 ' + g.ageDays + ' 天沒交'})] : null)))) : h('div', {class:'panel empty', text:'沒有等著簽收的收款'}));
+    return {body};
+  });
+}
+function openHandDetail(id){
+  liveSheet({title:'簽收單'}, ['handovers'], sh => {
+    const x = (S.handovers || {})[id]; if (!x) return false;
+    const body = h('div', null, h('div', {class:'panel pad'}, h('div', {class:'lg', text:x.no}), kv('交付（外務）', x.fromName), kv('簽收（內勤）', x.toName), kv('時間', fmtDT(x.at)), kv('現金', '應收 ' + money(x.cashExpected) + ' ／ 實收 ' + money(x.cashCounted)), x.cashDiff ? kv('現金差異', (x.cashDiff > 0 ? '多收 ' : '短收 ') + money(Math.abs(x.cashDiff))) : null, kv('支票', '實收 ' + x.checkGot.n + ' / ' + x.checkExpected.n + ' 張　' + money(x.checkGot.amount)), x.note ? kv('備註', x.note) : null, x.status === 'void' ? kv('狀態', '已撤銷') : null),
+      (x.checks || []).length ? h('div', {class:'panel', style:'margin-top:10px'}, x.checks.map(c => h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:c.no}), h('br'), h('small', {text:(c.bank || '未填銀行') + '　到期 ' + (c.due || '—')})), h('span', {class:'right'}, h('b', {text:money(c.amount)}), h('br'), h('small', {class:c.got ? '' : 'overdue', text:c.got ? '已收' : '未收'}))))) : null);
+    return {body, foot:[h('button', {class:'btn ghost', 'aria-label':'列印簽收單', onclick:() => printNow(handSlipHTML(x, false), '簽收單_' + x.no + '.html', () => handSlipHTML(x, true))}, '列印 A4'), S.isAdmin && x.status !== 'void' ? h('button', {class:'btn ghost', 'aria-label':'撤銷簽收', onclick:async () => { if (!await dialog({title:'撤銷這張簽收單？', msg:'這些收款會退回「外務保管中」，要重新簽收。只在簽錯時使用。', ok:'撤銷', danger:true})) return; const ok = await run(async () => { for (const pid of x.payIds || []) if (S.payments[pid]) await S.db.doc('payments/' + pid).update({handoverId:null, handoverNo:null, handoverAt:null, handoverBy:null, handoverByName:null}); await S.db.doc('handovers/' + id).update({status:'void', voidAt:Date.now(), voidBy:S.meId || ''}); return true; }); if (ok){ toast('已撤銷'); sh.forceClose(); } }}, '撤銷簽收') : null]};
+  });
+}
+function handHomeCard(){
+  if (!can('pay') && !S.isAdmin) return null;
+  const todo = handPending(); if (!todo.length) return null;
+  const cash = r2(todo.reduce((a, g) => a + g.cash, 0)), nChk = todo.reduce((a, g) => a + g.checks.length, 0), chk = r2(todo.reduce((a, g) => a + g.checkAmt, 0)), old = Math.max(...todo.map(g => g.ageDays));
+  return h('button', {class:'card-btn', 'aria-label':'外務待簽收', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openHandover}, h('b', {text:'外務待簽收 ' + todo.length + ' 位'}), h('br'), h('small', {class:old >= 1 ? 'overdue' : 'hint', text:'現金 ' + money(cash) + '　支票 ' + nChk + ' 張 ' + money(chk) + (old >= 1 ? '　最久 ' + old + ' 天沒交' : '') + '　點這裡簽收'}));
+}
+/* ================= 首頁營業額看板：本週、本月，和同期比較 ================= */
+const boardMode = () => (S.set.board && S.set.board.show) || 'all';
+function salesStats(t){
+  t = t || today();
+  const [Y, M, D] = t.split('-').map(Number), dow = (new Date(Y, M - 1, D).getDay() + 6) % 7, dim = (y, m) => new Date(y, m, 0).getDate();
+  const wk0 = addDays(t, -dow), pw0 = addDays(wk0, -7), pwT = addDays(t, -7), ym = Y + '-' + pad(M), pm = prevMonth(ym), [PY, PM] = pm.split('-').map(Number);
+  const R = {wk:[wk0, t], pw:[pw0, pwT], mo:[ym + '-01', t], pm:[pm + '-01', pm + '-' + pad(Math.min(D, dim(PY, PM)))], pmFull:[pm + '-01', pm + '-' + pad(dim(PY, PM))], ly:[(Y - 1) + '-' + pad(M) + '-01', (Y - 1) + '-' + pad(M) + '-' + pad(Math.min(D, dim(Y - 1, M)))]};
+  const lyEnd = (Y - 1) + '-' + pad(M) + '-' + pad(dim(Y - 1, M)), out = {}; for (const k in R) out[k] = {from:R[k][0], to:R[k][1], net:0, n:0};
+  const wkDays = {}, pwDays = {}; for (let i = 0; i < 7; i++){ wkDays[addDays(wk0, i)] = 0; pwDays[addDays(pw0, i)] = 0; }
+  let todayNet = 0, lyHas = false;
+  for (const o of Object.values(S.orders)){
+    if (o.status === 'void' || (o.type !== 'sale' && o.type !== 'sale_return')) continue;
+    const ds = String(o.date || ''); if (ds < R.ly[0]) continue;
+    const sg = o.type === 'sale' ? 1 : -1, tax = Number(o.tax) || 0, v = sg * (o.net !== undefined ? Number(o.net) || 0 : (Number(o.total) || 0) - tax);
+    for (const k in R) if (ds >= R[k][0] && ds <= R[k][1]){ out[k].net += v; if (sg === 1) out[k].n++; }
+    if (ds in wkDays) wkDays[ds] += v; if (ds in pwDays) pwDays[ds] += v; if (ds === t) todayNet += v;
+    if (ds >= R.ly[0] && ds <= lyEnd) lyHas = true;
+  }
+  for (const k in out) out[k].net = r2(out[k].net);
+  return {t, dow, ranges:out, todayNet:r2(todayNet), wkDays:Object.entries(wkDays).map(([d, v]) => ({d, v:r2(v)})), pwDays:Object.entries(pwDays).map(([d, v]) => ({d, v:r2(v)})), lyHas};
+}
+const boardMd = ds => Number(ds.slice(5, 7)) + '/' + Number(ds.slice(8));
+const boardRange = (a, b, withYear) => (withYear ? a.slice(0, 4) + '/' : '') + (a === b ? boardMd(a) : boardMd(a) + '–' + boardMd(b));
+function boardChange(cur, prev){
+  if (!prev) return cur ? {txt:'上期沒有營業額', cls:'hint'} : {txt:'—', cls:'hint'};
+  const d = (cur - prev) / Math.abs(prev), pct = Math.round(Math.abs(d) * 1000) / 10;
+  if (Math.abs(cur - prev) < 0.5) return {txt:'持平', cls:'hint'};
+  return d > 0 ? {txt:'▲ 增加 ' + pct + '%（+' + money(cur - prev) + '）', cls:'up'} : {txt:'▼ 減少 ' + pct + '%（−' + money(prev - cur) + '）', cls:'down'};
+}
+function salesBoard(){
+  const mode = boardMode(); if (mode === 'off') return null; if (mode === 'report' && !(see('report') || S.isAdmin)) return null;
+  const st = salesStats(), R = st.ranges, wd = '一二三四五六日';
+  const line = (label, rg, cur, prev, aria, year) => { const c = boardChange(cur, prev.net); return h('div', {style:'margin-top:8px;padding-top:8px;border-top:1px solid var(--line,#d8dee4)', 'aria-label':aria},
+    h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('small', {class:'hint', text:label + '（' + boardRange(prev.from, prev.to, year) + '）'}), h('b', {text:money(prev.net)})),
+    h('div', {style:'text-align:right;margin-top:2px', class:c.cls === 'down' ? 'overdue' : (c.cls === 'up' ? '' : 'hint')}, h('b', {style:c.cls === 'up' ? 'color:var(--ok,#1e7f52)' : '', text:c.txt}))); };
+  const mx = Math.max(1, ...st.wkDays.map(x => x.v), ...st.pwDays.map(x => x.v));
+  const bars = h('div', {'aria-label':'本週每日營業額', style:'display:flex;gap:6px;align-items:flex-end;height:74px;margin-top:10px'}, st.wkDays.map((x, i) => { const lw = st.pwDays[i].v, future = x.d > st.t;
+    return h('div', {style:'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%', 'data-d':x.d, 'data-v':String(future ? '' : x.v), 'data-lw':String(lw)},
+      h('div', {style:'flex:1;display:flex;align-items:flex-end;gap:2px;width:100%'}, h('i', {title:'上週 ' + money(lw), style:'flex:1;border-radius:3px 3px 0 0;background:var(--ink3,#9aa6b2);opacity:.35;height:' + Math.max(Math.round(Math.max(lw, 0) / mx * 100), lw > 0 ? 4 : 1) + '%'}), h('i', {title:boardMd(x.d) + ' ' + money(x.v), style:'flex:1;border-radius:3px 3px 0 0;background:var(--brand,#0f5c6e);opacity:' + (future ? 0.12 : 1) + ';height:' + (future ? 1 : Math.max(Math.round(Math.max(x.v, 0) / mx * 100), x.v > 0 ? 4 : 1)) + '%'})),
+      h('small', {class:i === st.dow ? '' : 'hint', style:i === st.dow ? 'font-weight:800' : '', text:wd[i]})); }));
+  const full = R.pmFull.net, pctFull = full > 0 ? Math.round(R.mo.net / full * 100) : null;
+  const wk = h('div', {class:'panel pad', 'aria-label':'本週營業額', style:'margin-bottom:10px'},
+    h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {text:'本週營業額'}), h('small', {class:'hint', text:boardRange(R.wk.from, R.wk.to)})),
+    h('div', {style:'font-size:26px;font-weight:800;margin:2px 0', 'aria-label':'本週合計', text:money(R.wk.net)}),
+    h('small', {class:'hint', text:'今天 ' + money(st.todayNet) + '　本週銷貨 ' + R.wk.n + ' 張'}),
+    line('上週同期', null, R.wk.net, R.pw, '上週同期'), bars,
+    h('small', {class:'hint', style:'display:block;margin-top:4px', text:'深色是本週，淺色是上週同一天'}));
+  const mo = h('div', {class:'panel pad', 'aria-label':'本月營業額', style:'margin-bottom:10px'},
+    h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {text:'本月營業額'}), h('small', {class:'hint', text:boardRange(R.mo.from, R.mo.to)})),
+    h('div', {style:'font-size:26px;font-weight:800;margin:2px 0', 'aria-label':'本月合計', text:money(R.mo.net)}),
+    h('small', {class:'hint', text:'本月銷貨 ' + R.mo.n + ' 張'}),
+    line('上月同期', null, R.mo.net, R.pm, '上月同期'),
+    st.lyHas ? line('去年同期', null, R.mo.net, R.ly, '去年同期', true) : null,
+    pctFull != null ? h('div', {style:'margin-top:10px', 'aria-label':'本月進度'}, h('small', {class:'hint', text:'上月全月 ' + money(full) + '，本月已達 ' + pctFull + '%'}), h('span', {class:'bar'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'}))) : null);
+  return h('section', {class:'sec', 'aria-label':'營業額看板'}, h('div', {class:'sec-h', style:'display:flex;justify-content:space-between;align-items:center'}, h('h2', {text:'營業額看板'}), h('span', {style:'display:flex;gap:6px'}, see('report') || S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看事業部營業績效', onclick:openBuReport}, '事業部') : null, S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看板設定', onclick:openBoardSettings}, '設定') : null)), wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'}));
+}
+function openBoardSettings(){
+  if (!S.isAdmin) return toast('只有管理員可以設定');
+  liveSheet({title:'營業額看板設定'}, ['settings'], sh => {
+    const cur = boardMode(), opts = [['all', '所有人都看得到'], ['report', '只有有「報表」權限的人看得到'], ['off', '不顯示']];
+    return {body:h('div', null, h('p', {class:'note', style:'margin-top:0', text:'首頁的營業額看板會讓看到的人知道公司的營業額。預設是所有登入的人都看得到；如果不想讓外務、倉管等人員看到金額，可以改成只有有報表權限的人。'}), h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, opts.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur === k, 'aria-label':'看板顯示 ' + t, onclick:async () => { await run(() => S.db.doc('settings/main').update({board:{show:k}})); }}, t))))};
+  });
+}
+function lineSearchSheet(title, getItems, onPick){
+  const sh = sheet({title}), st = {q:''}, list = h('div', {class:'panel'});
+  const paint = () => { const q = st.q.trim().toLowerCase(), items = getItems().filter(x => !q || x.label.toLowerCase().includes(q)).slice(0, 40); setKids(list, items.length ? items.map(x => h('button', {class:'row', 'aria-label':'選 ' + x.label, onclick:() => { sh.forceClose(); onPick(x.id); }}, h('span', {style:'min-width:0'}, h('b', {text:x.label}), x.sub ? h('br') : null, x.sub ? h('small', {text:x.sub}) : null))) : h('div', {class:'empty', text:'找不到'})); };
+  put(sh.bodyEl, h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋', 'aria-label':'搜尋', autocomplete:'off', oninput:e => { st.q = e.target.value; paint(); }})), list); paint();
+}
+const LINE_REPEAT_RE = /(老樣子|老样子|老規矩|照舊|照旧|同上次|同上一次|跟上次|跟上一次|和上次|像上次|照上次|依上次|同上|上次(?:那樣|那样|一樣|一样|的|同)|一樣的|一样的)/;
+function lastOrderOf(partnerId){
+  if (!partnerId) return null;
+  const c = [...Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && o.partnerId === partnerId && (o.lines || []).length).map(o => ({o, kind:'sale'})), ...Object.values(S.corders).filter(o => o.partnerId === partnerId && o.status !== 'cancelled' && (o.lines || []).length).map(o => ({o, kind:'co'}))];
+  c.sort((a, b) => String(b.o.date || '').localeCompare(String(a.o.date || '')) || (b.o.at || 0) - (a.o.at || 0));
+  return c[0] ? {doc:c[0].o, kind:c[0].kind} : null;
+}
+/* 把客人上次訂的品項帶進這張審核卡：卡上客人這次明確寫的商品，數量以這次為準 */
+function lineFillFromLast(d, lo){
+  const last = lastOrderOf(d.partnerId); if (!last) return 0;
+  const mine = new Map(d.lines.filter(l => l.pid).map(l => [l.pid, l]));
+  const rest = d.lines.filter(l => !l.pid && !LINE_REPEAT_RE.test(l.text || ''));
+  const fromLast = last.doc.lines.filter(l => S.products[l.pid] && S.products[l.pid].active !== false).map(l => { const o = mine.get(l.pid); mine.delete(l.pid); const q = o ? o.qty : Number(l.qty) || 1; return {text:o ? o.text : '（上次訂的）', pid:l.pid, qty:q, unit:l.unit || (S.products[l.pid] || {}).unit || '', price:linePrice(l.pid, d.partnerId, q), fromLast:true, changed:!!o}; });
+  d.lines = [...fromLast, ...[...mine.values()].map(l => ({...l, changed:true})), ...rest];
+  d.last = {no:last.doc.no, date:last.doc.date, kind:last.kind, n:fromLast.length}; d.lastApplied = true; return fromLast.length;
+}
+const linePrice = (pid, partnerId, qty) => { const p = S.products[pid]; if (!p) return 0; try { return resolvePrice({product:p, partner:S.partners[partnerId] || {}, side:'sale', qty:qty || 1, date:today()}).price; } catch (_) { return p.price || 0; } };
+function openLineOrders(){
+  if (!can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const U = {tab:'pending', drafts:{}};
+  const draft0 = lo => U.drafts[lo.id] = U.drafts[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; return {partnerId:pid, bind:true, expected:today(), note:'', lines:(lo.lines || []).map(l => ({text:l.text || '', pid:l.pid || '', qty:Number(l.qty) || 1, unit:l.unit || '', conf:l.conf, ambiguous:!!l.ambiguous, price:l.pid ? linePrice(l.pid, pid, Number(l.qty) || 1) : 0}))}; })();
+  const wantsLast = lo => !!lo.repeat || (!(lo.lines || []).length && LINE_REPEAT_RE.test(lo.text || ''));
+  const draft = lo => { const d = draft0(lo); if (!d.lastApplied && !d.lastDeclined && wantsLast(lo) && d.partnerId) lineFillFromLast(d, lo); return d; };
+  liveSheet({title:'LINE 訂單審核'}, ['lineorders', 'partners', 'products', 'corders', 'orders'], sh => {
+    const pend = linePending(), done = Object.values(S.lineorders || {}).filter(x => x.status !== 'pending').sort((a, b) => (b.approvedAt || b.rejectedAt || b.createdAt || 0) - (a.approvedAt || a.rejectedAt || a.createdAt || 0)).slice(0, 30);
+    const chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('lineorders'); }}, t);
+    const body = h('div', null, !LINE().on ? h('div', {class:'note warn', text:'LINE 通知還沒有啟用（系統與設定 → LINE 通知設定）。審核通過仍然會建立客戶訂單，只是不會用 LINE 通知客戶。'}) : null,
+      h('div', {class:'chips', style:'padding-top:0'}, chip('pending', '待審核（' + pend.length + '）'), chip('done', '已處理（' + done.length + '）')));
+    if (U.tab === 'done'){
+      body.append(done.length ? h('div', {class:'panel', 'aria-label':'已處理的 LINE 訂單'}, done.map(lo => h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('span', {style:'min-width:0'}, h('b', {text:((S.partners[lo.partnerId] || {}).shortName || (S.partners[lo.partnerId] || {}).name || lo.displayName || 'LINE 用戶')}), h('br'), h('small', {text:lineTimeTxt(lo.createdAt) + '　' + String(lo.text || '').replace(/\s+/g, ' ').slice(0, 40)})), h('span', {class:'right'}, h('span', {class:'tag ' + (lo.status === 'approved' ? 'in' : 'out'), text:lo.status === 'approved' ? '已核准' : '已駁回'}), lo.orderNo ? [h('br'), h('small', {text:lo.orderNo})] : (lo.rejectReason ? [h('br'), h('small', {text:lo.rejectReason})] : null))))) : h('div', {class:'panel empty', text:'還沒有處理過的 LINE 訂單'}));
+      return {body};
+    }
+    if (!pend.length){ body.append(h('div', {class:'panel empty', 'aria-label':'沒有待審核', text:'目前沒有待審核的 LINE 訂單'})); return {body}; }
+    for (const lo of pend){
+      const d = draft(lo), pt = S.partners[d.partnerId];
+      const lineRow = (l, i) => { const p = S.products[l.pid];
+        return h('div', {style:'border-top:1px solid var(--line);padding:8px 0', 'aria-label':'品項 ' + (i + 1)},
+          h('small', {class:'hint', text:(l.fromLast && !l.changed ? '上次訂過' : '客人寫的：' + (l.text || '（空白）'))}), l.pid && !l.picked && (l.ambiguous || (l.conf !== undefined && l.conf < 0.7)) ? h('small', {class:'overdue', style:'display:block', 'aria-label':'比對不確定 ' + (i + 1), text:'比對不太確定，請確認是不是這個商品'}) : null,
+          h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:4px'}, h('button', {class:'btn ghost sm', style:'flex:1;text-align:left;min-width:0', 'aria-label':'商品 ' + (i + 1), onclick:() => lineSearchSheet('選商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), id => { l.pid = id; l.picked = true; l.unit = (S.products[id] || {}).unit || ''; l.price = linePrice(id, d.partnerId, l.qty); render('lineorders'); })}, p ? p.sku + ' ' + p.name : '選擇商品…'),
+            h('button', {class:'ic', 'aria-label':'刪除品項 ' + (i + 1), onclick:() => { d.lines.splice(i, 1); render('lineorders'); }}, icon('x'))),
+          h('div', {style:'display:flex;gap:8px;margin-top:6px;align-items:center'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.qty), 'aria-label':'數量 ' + (i + 1), style:'height:38px;width:84px', onchange:e => { l.qty = Math.max(toNum(e.target.value), 0); if (l.pid) l.price = linePrice(l.pid, d.partnerId, l.qty); render('lineorders'); }}), h('span', {text:l.unit || (p && p.unit) || ''}), h('span', {class:'hint', text:'× 單價'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.price), 'aria-label':'單價 ' + (i + 1), style:'height:38px;width:96px', onchange:e => { l.price = Math.max(toNum(e.target.value), 0); render('lineorders'); }}), h('b', {style:'margin-left:auto', text:money(amtOf(l.qty, l.price))}))); };
+      const total = mInt(d.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
+      body.append(h('div', {class:'panel pad', style:'margin-top:12px', 'aria-label':'LINE 訂單 ' + lo.id},
+        h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline'}, h('b', {class:'big', text:pt ? (pt.shortName || pt.name) : '（還沒指定客戶）'}), h('small', {class:'hint', text:lineTimeTxt(lo.createdAt) + '，已等 ' + lineAgoTxt(lo.createdAt)})),
+        h('small', {class:'hint', text:'LINE 用戶：' + (lo.displayName || lo.lineUserId || '') + (lo.parse === 'ai' ? '　（AI 解析，請確認）' : (lo.parse === 'rule' ? '　（自動比對，請確認）' : ''))}),
+        h('div', {style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', 'aria-label':'原文', text:lo.text || '（沒有文字）'}),
+        wantsLast(lo) && !d.partnerId ? h('div', {class:'note warn', 'aria-label':'老樣子提示', text:'客人說「照上次」，但還不知道他是哪位客戶。選好客戶後，會自動帶出他上次訂的品項。'}) : null,
+        d.last ? h('div', {class:'note', 'aria-label':'老樣子帶入', style:'background:var(--lows);color:var(--low)', text:'已帶出他上次（' + d.last.date + '　' + d.last.no + '）的 ' + d.last.n + ' 項，請確認數量。' + (d.lines.some(l => l.changed) ? '客人這次另外寫的品項，數量以這次為準。' : '')}) : null,
+        wantsLast(lo) && d.partnerId && !lastOrderOf(d.partnerId) ? h('div', {class:'note warn', 'aria-label':'沒有上次訂單', text:'找不到這位客戶的上一張訂單，請自己選品項。'}) : null,
+        (lo.imageIds || []).length ? h('button', {class:'btn ghost sm', 'aria-label':'看圖片', onclick:() => lineShowImages(lo)}, '看客人傳的圖片（' + lo.imageIds.length + '）') : null,
+        h('div', {style:'margin-top:8px'}, h('button', {class:'btn ghost sm', 'aria-label':'指定客戶', onclick:() => lineSearchSheet('選客戶', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:x.lineUserId ? '已綁定 LINE' : ''})), id => { d.partnerId = id; d.lines.forEach(l => { if (l.pid) l.price = linePrice(l.pid, id, l.qty); }); if (wantsLast(lo) && !d.lastApplied) lineFillFromLast(d, lo); render('lineorders'); })}, pt ? '更換客戶' : '選擇客戶'), pt && lastOrderOf(pt.id) ? h('button', {class:'btn ghost sm', style:'margin-left:8px', 'aria-label':'帶入上次訂單', onclick:() => { lineFillFromLast(d, lo); render('lineorders'); }}, '帶入上次訂單') : null),
+        h('div', {style:'margin-top:6px'}, ...d.lines.map(lineRow), h('button', {class:'btn plain sm', 'aria-label':'加一項', onclick:() => { d.lines.push({text:'', pid:'', qty:1, unit:'', price:0}); render('lineorders'); }}, '＋ 加一項')),
+        h('div', {class:'f2', style:'margin-top:8px'}, fld('交貨日', h('input', {class:'in', type:'date', value:d.expected, 'aria-label':'交貨日', onchange:e => { d.expected = e.target.value || today(); }})), fld('備註', h('input', {class:'in', type:'text', value:d.note, 'aria-label':'備註', onchange:e => { d.note = e.target.value; }}))),
+        pt && pt.lineUserId !== lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:d.bind, 'aria-label':'綁定這位 LINE 用戶', onchange:e => { d.bind = e.target.checked; }}), '之後這位 LINE 用戶傳來的訂單，都算 ' + (pt.shortName || pt.name)) : null,
+        h('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-top:8px'}, h('b', {text:'合計 ' + money(total)}), h('span', {class:'hint', text:d.lines.filter(l => l.pid).length + ' 項商品'})),
+        h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn', style:'flex:1', 'aria-label':'核准 ' + lo.id, onclick:() => lineApprove(lo, d)}, '核准，建立客戶訂單'), h('button', {class:'btn ghost', 'aria-label':'駁回 ' + lo.id, onclick:() => lineReject(lo, d)}, '駁回'))));
+    }
+    return {body};
+  });
+}
+async function lineShowImages(lo){
+  const sh = sheet({title:'客人傳的圖片'}), box = h('div'); put(sh.bodyEl, box); setKids(box, h('p', {class:'hint', text:'讀取中…'}));
+  const imgs = []; for (const id of lo.imageIds || []){ try { const sn = await S.db.doc('linephotos/' + id).get(); if (sn.exists) imgs.push((sn.data() || {}).data); } catch (_) {} }
+  setKids(box, imgs.length ? imgs.map(src => h('img', {src, alt:'客人傳的圖片', style:'width:100%;border-radius:12px;margin-bottom:10px'})) : h('p', {class:'hint', text:'讀不到圖片（可能太大沒有儲存，請到 LINE 官方帳號後台看原始訊息）。'}));
+}
+async function lineApprove(lo, d){
+  const pt = S.partners[d.partnerId]; if (!pt) return toast('請先選擇客戶');
+  const lines = d.lines.filter(l => l.pid && S.products[l.pid] && Number(l.qty) > 0).map(l => { const p = S.products[l.pid]; return {pid:p.id, name:p.name, sku:p.sku, unit:l.unit || p.unit || '', qty:Number(l.qty), price:Number(l.price) || 0, cost:p.cost || 0}; });
+  if (!lines.length) return toast('至少要有一項選好商品、數量大於 0 的品項');
+  if (d.lines.some(l => !l.pid) && !await dialog({title:'有品項還沒選商品', msg:'還沒選商品的品項不會進訂單，確定繼續嗎？', ok:'繼續核准'})) return;
+  let notified = false;
+  const doc = await run(async () => {
+    const co = await createDoc('co', {partnerId:pt.id, date:today(), expected:d.expected || today(), lines, note:(d.note || '').trim() || 'LINE 訂單', extra:{lineOrderId:lo.id, source:'line', wh:defaultWh()}});
+    await S.db.doc('lineorders/' + lo.id).update({status:'approved', partnerId:pt.id, orderId:co.id, orderNo:co.no, approvedBy:S.meId || '', approvedByName:myName(), approvedAt:Date.now()});
+    if (d.bind && lo.lineUserId && pt.lineUserId !== lo.lineUserId) await S.db.doc('partners/' + pt.id).update({lineUserId:lo.lineUserId, lineBoundAt:Date.now(), lineBindCode:''});
+    try { notified = await lineNotifyConfirm(co, lo); } catch (e) { console.error(e); }
+    return co;
+  });
+  if (doc){ delete (S.__lineDrafts || {})[lo.id]; toast('已建立客戶訂單 ' + doc.no + (notified ? '，已排入 LINE 通知客戶' : '')); }
+}
+async function lineReject(lo, d){
+  const pt = S.partners[d.partnerId], L = LINE(); let reason = '', tell = false;
+  const sh = sheet({title:'駁回這張 LINE 訂單'}), why = h('input', {class:'in', type:'text', placeholder:'原因（選填，例如：品項看不懂、庫存不足）', 'aria-label':'駁回原因', oninput:e => { reason = e.target.value; }});
+  put(sh.bodyEl, fld('駁回原因', why), L.on && lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'用 LINE 通知客戶', onchange:e => { tell = e.target.checked; }}), '用 LINE 通知客戶（會用掉 1 則訊息額度）') : null);
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'確認駁回', onclick:async () => { const ok = await run(async () => { await S.db.doc('lineorders/' + lo.id).update({status:'rejected', rejectReason:reason.trim(), rejectedBy:S.meId || '', rejectedAt:Date.now()}); if (tell && L.on && lo.lineUserId) await queueLine('rej_' + lo.id, {to:lo.lineUserId, type:'reject', text:lineFill(L.tplReject, {公司:S.set.co || S.set.name || '', 客戶:pt ? (pt.shortName || pt.name) : '', 時間:lineTimeTxt(lo.createdAt), 原因:reason.trim() ? '（' + reason.trim() + '）' : ''})}); return true; }); if (ok){ toast('已駁回'); sh.forceClose(); } }}, '確認駁回'));
+}
+function lineHomeCard(){
+  const n = linePending().length; if (!n && !LINE().on) return null; if (!can('sale') && !S.isAdmin) return null;
+  const first = linePending()[0];
+  return h('button', {class:'card-btn', 'aria-label':'LINE 待審核訂單', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openLineOrders}, h('b', {text:n ? 'LINE 待審核訂單 ' + n + ' 張' : 'LINE 訂單：目前沒有待審核'}), n ? [h('br'), h('small', {class:'overdue', text:'最久已等 ' + lineAgoTxt(first.createdAt) + '，點這裡審核'})] : null);
+}
+function showRemindPreview(pt){
+  const pv = remindPreview(pt), sh = sheet({title:(pt.shortName || pt.name) + ' 會收到的訊息'}), box = (title, m, kind) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':title},
+    h('b', {text:title}), m ? h('div', {style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:m.text}) : h('p', {class:'hint', text:kind === 'statement' ? (billingOf(pt) === 'cycle' ? '這個月帳款沒有單據，也沒有未收，不會送。' : '這位客戶不是月結，沒有每月對帳通知。') : '目前沒有逾期的單據，不會送。'}),
+    m && pt.lineUserId ? h('button', {class:'btn ghost sm', 'aria-label':'現在寄給這位客戶 ' + kind, onclick:async () => { if (!await dialog({title:'現在就寄給 ' + (pt.shortName || pt.name) + '？', msg:'會用掉 1 則 LINE 訊息額度，客人會馬上收到。', ok:'寄出'})) return; const ok = await run(() => queueLine('manual_' + kind + '_' + pt.id + '_' + Date.now(), {to:pt.lineUserId, type:kind === 'statement' ? 'statement' : 'overdue', partnerId:pt.id, text:m.text})); if (ok !== undefined) toast(LINE().on ? '已排入，幾秒內送出' : '已排入，但 LINE 通知還沒啟用'); }}, '現在寄給這位客戶') : (m ? h('small', {class:'hint', text:'這位客戶還沒綁定 LINE，寄不出去。'}) : null));
+  put(sh.bodyEl, !pt.lineRemind ? h('div', {class:'note warn', text:'這位客戶的資料裡還沒有勾「LINE 對帳與逾期提醒」，所以排程不會自動送給他。'}) : null, box('每月對帳通知（' + (pv.statement ? rocMonthTxt(pv.statement.month) : '上一個帳款月份') + '）', pv.statement, 'statement'), box('每週逾期提醒', pv.overdue, 'overdue'));
+}
+function openLineBind(){
+  const st = {q:''}, sh = sheet({title:'客戶 LINE 綁定'}), list = h('div', {class:'panel'});
+  const code = () => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c; do { c = Array.from({length:6}, () => A[Math.floor(Math.random() * A.length)]).join(''); } while (Object.values(S.partners).some(x => x.lineBindCode === c)); return c; };
+  const paint = () => { const q = st.q.trim().toLowerCase(), cs = Object.values(S.partners).filter(x => x.type === 'customer' && (!q || ((x.code || '') + ' ' + x.name + ' ' + (x.shortName || '')).toLowerCase().includes(q))).sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).slice(0, 60);
+    setKids(list, cs.length ? cs.map(c => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center', 'data-name':c.name}, h('span', {style:'min-width:0'}, h('b', {text:(c.code ? c.code + '　' : '') + (c.shortName || c.name)}), h('br'), h('small', {class:c.lineUserId ? 'soon' : 'hint', text:c.lineUserId ? '已綁定 LINE' : (c.lineBindCode ? '綁定碼 ' + c.lineBindCode + '（請客人在 LINE 輸入：綁定 ' + c.lineBindCode + '）' : '還沒綁定')})),
+      c.lineUserId ? h('button', {class:'btn plain sm', 'aria-label':'解除綁定 ' + c.name, onclick:async () => { if (await dialog({title:'解除 ' + c.name + ' 的 LINE 綁定？', msg:'之後他傳來的訂單會變成「未指定客戶」，要重新綁定。', ok:'解除', danger:true})) { await run(() => S.db.doc('partners/' + c.id).update({lineUserId:'', lineBoundAt:0})); paint(); } }}, '解除') : h('button', {class:'btn ghost sm', 'aria-label':'產生綁定碼 ' + c.name, onclick:async () => { await run(() => S.db.doc('partners/' + c.id).update({lineBindCode:code()})); }}, c.lineBindCode ? '重新產生' : '產生綁定碼'))) : h('div', {class:'empty', text:'找不到客戶'})); };
+  put(sh.bodyEl, h('p', {class:'note', text:'客人要先加你們的 LINE 官方帳號為好友，再傳「綁定 ABC123」，系統就會把他的 LINE 和這個客戶對起來。綁定後，他傳來的訂單會自動帶出客戶。'}), h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋客戶', 'aria-label':'搜尋客戶', oninput:e => { st.q = e.target.value; paint(); }})), list);
+  const iv = setInterval(paint, 1200); const old = sh.forceClose; sh.forceClose = () => { clearInterval(iv); old(); }; paint();
+}
+function openLineSettings(){
+  if (!S.isAdmin) return toast('只有管理員可以設定');
+  const RC0 = lineRemindCfg(), L0 = LINE(), st = {on:L0.on, remind:JSON.parse(JSON.stringify(RC0)), summaryTime:L0.summaryTime, days:[...L0.days], appUrl:L0.appUrl, notifyConfirm:L0.notifyConfirm, notifyDeliver:L0.notifyDeliver, notifyReject:L0.notifyReject, tplConfirm:L0.tplConfirm, tplDeliver:L0.tplDeliver, tplReject:L0.tplReject, mgrCode:L0.mgrCode};
+  liveSheet({title:'LINE 通知設定'}, ['settings', 'partners'], sh => {
+    const L = LINE(), bound = Object.values(S.partners).filter(x => x.type === 'customer' && x.lineUserId).length;
+    const wd = '日一二三四五六';
+    const chk = (k, t) => h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!st[k], 'aria-label':t, onchange:e => { st[k] = e.target.checked; }}), t);
+    const tpl = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:4, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st[k] = e.target.value; }, text:st[k]}), hint);
+    const tpl2 = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:6, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st.remind[k] = e.target.value; }, text:st.remind[k]}), hint);
+    const body = h('div', null,
+      h('div', {class:'note', text:'LINE 要在 Firebase 部署中介程式（Cloud Functions）後才會真的收發訊息；沒部署前，這裡的設定和審核頁可以先試用。步驟寫在 README 的「LINE 串接」。'}),
+      chk('on', '啟用 LINE 通知（關掉就完全不排入通知）'),
+      h('div', {class:'sec-h'}, h('h2', {text:'管理者（收每日彙總）'})),
+      L.managers.length ? h('div', {class:'panel', 'aria-label':'管理者名單'}, L.managers.map((m, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center'}, h('b', {text:m.name || '（未命名）'}), h('span', {style:'display:flex;gap:6px'}, h('button', {class:'btn ghost sm', 'aria-label':'測試 ' + (m.name || i), onclick:async () => { const ok = await run(() => queueLine('test_' + Date.now() + '_' + i, {to:m.userId, type:'test', text:'【' + (S.set.co || S.set.name || '') + '】這是一則測試訊息，收到代表 LINE 通知設定成功。'})); if (ok !== undefined) toast(LINE().on ? '已排入測試訊息，幾秒內會收到' : '已排入，但 LINE 通知還沒啟用，請先勾選「啟用」並儲存'); }}, '寄測試'), h('button', {class:'btn plain sm', 'aria-label':'移除 ' + (m.name || i), onclick:async () => { if (await dialog({title:'移除管理者「' + (m.name || '') + '」？', msg:'他就不會再收到每日彙總。', ok:'移除', danger:true})) { const cur = LINE(); await run(() => S.db.doc('settings/main').update({line:{...cur, managers:cur.managers.filter((x, j) => x.userId !== m.userId)}})); } }}, '移除'))))) : h('div', {class:'panel empty', text:'還沒有管理者。請管理者先加官方帳號好友，再傳下面的登記碼。'}),
+      fld('管理者登記碼', h('div', {style:'display:flex;gap:8px'}, h('input', {class:'in', value:st.mgrCode || '（按「產生」）', readonly:true, 'aria-label':'管理者登記碼', style:'flex:1'}), h('button', {class:'btn ghost', 'aria-label':'產生登記碼', onclick:() => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; st.mgrCode = Array.from({length:6}, () => A[Math.floor(Math.random() * A.length)]).join(''); render('settings'); }}, '產生')), st.mgrCode ? '管理者在 LINE 對官方帳號輸入：管理者 ' + st.mgrCode : '登記碼只用來登記管理者；登記完可以重新產生，舊的就失效。'),
+      h('div', {class:'sec-h'}, h('h2', {text:'每日彙總'})),
+      h('div', {class:'f2'}, fld('發送時間', h('input', {class:'in', type:'time', value:st.summaryTime, 'aria-label':'彙總時間', onchange:e => { st.summaryTime = e.target.value || '18:00'; }}), '到這個時間之後的半小時內送出'), fld('網站網址（放在訊息裡）', h('input', {class:'in', type:'text', value:st.appUrl, placeholder:'https://…', 'aria-label':'網站網址', oninput:e => { st.appUrl = e.target.value.trim(); }}))),
+      h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, h('small', {class:'hint', style:'align-self:center', text:'哪幾天送：'}), [0, 1, 2, 3, 4, 5, 6].map(d => h('button', {class:'chip', 'aria-pressed':st.days.includes(d), 'aria-label':'星期' + wd[d], onclick:e => { st.days = st.days.includes(d) ? st.days.filter(x => x !== d) : [...st.days, d].sort(); e.target.setAttribute('aria-pressed', String(st.days.includes(d))); }}, wd[d]))),
+      h('div', {class:'sec-h'}, h('h2', {text:'通知客戶（每則都算 LINE 訊息額度）'})),
+      chk('notifyConfirm', '訂單審核通過 → 通知客戶「已確認建立，等候安排配送」'), chk('notifyDeliver', '訂單排進出車排程 → 通知客戶配送日期和時段'), chk('notifyReject', '駁回時預設通知客戶（駁回時也可以個別決定）'),
+      tpl('tplConfirm', '審核通過的訊息', '可用：{公司} {客戶} {單號} {品項} {金額}'), tpl('tplDeliver', '配送通知的訊息', '可用：{公司} {客戶} {單號} {日期} {時段} {送貨員}'), tpl('tplReject', '駁回的訊息', '可用：{公司} {客戶} {時間} {原因}'),
+      h('div', {class:'sec-h'}, h('h2', {text:'客戶對帳與逾期提醒（每則都算 LINE 訊息額度）'})),
+      h('div', {class:'note', text:'只會發給「客戶資料裡勾了 LINE 對帳與逾期提醒」而且已綁定 LINE 的客戶。對帳通知在每個客戶的帳款月份結束後（結帳日當天起，最多補送 3 天）送一則，只對月結客戶；逾期提醒每週送一則，有逾期單據才送。'}),
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.remind.monthly.on, 'aria-label':'啟用每月對帳通知', onchange:e => { st.remind.monthly.on = e.target.checked; }}), '每月對帳通知'), h('div', {class:'f', style:'margin-left:26px'}, fld('發送時間（到這個時間之後才送）', h('input', {class:'in', type:'time', value:st.remind.monthly.time, 'aria-label':'對帳通知時間', onchange:e => { st.remind.monthly.time = e.target.value || '09:30'; }}))),
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.remind.weekly.on, 'aria-label':'啟用每週逾期提醒', onchange:e => { st.remind.weekly.on = e.target.checked; }}), '每週逾期提醒'),
+      h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap;margin-left:26px'}, h('small', {class:'hint', style:'align-self:center', text:'星期：'}), [0, 1, 2, 3, 4, 5, 6].map(d => h('button', {class:'chip', 'aria-pressed':Number(st.remind.weekly.wd) === d, 'aria-label':'提醒星期' + wd[d], onclick:e => { st.remind.weekly.wd = d; [...e.target.parentElement.querySelectorAll('button')].forEach((b, i) => b.setAttribute('aria-pressed', String(i === d))); }}, wd[d]))),
+      h('div', {class:'f', style:'margin-left:26px'}, fld('發送時間', h('input', {class:'in', type:'time', value:st.remind.weekly.time, 'aria-label':'逾期提醒時間', onchange:e => { st.remind.weekly.time = e.target.value || '09:30'; }}))),
+      tpl2('tplStatement', '對帳通知的訊息', '可用：{公司} {客戶} {月份} {單據數} {未稅} {稅金} {應收} {已收} {前期未收} {累計未收} {付款資訊}'), tpl2('tplOverdue', '逾期提醒的訊息', '可用：{公司} {客戶} {逾期張數} {逾期金額} {最久天數} {付款資訊}'),
+      h('div', {class:'panel pad', 'aria-label':'提醒預覽'}, h('div', {text:'已啟用提醒的客戶 ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind).length + ' 位（其中已綁定 LINE ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind && x.lineUserId).length + ' 位）'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'預覽客戶收到的訊息', onclick:() => lineSearchSheet('選一位客戶看他會收到什麼', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:(x.lineRemind ? '已啟用提醒' : '未啟用') + (x.lineUserId ? '、已綁定 LINE' : '、未綁定')})), id => showRemindPreview(S.partners[id]))}, '預覽客戶會收到的訊息')),
+      h('div', {class:'sec-h'}, h('h2', {text:'客戶綁定'})), h('div', {class:'panel pad'}, h('div', {text:'已綁定 LINE 的客戶 ' + bound + ' 位'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'管理客戶綁定', onclick:openLineBind}, '管理客戶綁定（產生綁定碼）')));
+    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, tplConfirm:st.tplConfirm || LINE_TPL_CONFIRM, tplDeliver:st.tplDeliver || LINE_TPL_DELIVER, tplReject:st.tplReject || LINE_TPL_REJECT, remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, tplStatement:st.remind.tplStatement || LINE_TPL_STATEMENT, tplOverdue:st.remind.tplOverdue || LINE_TPL_OVERDUE}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
+  });
+}
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), salesStats:x => salesStats(x), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -6188,7 +6787,7 @@ function fieldGroups(pendingOnly){
     const g = m[pm.fieldNo] || (m[pm.fieldNo] = {no:pm.fieldNo, partnerId:pm.partnerId, date:pm.date, collector:collectorOf(pm), pays:[], at:pm.at || 0});
     g.pays.push(pm);
   }
-  for (const g of Object.values(m)){ g.pays.sort((a, b) => (a.method === 'cash' ? 0 : 1) - (b.method === 'cash' ? 0 : 1) || (a.at || 0) - (b.at || 0)); g.cash = r2(g.pays.filter(p => p.method === 'cash').reduce((a, p) => a + (p.amount || 0), 0)); g.notes = g.pays.filter(p => p.noteId && S.notes[p.noteId]).map(p => S.notes[p.noteId]); g.checkAmt = r2(g.notes.reduce((a, n) => a + (n.amount || 0), 0)); g.total = r2(g.pays.reduce((a, p) => a + (p.amount || 0), 0)); g.pending = g.pays.some(p => p.pending); }
+  for (const g of Object.values(m)){ g.pays.sort((a, b) => (a.method === 'cash' ? 0 : 1) - (b.method === 'cash' ? 0 : 1) || (a.at || 0) - (b.at || 0)); g.cash = r2(g.pays.filter(p => p.method === 'cash').reduce((a, p) => a + (p.amount || 0), 0)); g.notes = g.pays.filter(p => p.noteId && S.notes[p.noteId]).map(p => S.notes[p.noteId]); g.checkAmt = r2(g.notes.reduce((a, n) => a + (n.amount || 0), 0)); g.total = r2(g.pays.reduce((a, p) => a + (p.amount || 0), 0)); g.pending = g.pays.some(p => p.pending); g.handed = g.pays.every(p => p.handoverId); g.handedBy = (g.pays.find(p => p.handoverByName) || {}).handoverByName || ''; }
   return Object.values(m).sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.at - a.at);
 }
 const fieldTxt = g => '現金 ' + money(g.cash) + (g.notes.length ? '　支票 ' + g.notes.length + ' 張 ' + money(g.checkAmt) : '') + '　共 ' + money(g.total);
@@ -6208,7 +6807,7 @@ function openFieldPay(){
   }
   function paintRecent(){
     const mine = fieldGroups(false).filter(g => g.date === today() && g.pays.some(p => p.by === S.meId));
-    setKids(recent, ...(mine.length ? [h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'今天已登記（' + mine.length + ' 筆）'})), h('div', {class:'panel'}, mine.map(g => h('div', {class:'row'}, h('span', {style:'min-width:0'}, h('b', {text:partyName(g.partnerId)}), h('br'), h('small', {text:g.no + '　' + fieldTxt(g)})), h('span', {class:'pd-m ' + (g.pending ? 'note' : 'cash'), text:g.pending ? '待沖帳' : '已沖帳'}))))] : []));
+    setKids(recent, ...(mine.length ? [h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'今天已登記（' + mine.length + ' 筆）'})), h('div', {class:'panel'}, mine.map(g => h('div', {class:'row'}, h('span', {style:'min-width:0'}, h('b', {text:partyName(g.partnerId)}), h('br'), h('small', {text:g.no + '　' + fieldTxt(g)})), h('span', {style:'display:flex;flex-direction:column;align-items:flex-end;gap:3px'}, h('span', {class:'pd-m ' + (g.pending ? 'note' : 'cash'), text:g.pending ? '待沖帳' : '已沖帳'}), h('small', {class:g.handed ? 'hint' : 'overdue', 'aria-label':'保管 ' + g.no, text:g.handed ? '已交內勤' : '還沒交給內勤'})))))] : []));
   }
   let saving = false;
   const saveBtn = h('button', {class:'btn grow', 'aria-label':'完成收款登記', onclick:async () => {
@@ -6253,7 +6852,7 @@ function openFieldQueue(){
       h('div', {class:'chips', style:'padding-top:0'}, [[false, '待沖帳（' + all.filter(g => g.pending).length + '）'], [true, '已沖帳']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.done === k, 'aria-label':'篩選 ' + t, onclick:() => { U.done = k; render('payments'); }}, t))),
       list.length ? h('div', {class:'panel'}, list.map(g => h('button', {class:'row', style:'align-items:flex-start', 'aria-label':'沖帳 ' + g.no, onclick:() => g.pending ? openFieldAllocate(g.no) : openPaymentDetail(g.pays[0].id)},
         h('span', {style:'min-width:0;text-align:left'}, h('b', {text:partyName(g.partnerId)}), h('br'), h('small', {text:g.date + '　' + g.no + '　收款人 ' + g.collector}), h('br'), h('small', {text:fieldTxt(g)}), ...g.notes.map(n => [h('br'), h('small', {text:'票 ' + n.no + '　' + (n.bank || '—') + '　到期 ' + (n.dueDate || '—') + '　' + money(n.amount)})]).flat()),
-        h('span', {class:'right'}, h('span', {class:'pd-m ' + (g.pending ? 'note' : 'cash'), text:g.pending ? '待沖帳' : '已沖帳'}))))) : h('div', {class:'panel empty', text:U.done ? '還沒有已沖帳的外務收款' : '沒有待沖帳的收款'}));
+        h('span', {class:'right'}, h('span', {class:'pd-m ' + (g.pending ? 'note' : 'cash'), text:g.pending ? '待沖帳' : '已沖帳'}), h('br'), h('small', {class:g.handed ? 'hint' : 'overdue', 'aria-label':'保管 ' + g.no, text:g.handed ? '內勤已簽收' : '外務保管中'}))))) : h('div', {class:'panel empty', text:U.done ? '還沒有已沖帳的外務收款' : '沒有待沖帳的收款'}));
     return {body};
   });
 }
@@ -8445,18 +9044,18 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-ac';
+const APP_VERSION = '2026.10.02-al';
 const MENU_CATS = [
-  ['銷售與訂單', 'doc', ['單據查詢', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
+  ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
-  ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位設定', '產品標籤列印', '庫存關帳作業']],
+  ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '循環盤點', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位設定', '產品標籤列印', '庫存關帳作業']],
   ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
-  ['收款與帳務', 'wallet', ['應收帳款報表', '應收帳款清單回傳表', '應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
+  ['收款與帳務', 'wallet', ['現金票據簽收', '應收帳款報表', '應收帳款清單回傳表', '應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
   ['票據與現金', 'lock', ['支票代收作業', '保管管理', '其他收支作業']],
   ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入', '資料匯入匯出']],
   ['人事與考核', 'clock', ['人員管理', '上下班打卡', '我的考勤', '考勤管理', '配送錯誤與考核', '獎金與薪資']],
-  ['報表與稽核', 'chart', ['營運報表', '單據覆核', '期間封存']],
-  ['系統與設定', 'sliders', ['系統設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
+  ['報表與稽核', 'chart', ['營運報表', '事業部營業績效', '單據覆核', '期間封存']],
+  ['系統與設定', 'sliders', ['系統設定', '事業部設定', '費用保護', 'LINE 通知設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
 ];
 const menuCatIcon = t => (MENU_CATS.find(c => c[0] === t) || [])[1] || 'more';
 function regroupMenu(raw){
@@ -8471,13 +9070,13 @@ function menuGroups(){
   const raw = [
     ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
     ['訂購', [M('國內報價作業', can('sale'), goTab('buy', {buySeg:'qt'}), '報價單，可轉客戶訂單'), M('國內訂單作業', can('sale'), goTab('buy', {buySeg:'co'}), '客戶訂單、未交查詢'), M('採購建議作業', can('purchase'), goTab('buy', {buySeg:'sug'}), '依安全庫存與最小量自動建議'), M('國內採購單', can('purchase'), goTab('buy', {buySeg:'po'}), '採購單、收貨進貨')]],
-    ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
-      M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
+    ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
+      M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
-    ['帳款', [M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
-    ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
+    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
+    ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
-    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
+    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
   ];
   return regroupMenu(raw);
 }
@@ -8628,7 +9227,7 @@ const PI_FIELDS = [
   ['address', '公司地址', ['公司地址', '地址']], ['shipAddress', '送貨地址', ['送貨地址', '交貨地址']], ['taxId', '統一編號', ['統一編號', '統編']], ['taxTitle', '統編抬頭', ['統編抬頭', '發票抬頭', '抬頭']], ['invoiceAddress', '發票地址', ['發票地址']],
   ['level', '分類等級', ['分類等級', '客戶等級', '等級', '分類']], ['payMethod', '付款方式', ['付款方式', '付款條件']], ['billDay', '結帳日期', ['結帳日期', '結帳日', '月結帳日']], ['termDays', '付款天數', ['付款天數', '帳期天數']],
   ['discount', '現金折讓%', ['現金折讓%', '現金折%', '折讓%', '現金折讓', '折讓']], ['invoiceMode', '開立發票方式', ['開立發票方式', '發票方式']], ['taxOpt', '稅別', ['稅別']],
-  ['custCat', '客戶類別', ['客戶類別', '類別']], ['office', '負責營業所', ['負責營業所', '營業所']], ['bankAccount', '匯款帳號', ['匯款帳號', '匯入帳號', '匯入帳款帳號']], ['checkAccount', '支票帳號', ['支票帳號']], ['paymentNote', '收款注意事項', ['收款注意事項', '收款時間及注意事項', '收款注意']], ['note', '備註', ['備註', '基本資料']]];
+  ['custCat', '客戶類別', ['客戶類別', '類別']], ['office', '負責營業所', ['負責營業所', '營業所']], ['lineRemind', 'LINE 對帳提醒', ['LINE對帳提醒', 'LINE 對帳提醒', 'LINE提醒', '對帳提醒']], ['bankAccount', '匯款帳號', ['匯款帳號', '匯入帳號', '匯入帳款帳號']], ['checkAccount', '支票帳號', ['支票帳號']], ['paymentNote', '收款注意事項', ['收款注意事項', '收款時間及注意事項', '收款注意']], ['note', '備註', ['備註', '基本資料']]];
 const piNorm = t => String(t).replace(/[\s　]/g, '').toUpperCase();
 function decodeCsv(buf){
   const u = new Uint8Array(buf);
@@ -8664,6 +9263,7 @@ function planPartnerImport(text, type, mode){
     const tx = piTax(g('taxOpt')); if (tx === null) warn.push('稅別「' + g('taxOpt') + '」看不懂，已略過'); else if (tx){ const [a, b] = tx.split(':'); data.taxType = a; data.taxMode = b; }
     const iv = piInv(g('invoiceMode')); if (iv === null) warn.push('開立發票方式「' + g('invoiceMode') + '」看不懂，已略過'); else if (iv) data.invoiceMode = iv;
     const cc = g('custCat'); if (cc){ if (custCatList().some(c => c.name === cc)) data.custCat = cc; else warn.push('客戶類別「' + cc + '」不在設定的類別裡，已略過'); }
+    if (g('lineRemind')){ const yn = String(g('lineRemind')).replace(/\s/g, ''); if (/^(是|y|yes|1|true|啟用|開|勾|v|✓)$/i.test(yn)) data.lineRemind = true; else if (/^(否|n|no|0|false|停用|關)$/i.test(yn)) data.lineRemind = false; else warn.push('LINE 對帳提醒「' + g('lineRemind') + '」看不懂（請寫是或否），已略過'); }
     const of0 = g('office'); if (of0){ if (officeList().includes(of0)) data.office = of0; else warn.push('負責營業所「' + of0 + '」不在系統設定的營業所裡，已略過'); }
     const ex = (code && byCode.get(code.toUpperCase())) || byName.get(name);
     if (ex){ if (mode === 'add'){ nSkip++; issues.push('第 ' + line + ' 列：「' + name + '」已存在，略過'); return; } items.push({line, action:'update', id:ex.id, name, data:{...data, ...(name !== ex.name ? {name} : {})}, warn}); nUp++; }
@@ -8707,7 +9307,7 @@ function openPartnerImport(type){
     goBtn.textContent = '開始匯入';
     if (ok){ toast('已匯入：新增 ' + p.nNew + '、更新 ' + p.nUp + ' 筆'); sh.forceClose(); } else goBtn.disabled = false;
   });
-  const HEAD = PI_FIELDS.filter(([k]) => type === 'customer' || !['salesRep', 'shipAddress', 'invoiceAddress', 'level', 'invoiceMode', 'checkAccount', 'discount', 'custCat', 'office'].includes(k));
+  const HEAD = PI_FIELDS.filter(([k]) => type === 'customer' || !['salesRep', 'shipAddress', 'invoiceAddress', 'level', 'invoiceMode', 'checkAccount', 'discount', 'custCat', 'office', 'lineRemind'].includes(k));
   put(sh.bodyEl, h('p', {class:'note', text:'用 CSV 檔批次建立或更新' + L + '。第一列是欄位名稱，只有「' + (type === 'customer' ? '客戶名稱' : '客戶名稱') + '」必填，其他欄位有就填。Excel 請另存成 CSV（中文編碼 UTF-8 或一般 CSV 都可以）。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', onclick:() => saveFile(L + '資料匯入範本.csv', csvText([HEAD.map(x => x[1]),
       HEAD.map(([k]) => ({code:'C001', name:'大同食品有限公司', shortName:'大同', salesRep:'小王', region:'北區', owner:'陳大同', phone:'02-2222-3333', fax:'02-2222-3334', lineId:'datong', contactName:'王小姐', contactPhone:'0912-345-678', address:'台北市中山區中山北路二段55號3樓', shipAddress:'台北市內湖區瑞光路100號', taxId:'22555003', taxTitle:'大同食品有限公司', invoiceAddress:'台北市中山區中山北路二段55號3樓', level:'批發', payMethod:'月結', billDay:25, termDays:0, discount:'', invoiceMode:'月結開立', taxOpt:'應稅（未稅價）', bankAccount:'', checkAccount:'', paymentNote:'每月 5 日前付款', note:''})[k] ?? ''),
@@ -8982,7 +9582,7 @@ function openPriceRules(){
 }
 
 /* ---- 備份與還原 ---- */
-const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans'];
+const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers'];
 const BK_SET = () => ({main:S.setRaw || {}, invoice:S.invCfg || {}, slipform:S.slipCfg || {}, slipform_south:S.slipCfgS || {}, roles:S.roles || {}});
 const bkEvery = () => { const v = S.bk && S.bk.every; return v === undefined || v === null ? 7 : Number(v); };
 function bkDue(){
@@ -9028,7 +9628,10 @@ async function restoreBackup(b, mode, setProgress){
 }
 function openBackup(){
   const sh = sheet({title:'備份與還原'});
-  const lastEl = h('div'), plan = h('div');
+  const lastEl = h('div'), plan = h('div'), cloudEl = h('div');
+  (async () => { let c = null; try { const sn = await S.db.doc('sys/backup').get(); c = sn.exists ? sn.data() : null; } catch (_) {}
+    setKids(cloudEl, h('div', {class:'panel pad', 'aria-label':'雲端自動備份'}, h('b', {text:'雲端自動備份'}), !c ? h('p', {class:'hint', style:'margin:4px 0 0', text:'還沒有自動備份的紀錄。部署雲端函式（line-functions，含每日自動備份）並啟用 Cloud Storage 之後，每天凌晨 3:30 會自動備份。'}) : [kv('最近一次', fmtDT(c.at) + (c.ok ? '　成功' : '　失敗')), c.ok ? kv('檔案', c.file + '（' + (c.bytes / 1048576).toFixed(1) + ' MB，' + c.docs + ' 筆資料）') : kv('原因', c.error || ''), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'備份檔在 Firebase 主控台 → Storage → backups 資料夾，保留最近 35 天（每月 1 號的留一年）。要還原：下載檔案，用下面的「選擇備份檔」還原。'})]));
+  })();
   let bkFile = null, mode = 'missing';
   const paintInfo = () => {
     const last = S.bk && S.bk.last, ev = bkEvery();
@@ -9078,7 +9681,7 @@ function openBackup(){
   }
   put(sh.bodyEl,
     h('p', {class:'note', text:'備份檔（JSON）包含商品、往來對象、單據、收付款、票據、盤點、訂單、採購單、價格規則與系統設定。網頁在關閉時無法自己執行排程，所以這裡採「到期提醒」：超過設定天數沒備份，管理員開啟系統時上方會出現備份提示，點一下就會下載。'}),
-    lastEl,
+    cloudEl, lastEl,
     h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'提醒頻率'})), freq,
     h('button', {class:'btn', style:'width:100%;margin-top:6px', onclick:async e => { const b = e.currentTarget; b.disabled = true; const ok = await doBackup(); b.disabled = false; if (ok){ toast('已備份'); paintInfo(); } }}, icon('down'), '立即備份（下載 JSON）'),
     h('div', {class:'sec-h', style:'margin-top:18px'}, h('h2', {text:'從備份還原'})),
@@ -9605,7 +10208,7 @@ function dsCustomerMaster(){
   const ag = aging('customer'), bi = t => billingOf(t);
   const list = Object.values(S.partners).filter(p => p.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true}) || cmpName(a, b));
   const val = (p, k) => { switch (k){
-    case 'level': return p.level || ''; case 'payMethod': return piPayOut(p); case 'taxOpt': return piTaxOut(p); case 'invoiceMode': return INVM[p.invoiceMode] || '';
+    case 'lineRemind': return p.lineRemind ? '是' : ''; case 'level': return p.level || ''; case 'payMethod': return piPayOut(p); case 'taxOpt': return piTaxOut(p); case 'invoiceMode': return INVM[p.invoiceMode] || '';
     case 'discount': return p.discount ? Number(p.discount) : ''; case 'billDay': return p.billDay === undefined || p.billDay === '' ? '' : Number(p.billDay); case 'termDays': return Number(p.termDays) || 0;
     case 'taxId': return p.taxId || ''; default: return p[k] == null ? '' : String(p[k]); } };
   const cols = [...PI_FIELDS.map(([k, label]) => XC(label, ['discount', 'billDay', 'termDays'].includes(k) ? 'number' : 'text', ['address', 'shipAddress', 'invoiceAddress', 'paymentNote', 'note', 'name', 'taxTitle'].includes(k) ? 26 : 13)), XC('有效價格等級（參考）', 'text', 14), XC('叫貨店面（參考）', 'text', 20), XC('應收帳款（參考）', 'money', 14), XC('逾期金額（參考）', 'money', 14)];
@@ -9849,7 +10452,7 @@ async function init(){
     const m = {}; snap.docs.forEach(d => { m[d.id] = {...d.data(), id:d.id}; });
     S[key] = m; S.loaded[key] = true; recompute(); render(key); if (key === 'vehicles'){ seedTripVehicles(); seedTripBeds(); }
   }, bad);
-  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); setTimeout(registerMe, 2500);
+  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); watch('alerts', 'alerts'); watch('handovers', 'handovers'); setTimeout(registerMe, 2500);
   db.doc('settings/roles').onSnapshot(snap => { S.roles = snap.exists ? snap.data() : {}; S.loaded.roles = true; render('roles'); }, () => { S.loaded.roles = true; render('roles'); });
   db.doc('settings/backup').onSnapshot(snap => { S.bk = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/slipform_south').onSnapshot(snap => { S.slipCfgS = snap.exists ? snap.data() : {}; render('settings'); }, () => {});

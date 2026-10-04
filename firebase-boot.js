@@ -1,6 +1,7 @@
 /* 啟動程式：登入畫面、讀取使用者層級、把 Firebase 接成系統要用的介面。 */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const PFX = window.INV_PREFIX || 'inv_';
@@ -39,6 +40,37 @@ function start() {
   const autoRecover = () => { try { const t = Number(sessionStorage.getItem('fbRecoverAt') || 0); if (Date.now() - t < 60000) return; sessionStorage.setItem('fbRecoverAt', String(Date.now())); } catch (_) {} window.__fbRecover(); };
   window.addEventListener('unhandledrejection', ev => { if (isTerm(ev.reason)) autoRecover(); });
   window.addEventListener('error', ev => { if (isTerm(ev.error || ev.message)) autoRecover(); });
+  /* ===== 費用保護：資料庫被暫停時，顯示說明；管理員確認沒事後可以在這裡恢復 ===== */
+  const fns = (() => { try { return getFunctions(app, window.FUNCTIONS_REGION || 'asia-east1'); } catch (_) { return null; } })();
+  const call = name => fns ? httpsCallable(fns, name) : null;
+  window.appGuard = {
+    status: async () => { const c = call('guardStatus'); if (!c) throw new Error('沒有部署雲端函式'); return (await c()).data; },
+    pause: async () => { const c = call('pauseAccess'); if (!c) throw new Error('沒有部署雲端函式'); return (await c()).data; },
+    resume: async () => { const c = call('resumeAccess'); if (!c) throw new Error('沒有部署雲端函式'); return (await c()).data; }
+  };
+  let pausedShown = false, pausedAsked = 0;
+  const showPaused = st => {
+    pausedShown = true;
+    const when = st && st.at ? new Date(st.at).toLocaleString('zh-TW', { hour12: false }) : '';
+    card('<h2 style="margin:0 0 8px;font-size:20px">系統暫停中</h2><p style="margin:0 0 10px">為了保護費用，系統偵測到資料庫用量異常，暫時鎖住了資料庫' + (when ? '（' + esc(when) + '）' : '') + '。你的資料都還在，沒有遺失。</p>'
+      + '<p style="margin:0 0 14px;font-size:14px;color:#78858F">請通知管理員。管理員確認沒有異常（程式錯誤或被攻擊）之後，登入並按下面的按鈕恢復使用。</p>'
+      + '<div id="fbPMsg" style="min-height:22px;margin-bottom:8px;font-size:14px;color:#B93A2B"></div>'
+      + '<button id="fbResume" style="' + btnCss + '">我是管理員，確認沒事，恢復使用</button>'
+      + '<button id="fbPOut" style="' + linkCss + ';width:100%;margin-top:6px">登出</button>');
+    const setM = (t, ok) => { const m = ov.querySelector('#fbPMsg'); m.style.color = ok ? '#1E7F52' : '#B93A2B'; m.textContent = t; };
+    ov.querySelector('#fbPOut').onclick = () => signOut(auth).then(() => location.reload());
+    ov.querySelector('#fbResume').onclick = async () => {
+      const b2 = ov.querySelector('#fbResume'); b2.disabled = true; b2.textContent = '恢復中…';
+      try { await window.appGuard.resume(); setM('已恢復，規則大約 1 分鐘內生效，正在重新載入…', true); setTimeout(() => location.reload(), 4000); }
+      catch (e) { b2.disabled = false; b2.textContent = '我是管理員，確認沒事，恢復使用'; setM((e && e.message) || '恢復失敗', false); }
+    };
+  };
+  const checkPaused = async () => {
+    if (pausedShown || Date.now() - pausedAsked < 15000) return false; pausedAsked = Date.now();
+    try { const st = await window.appGuard.status(); if (st && st.paused) { showPaused(st); return true; } } catch (_) {}
+    return false;
+  };
+  window.__onPermDenied = () => { checkPaused(); };
   const fsApi = { doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction };
   const A = window.FirebaseAdapter;
   const db = A.makeDb(fsApi, fs, PFX);
@@ -71,7 +103,7 @@ function start() {
     card('<p style="margin:0;text-align:center">載入中…</p>');
     let snap;
     try { snap = await getDoc(usersDoc(u.uid)); }
-    catch (e) { return card('<h2 style="margin:0 0 8px;font-size:20px">讀取失敗</h2><p style="color:#B93A2B;margin:0 0 12px">' + esc(errText(e)) + '</p><p style="margin:0;font-size:14px;color:#78858F">多半是 Firestore 安全規則還沒設好，請照說明檔設定規則。</p><button id="fbOut" style="' + btnCss + ';margin-top:14px">登出</button>'), ov.querySelector('#fbOut').addEventListener('click', () => signOut(auth)); }
+    catch (e) { if (await checkPaused()) return; return card('<h2 style="margin:0 0 8px;font-size:20px">讀取失敗</h2><p style="color:#B93A2B;margin:0 0 12px">' + esc(errText(e)) + '</p><p style="margin:0;font-size:14px;color:#78858F">多半是 Firestore 安全規則還沒設好，請照說明檔設定規則。</p><button id="fbOut" style="' + btnCss + ';margin-top:14px">登出</button>'), ov.querySelector('#fbOut').addEventListener('click', () => signOut(auth)); }
     if (!snap.exists()) {
       card('<h2 style="margin:0 0 8px;font-size:20px">帳號尚未開通</h2><p style="margin:0 0 10px">請把下面這串代碼給管理員，由管理員開通你的權限：</p><div style="padding:10px;background:#F0F3F6;border-radius:8px;word-break:break-all;font-size:13px;user-select:all">' + esc(u.uid) + '</div><button id="fbOut" style="' + btnCss + ';margin-top:14px">登出</button>');
       ov.querySelector('#fbOut').onclick = () => signOut(auth); return;
