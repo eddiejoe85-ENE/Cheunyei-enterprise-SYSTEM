@@ -6327,6 +6327,99 @@ function openKeys(){
     h('div', {class:'sec-h'}, h('h2', {text:'開單、盤點（加商品）'})), h('div', {class:'panel'}, row('搜尋商品格', '打品名、料號，或用掃碼槍掃條碼，按 Enter 就加入第一個結果'), row('↓ ↑', '從搜尋框往下選別的結果，再按 Enter 加入'), row('數量格 Enter', '輸入數量後按 Enter，會回到「搜尋商品」繼續加下一個'), row('Tab', '輸入數量後按 Tab，會到單價、折數，要改價時用')),
     h('div', {class:'sec-h'}, h('h2', {text:'找功能、看清單'})), h('div', {class:'panel'}, row('Ctrl + K', '搜尋所有功能，打幾個字按 Enter 就開（Mac 用 ⌘ + K）'), row('/', '游標移到目前頁面的搜尋框（電腦版）'), row('↓ ↑', '在清單裡一筆一筆移動，Enter 打開'), row('?', '顯示這份說明')));
 }
+/* ================= 清除系統資料（管理員） =================
+   兩種範圍：① 只清交易資料（單據、收款、盤點、退貨、考勤…），商品、客戶、供應商、設定、人員都留著；
+   ② 全部清除（含商品、客戶、供應商、人員、設定），只留登入帳號和角色權限，讓系統回到空白。
+   一定要先下載備份、輸入確認字、等倒數，才能按最後的按鈕。刪掉就拿不回來（只能用備份還原）。 */
+const WIPE_TX = ['orders', 'corders', 'porders', 'payments', 'notes', 'collects', 'cashbook', 'counts', 'countlines', 'returns', 'quotes', 'closings', 'locks', 'expdocs', 'moves', 'trips', 'fuellogs', 'maint', 'derrors', 'attdays', 'leaves', 'payroll', 'displans', 'lineorders', 'handovers'];
+const WIPE_MASTER = ['products', 'partners', 'prules', 'promos', 'vehicles', 'fuelcards', 'employees'];
+const WIPE_SMALL = ['lineoutbox', 'picks', 'printjobs', 'printstations', 'timecheck'];
+const WIPE_NAME = {orders:'銷貨／進貨／調整單據', corders:'客戶訂單', porders:'採購單', payments:'收款付款', notes:'票據', collects:'代收單', cashbook:'零用金', counts:'盤點', countlines:'盤點明細', returns:'退貨處理', quotes:'報價單', closings:'庫存關帳', locks:'期間封存', expdocs:'費用單據', moves:'轉倉', trips:'出車', fuellogs:'加油紀錄', maint:'保養維修', derrors:'配送異常', attdays:'考勤打卡', leaves:'請假', payroll:'薪資', displans:'陳列方案', lineorders:'LINE 訂單', handovers:'現金票據簽收', products:'商品', partners:'客戶與供應商', prules:'價格規則', promos:'組合優惠與買送', vehicles:'車輛', fuelcards:'油卡', employees:'人員', lineoutbox:'LINE 待發訊息', picks:'揀貨紀錄', printjobs:'列印工作', printstations:'列印站', timecheck:'時間校對', photos:'照片', attphotos:'打卡照片', linephotos:'LINE 圖片', counters:'單據流水號'};
+const WIPE_PHRASE = {tx:'清除交易資料', all:'刪除全部資料'};
+function wipeListSmall(coll){
+  return new Promise(res => { let un = null, done = false; const fin = ids => { if (done) return; done = true; try { if (un) un(); } catch (_) {} res(ids); }; try { un = S.db.collection(coll).onSnapshot(sn => fin(sn.docs.map(d => d.id)), () => fin([])); } catch (_) { fin([]); } setTimeout(() => fin([]), 6000); });
+}
+/* 照片放在另外的集合裡，單據只記著照片代號：用代號找出來刪（不用把照片全下載） */
+function wipePhotoIds(){
+  const ph = new Set(), att = new Set(), ln = new Set();
+  const pick = (a, set) => (a || []).forEach(x => { const id = typeof x === 'string' ? x : (x && x.id); if (id) set.add(id); });
+  for (const c of [...WIPE_TX, ...WIPE_MASTER]) for (const d of Object.values(S[c] || {})){
+    if (d.photos) pick(d.photos, ph); if (d.pics) pick(d.pics, ph); if (d.packs) pick(d.packs, ph); if (d.photoId) ph.add(d.photoId); if (d.packId) ph.add(d.packId);
+    if (c === 'attdays') for (const r of Object.values(d.d || {})) for (const e of r.ev || []) if (e.ph) att.add(e.ph);
+    if (c === 'lineorders') pick(d.imageIds, ln);
+  }
+  return {photos:[...ph], attphotos:[...att], linephotos:[...ln]};
+}
+async function wipePlan(scope){
+  const items = [], add = (coll, ids) => { if (ids.length) items.push({coll, ids}); };
+  const cols = scope === 'all' ? [...WIPE_TX, ...WIPE_MASTER] : WIPE_TX;
+  for (const c of cols) add(c, Object.keys(S[c] || {}));
+  const pi = wipePhotoIds(); add('photos', pi.photos); add('attphotos', pi.attphotos); add('linephotos', pi.linephotos);
+  for (const c of WIPE_SMALL) add(c, await wipeListSmall(c));
+  if (scope === 'all') add('counters', await wipeListSmall('counters'));
+  return items;
+}
+async function wipeRun(items, scope, setProgress, shouldStop){
+  const total = items.reduce((a, x) => a + x.ids.length, 0); let done = 0, fail = 0; const byColl = {}, failed = [];
+  /* 一次刪 20 筆，每一筆各自成功或失敗，所以回報的數字是真的：成功幾筆、失敗幾筆（不會把成功的也算成失敗） */
+  const one = async (coll, id) => { try { await S.db.doc(coll + '/' + id).delete(); return true; } catch (e) { if (e && e.code === 'resource_exhausted'){ await new Promise(r => setTimeout(r, 1500)); try { await S.db.doc(coll + '/' + id).delete(); return true; } catch (_) { return false; } } return false; } };
+  for (const it of items){
+    for (let i = 0; i < it.ids.length; i += 20){
+      if (shouldStop()) return {total, done, fail, stopped:true, byColl, failed};
+      const chunk = it.ids.slice(i, i + 20), res = await Promise.all(chunk.map(id => one(it.coll, id))), good = res.filter(Boolean).length;
+      done += good; fail += chunk.length - good; if (good) byColl[it.coll] = (byColl[it.coll] || 0) + good; if (good < chunk.length) failed.push(it.coll);
+      setProgress(done + fail, total, it.coll);
+    }
+  }
+  // settings: 清交易資料時保留；全部清除時重設，但保留「是否要登入」的設定和角色權限、成員
+  const keepLogin = S.setRaw && S.setRaw.loginOn !== undefined ? {loginOn:S.setRaw.loginOn} : {};
+  const log = {at:Date.now(), by:S.meId || null, byName:myName(), scope, deleted:done, failed:fail};
+  try {
+    if (scope === 'all'){ for (const k of ['invoice', 'slipform', 'slipform_south', 'backup']) { try { await S.db.doc('settings/' + k).delete(); } catch (_) {} } await S.db.doc('settings/main').set({...keepLogin, lastWipe:log}); }
+    else await S.db.doc('settings/main').update({lastWipe:log});
+  } catch (_) {}
+  return {total, done, fail, stopped:false, byColl, failed};
+}
+function openWipe(){
+  if (!S.isAdmin) return toast('只有管理員可以清除資料');
+  const U = {scope:'tx', plan:null, backed:false, ack:false, typed:'', running:false, stop:false, finished:null, counting:false};
+  liveSheet({title:'清除所有資料'}, ['settings'], sh => {
+    const phrase = WIPE_PHRASE[U.scope], plan = U.plan, total = plan ? plan.reduce((a, x) => a + x.ids.length, 0) : 0, lw = S.set.lastWipe;
+    const chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.scope === k, 'aria-label':'範圍 ' + t, disabled:U.running, onclick:() => { U.scope = k; U.plan = null; U.typed = ''; render('settings'); }}, t);
+    const canGo = !!plan && total > 0 && U.backed && U.ack && U.typed.trim() === phrase && !U.running;
+    const body = h('div', null,
+      h('div', {class:'note bad', 'aria-label':'清除警告', style:'margin-top:0', text:'這個功能會永久刪除資料，刪掉就拿不回來，只能用備份檔還原。請先確定你真的要這麼做，而且已經下載了備份。'}),
+      lw ? h('div', {class:'panel pad', 'aria-label':'上次清除'}, h('b', {text:'上次清除'}), kv('時間', fmtDT(lw.at)), kv('範圍', lw.scope === 'all' ? '全部資料' : '交易資料'), kv('刪除筆數', num(lw.deleted) + (lw.failed ? '（失敗 ' + lw.failed + '）' : '')), lw.byName ? kv('操作的人', lw.byName) : null) : null,
+      h('div', {class:'sec-h'}, h('h2', {text:'第 1 步：選擇要清除的範圍'})),
+      h('div', {class:'chips', style:'padding-top:0'}, chip('tx', '只清交易資料'), chip('all', '全部清除')),
+      h('div', {class:'panel pad', 'aria-label':'範圍說明'}, U.scope === 'tx'
+        ? [h('b', {text:'只清交易資料'}), h('p', {class:'hint', style:'margin:4px 0'}, '會刪：銷貨、進貨、調整、客戶訂單、採購單、報價單、收款付款、票據、盤點、退貨、考勤打卡、請假、薪資、LINE 訂單、出車、費用單據、各種照片…'), h('p', {class:'hint', style:'margin:4px 0'}, '會留：商品、客戶、供應商、價格規則、車輛、人員、系統設定、登入帳號和權限。庫存會變成 0（因為庫存是由單據算出來的）。單據編號會接續，不會重複。')]
+        : [h('b', {text:'全部清除'}), h('p', {class:'hint', style:'margin:4px 0'}, '會刪：上面所有交易資料，加上商品、客戶（含聯絡人）、供應商、價格規則、組合優惠、車輛、油卡、人員、發票與單據格式設定、備份設定、單據流水號。系統回到空白。'), h('p', {class:'hint', style:'margin:4px 0'}, '只留：登入帳號、成員和角色權限（不然你會被鎖在外面），以及「是否要登入」的設定。')]),
+      h('button', {class:'btn ghost', style:'width:100%;margin-top:8px', 'aria-label':'計算會刪除多少', disabled:U.running || U.counting, onclick:async () => { U.counting = true; render('settings'); U.plan = await wipePlan(U.scope); U.counting = false; render('settings'); }}, U.counting ? '計算中…' : '計算會刪除多少資料（還不會刪）'),
+      plan ? h('div', {class:'panel', 'aria-label':'將刪除的資料', style:'margin-top:8px'}, plan.map(x => h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('span', {text:WIPE_NAME[x.coll] || x.coll}), h('b', {text:num(x.ids.length)}))), h('div', {class:'row', style:'grid-template-columns:1fr auto'}, h('b', {text:'合計'}), h('b', {'aria-label':'刪除合計', text:num(total) + ' 筆'}))) : null,
+      plan && !total ? h('div', {class:'note', text:'沒有可以刪除的資料。'}) : null,
+      h('div', {class:'sec-h'}, h('h2', {text:'第 2 步：先下載備份'})),
+      h('div', {class:'panel pad'}, h('p', {class:'hint', style:'margin:0 0 8px', text:'備份檔是一個 JSON 檔，之後可以在「備份與還原」把資料還回來。請把檔案存到安全的地方。照片不在備份檔裡。'}),
+        h('button', {class:'btn', 'aria-label':'下載備份檔', disabled:U.running, onclick:async () => { const okk = await doBackup(); if (okk){ U.backed = true; toast('備份檔已下載，請確認它真的存到電腦或手機了'); render('settings'); } }}, U.backed ? '已下載備份（可以再下載一次）' : '下載備份檔'),
+        h('label', {class:'check', style:'margin-top:8px'}, h('input', {type:'checkbox', checked:U.ack, disabled:!U.backed || U.running, 'aria-label':'我已確認備份檔存好了', onchange:e => { U.ack = e.target.checked; render('settings'); }}), '我已經確認備份檔存好了，而且打得開')),
+      h('div', {class:'sec-h'}, h('h2', {text:'第 3 步：輸入確認字'})),
+      h('div', {class:'panel pad'}, h('p', {class:'hint', style:'margin:0 0 6px'}, '請完整輸入：', h('b', {text:phrase})), h('input', {class:'in', value:U.typed, disabled:U.running, placeholder:phrase, 'aria-label':'確認字', autocomplete:'off', 'data-enter':'own', oninput:e => { U.typed = e.target.value; const b = sh.footEl.querySelector('[aria-label="永久刪除"]'); const ready = !!plan && total > 0 && U.backed && U.ack && U.typed.trim() === phrase && !U.running; if (b) b.disabled = !ready; }})),
+      U.running || U.finished ? h('div', {class:'panel pad', 'aria-label':'清除進度', style:'margin-top:10px'}, h('b', {text:U.finished ? (U.finished.stopped ? '已中止' : (U.finished.fail ? '完成，但有失敗' : '清除完成')) : '清除中，請不要關閉這個畫面…'}), h('div', {class:'bar', style:'margin:8px 0'}, h('i', {style:'width:' + (U.finished ? 100 : (U.pct || 0)) + '%'})), h('small', {class:'hint', 'aria-label':'進度文字', text:U.finished ? '刪除 ' + num(U.finished.done) + ' 筆' + (U.finished.fail ? '，失敗 ' + U.finished.fail + ' 筆（' + [...new Set(U.finished.failed)].map(c => WIPE_NAME[c] || c).join('、') + '）' : '') + (U.finished.stopped ? '；其餘沒有刪' : '') : (U.prog || '')}), U.running ? h('button', {class:'btn plain sm', style:'margin-top:6px', 'aria-label':'中止清除', onclick:() => { U.stop = true; }}, '中止') : null) : null,
+      h('p', {class:'hint', style:'margin-top:12px', text:'這個畫面清不掉的：雲端自動備份檔（Firebase Storage 的 backups，保留 35 天）、登入帳號（Firebase Authentication）、LINE 官方帳號裡的聊天紀錄、你已經下載的備份檔和匯出檔、Google Cloud 的日誌。要連這些一起清掉，請看 README 的「完全刪除所有資料」。'}));
+    const btn = h('button', {class:'btn grow', style:'background:var(--bad,#b93a2b)', disabled:!canGo, 'aria-label':'永久刪除', onclick:async () => {
+      if (U.running) return;
+      /* 每次按下去都用「現在」的狀態重新檢查全部條件（不是畫面上次重畫時的狀態） */
+      const tot = U.plan ? U.plan.reduce((a, x) => a + x.ids.length, 0) : 0, ready = !!U.plan && tot > 0 && U.backed && U.ack && U.typed.trim() === WIPE_PHRASE[U.scope];
+      if (!ready) return toast('還沒完成前面的步驟：計算、下載備份、勾選確認、輸入確認字');
+      if (!await dialog({title:'最後確認：永久刪除 ' + num(tot) + ' 筆資料？', msg:(U.scope === 'all' ? '商品、客戶、供應商、人員和所有單據都會被刪掉。' : '所有單據和交易紀錄都會被刪掉。') + '刪掉之後只能用備份檔還原。', ok:'永久刪除', danger:true})) return;
+      U.running = true; U.stop = false; U.finished = null; U.pct = 0; render('settings');
+      const r = await wipeRun(U.plan, U.scope, (d, t, c) => { U.pct = t ? Math.round(d / t * 100) : 100; U.prog = (WIPE_NAME[c] || c) + '　' + num(d) + ' / ' + num(t); const el = sh.bodyEl.querySelector('[aria-label="進度文字"]'); if (el) el.textContent = U.prog; const bar = sh.bodyEl.querySelector('[aria-label="清除進度"] .bar i'); if (bar) bar.style.width = U.pct + '%'; }, () => U.stop);
+      U.running = false; U.finished = r; U.plan = null; U.typed = ''; U.ack = false; render('settings');
+      toast(r.stopped ? '已中止，刪除了 ' + num(r.done) + ' 筆' : (r.fail ? '完成，但有 ' + r.fail + ' 筆失敗' : '已清除 ' + num(r.done) + ' 筆資料'));
+    }}, '永久刪除');
+    return {body, foot:[btn]};
+  });
+}
 function lineSearchSheet(title, getItems, onPick){
   const sh = sheet({title}), st = {q:''}, list = h('div', {class:'panel'});
   const paint = () => { const q = st.q.trim().toLowerCase(), items = getItems().filter(x => !q || x.label.toLowerCase().includes(q)).slice(0, 40); setKids(list, items.length ? items.map(x => h('button', {class:'row', 'aria-label':'選 ' + x.label, onclick:() => { sh.forceClose(); onPick(x.id); }}, h('span', {style:'min-width:0'}, h('b', {text:x.label}), x.sub ? h('br') : null, x.sub ? h('small', {text:x.sub}) : null))) : h('div', {class:'empty', text:'找不到'})); };
@@ -6473,7 +6566,7 @@ function openLineSettings(){
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -9371,7 +9464,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.02-at';
+const APP_VERSION = '2026.10.02-au';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -9382,7 +9475,7 @@ const MENU_CATS = [
   ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入', '資料匯入匯出']],
   ['人事與考核', 'clock', ['人員管理', '上下班打卡', '我的考勤', '考勤管理', '配送錯誤與考核', '獎金與薪資']],
   ['報表與稽核', 'chart', ['營運報表', '事業部營業績效', '單據覆核', '期間封存']],
-  ['系統與設定', 'sliders', ['系統設定', '鍵盤快速鍵', '事業部設定', '費用保護', 'LINE 通知設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
+  ['系統與設定', 'sliders', ['系統設定', '鍵盤快速鍵', '清除所有資料', '事業部設定', '費用保護', 'LINE 通知設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
 ];
 const menuCatIcon = t => (MENU_CATS.find(c => c[0] === t) || [])[1] || 'more';
 function regroupMenu(raw){
@@ -9403,7 +9496,7 @@ function menuGroups(){
     ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
-    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
+    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
   ];
   return regroupMenu(raw);
 }
