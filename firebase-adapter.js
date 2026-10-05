@@ -43,7 +43,19 @@
       tx.set(r, { last: next });
       return next;
     }));
-    return { doc: docRef, collection: colRef, nextSerial };
+    /* 伺服器的現在時間（毫秒）：寫一筆「伺服器時間戳記」再從伺服器讀回來。手機沒有網路、或伺服器沒回應就丟出錯誤（呼叫的人會改用手機時間並標記）。
+       每個使用者只會有一筆（每次覆蓋），用來防止「改手機時間來假裝準時打卡」。 */
+    const serverNow = (key) => {
+      if (!fsApi.serverTimestamp || !fsApi.getDocFromServer) return Promise.reject(new Error('no server time'));
+      const r = fsApi.doc(fs, P('timecheck/' + String(key || 'x').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80)));
+      const t0 = Date.now();
+      return wrap(fsApi.setDoc(r, { t: fsApi.serverTimestamp() }).then(() => fsApi.getDocFromServer(r)).then(s => {
+        const v = (typeof s.exists === 'function' ? s.exists() : s.exists) ? (s.data() || {}).t : null, ms = v && typeof v.toMillis === 'function' ? v.toMillis() : null;
+        if (!ms) throw new Error('no server time');
+        return ms + Math.round((Date.now() - t0) / 2);
+      }));
+    };
+    return { doc: docRef, collection: colRef, nextSerial, serverNow };
   }
 
   /* info：{uid, name, avatarUrl, email, level, lookup(ids) -> Promise<{id:{name,avatarUrl}}>}；level：admin / edit / view */

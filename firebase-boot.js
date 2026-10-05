@@ -2,7 +2,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, doc, collection, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const PFX = window.INV_PREFIX || 'inv_';
 const cfg = window.FIREBASE_CONFIG || {};
@@ -71,7 +71,7 @@ function start() {
     return false;
   };
   window.__onPermDenied = () => { checkPaused(); };
-  const fsApi = { doc, collection, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction };
+  const fsApi = { doc, collection, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, serverTimestamp };
   const A = window.FirebaseAdapter;
   const db = A.makeDb(fsApi, fs, PFX);
   const usersDoc = uid => doc(fs, PFX + 'users/' + uid);
