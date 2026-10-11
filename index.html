@@ -3303,6 +3303,28 @@ function openDocEditor(kind, pre){
   /* 同系列（不同顏色）合併計算數量：某一行數量變了，同系列其他行的單價重算 */
   const famRefreshD = ln => { const k = famKey(S.products[ln.pid]); if (!k) return; for (const l of st.lines){ if (l === ln || l.manual || famKey(S.products[l.pid]) !== k) continue; l.price = docAuto(S.products[l.pid], l.qty).price; l.disc = discPct(l.list, l.price); const rf = refs.find(x => x.ln === l); if (rf){ if (rf.priceIn) rf.priceIn.value = l.price; if (rf.discIn) rf.discIn.value = zheIn(l); } } };
   const paintTierD = r => { if (!r.qtier) return; const q = toNum(r.ln.qty), on = q > 0 && (kind === 'co' || buyOn()); const t = on ? qtyTierHint({side:D.price === 'cost' ? 'purchase' : 'sale', product:r.p, partner:S.partners[st.partnerId], qty:q, famQty:famQtyOf(st.lines, r.p, q), date:st.date, curPrice:toNum(r.ln.price)}) : null; setKids(r.qtier, t ? h('span', {text:tierHintText(t, r.p)}) : null); };
+  /* ---- 組合優惠（只有「新增客戶訂單」會自動套用；修改既有訂單時不動談好的單價） ---- */
+  const promoOnD = kind === 'co' && !ed;
+  let promoBusyD = false;
+  const promoBoxD = h('div', {'aria-label':'優惠提示'});
+  const syncD = r => { if (r.priceIn) r.priceIn.value = r.ln.price; if (r.discIn) r.discIn.value = zheIn(r.ln); if (r.listIn) r.listIn.value = r.ln.list || ''; };
+  function applyPromosD(){
+    if (!promoOnD || promoBusyD) return;
+    promoBusyD = true;
+    try {
+      /* 先把上一次套用優惠的行還原成一般帶入的單價，再重新判斷（數量變少、換客戶、改日期都會還原） */
+      for (const r of refs){ const ln = r.ln; if (ln.promoId && !ln.manual){ ln.price = docAuto(r.p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); syncD(r); } ln.promoId = null; ln.promoName = ''; ln.promoBase = 0; }
+      const ev = promoEval(st.lines.map(l => ({pid:l.pid, qty:l.qty, price:l.price, manual:!!l.manual})), S.partners[st.partnerId], st.date);
+      for (const r of refs){
+        const ln = r.ln; if (ln.manual) continue;       // 手動輸入過單價的行：數量照算，但單價不動
+        const o = ev.over[ln.pid]; if (!o) continue;
+        ln.promoId = o.promo.id; ln.promoName = o.promo.name; ln.promoBase = o.base; ln.price = o.price; ln.disc = discPct(ln.list, ln.price); syncD(r);
+      }
+      for (const r of refs) if (r.promo) r.promo.textContent = r.ln.promoId ? '組合優惠「' + r.ln.promoName + '」：單價 ' + money(r.ln.promoBase) + ' → ' + money(r.ln.price) : '';
+      const hints = ev.hints.filter(t => t.promo && t.promo.type === 'combo').slice(0, 4);
+      setKids(promoBoxD, hints.length ? h('div', {class:'note', style:'margin:8px 0', 'aria-label':'優惠提示內容'}, ...hints.map(t => h('div', {class:'soon', text:'💡 ' + t.text}))) : null);
+    } finally { promoBusyD = false; }
+  }
   const histD = kind === 'co' ? histPanel({hasPartner:() => !!st.partnerId, getHist:() => getHistD(st.partnerId), added:pid => st.lines.some(l => l.pid === pid), add:(pid, q) => addLine(pid, q), conv:x => x}) : {el:null, paint(){}};
   st.expTouched = !!ed;   // 修改時，改訂單日期不要連動改交貨日
   const expIn = h('input', {class:'in', type:'date', value:st.expected, 'aria-label':D.dateLabel, onchange:e => { st.expected = e.target.value || st.expected; st.expTouched = true; paintArr(); }});
@@ -3355,7 +3377,7 @@ function openDocEditor(kind, pre){
     refs.length = 0;
     setKids(linesBox, st.lines.map((ln, i) => {
       const p = S.products[ln.pid] || ln.fb, sub = h('b'), hint = h('small', {class:'hint'}), qwarn = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'});
-      const ref = {ln, p, sub, hint, qwarn, qtier, priceIn:null};
+      const promo = h('small', {class:'hint', style:'color:var(--brand);display:block', 'aria-label':'組合優惠說明'}), ref = {ln, p, sub, hint, qwarn, qtier, promo, priceIn:null};
       refs.push(ref);
       const sel = e => e.target.select();
       const showDisc = kind === 'co'; let listIn = null, discIn = null;
@@ -3370,11 +3392,12 @@ function openDocEditor(kind, pre){
           h('span', {style:'display:flex;gap:6px;align-items:center'}, kind === 'co' && S.products[ln.pid] ? infoBtn(ln.pid, {partnerId:st.partnerId, onPick:pr => { ln.price = pr; ln.manual = true; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', disabled:gotOf(ln.pid) > 0.0004, title:gotOf(ln.pid) > 0.0004 ? '已' + D.act + '，不能移除' : '', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshD(gone); paintLines(); }}, icon('x')))),
         (() => { const qtyDiv = h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', onfocus:sel, oninput:e => { ln.qty = e.target.value; if (!ln.manual){ ln.price = docAuto(p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); ref.priceIn.value = ln.price; if (discIn) discIn.value = zheIn(ln); } famRefreshD(ln); calc(); }}));
           return showDisc ? [h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'定價'}), listIn), h('div', null, h('label', {text:'折數（0.9＝9折）'}), discIn)), h('div', {class:'ln-g', style:'margin-top:6px'}, h('div', null, h('label', {text:'單價（定價 × 折數）'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub))]
-            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, qwarn, qtier);
+            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, qwarn, qtier, promo);
     }));
     calc(); histD.paint();
   }
   function calc(){
+    applyPromosD();
     let total = 0;
     for (const r of refs){
       const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price); total += amt;
@@ -3401,6 +3424,7 @@ function openDocEditor(kind, pre){
       if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
       if (pr < 0) return toast('單價不可為負');
       lines.push({...(orig || {}), pid:p.id, name:orig ? orig.name : p.name, sku:p.sku, unit:p.unit || '', qty:q, price:pr, cost:orig ? (Number(orig.cost) || 0) : (p.cost || 0), ...(kind === 'co' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {})});
+      if (kind === 'co'){ const L = lines[lines.length - 1]; if (ln.promoId) L.promo = {id:ln.promoId, name:ln.promoName, base:Number(ln.promoBase) || 0}; else if (L.promo && orig && Math.abs((Number(orig.price) || 0) - pr) > 0.004) delete L.promo; }
     }
     if (st.partnerId && (!ed || st.partnerId !== ed.partnerId) && !await suspendOk(st.partnerId, (ed ? '修改這張' : '建立這張') + D.label)) return;
     if (ed){
@@ -3438,12 +3462,12 @@ function openDocEditor(kind, pre){
       h('div', {style:'display:flex;gap:6px;align-items:flex-start'}, pk.el, h('button', {class:'ic', style:'border:1px solid var(--line);flex:none', 'aria-label':'新增' + PLABEL[D.partner], onclick:() => { newPtRow.style.display = newPtRow.style.display === 'none' ? 'flex' : 'none'; }}, icon('plus'))), newPtRow),
     kind === 'co' ? histD.el : null,
     h('div', {class:'f2'},
-      fld('訂單日期', h('input', {class:'in', type:'date', value:st.date, 'aria-label':'訂單日期', onchange:e => { st.date = e.target.value || today(); if (kind === 'po' && !st.expTouched){ st.expected = addDays(st.date, leadOf(st.partnerId).max); expIn.value = st.expected; } if (kind === 'co' && !st.expTouched){ st.expected = st.date; expIn.value = st.expected; } paintArr(); }})),
+      fld('訂單日期', h('input', {class:'in', type:'date', value:st.date, 'aria-label':'訂單日期', onchange:e => { st.date = e.target.value || today(); if (kind === 'po' && !st.expTouched){ st.expected = addDays(st.date, leadOf(st.partnerId).max); expIn.value = st.expected; } if (kind === 'co' && !st.expTouched){ st.expected = st.date; expIn.value = st.expected; } paintArr(); calc(); }})),
       fld(D.dateLabel, expIn)),
     arrBox,
     multiWh() ? fld('倉庫', whPicker(() => st.wh, v => { st.wh = v; }, '倉庫')) : null,
     kind === 'po' && see('cost') ? h('div', {class:'f'}, h('button', {class:'btn ghost sm', 'aria-label':'切換單價顯示', onclick:() => { S.ui.showBuy = !S.ui.showBuy; paintLines(); }}, '顯示／隱藏單價與金額')) : null,
-    h('label', {class:'search'}, icon('search'), searchIn), pickBox, linesBox,
+    h('label', {class:'search'}, icon('search'), searchIn), pickBox, linesBox, promoBoxD,
     fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', value:st.note, 'aria-label':'備註', oninput:e => { st.note = e.target.value; }})));
   sh.footEl.append(totEl, saveBtn);
   paintLines(); paintArr(); sig0 = sig();
@@ -3492,7 +3516,7 @@ function openDocDetail(kind, id){
         multiWh() && d.wh ? kv('倉庫', whName(d.wh)) : null, d.from === 'suggestion' ? kv('來源', '採購建議') : null, d.note ? kv('備註', d.note) : null, kv('建立者', who(d.by) + '，' + fmtDT(d.at)), d.editedAt ? kv('最後修改', who(d.editedBy) + '，' + fmtDT(d.editedAt)) : null, reviewKv(kind === 'co' ? 'corder' : 'porder', d)),
       h('div', {class:'panel', style:'margin-bottom:14px'}, [...pr.lines.map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
         h('span', null, h('b', {text:l.name}), h('br'),
-          h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '')}),
+          h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '') + (l.promo && l.promo.name ? '　組合優惠「' + l.promo.name + '」' + (Number(l.promo.base) > 0 ? '（原價 ' + money(l.promo.base) + '）' : '') : '')}),
           kind === 'co' && pr.active && l.rem > 0 ? [h('br'), h('small', {class:stockOf(l.pid) < l.rem ? 'overdue' : '', text:stockOf(l.pid) < l.rem ? '庫存 ' + num(stockOf(l.pid)) + '，缺 ' + num(r3(l.rem - stockOf(l.pid))) : '庫存足夠（' + num(stockOf(l.pid)) + '）'})] : null),
         h('b', {text:(kind === 'po' && !buyOn()) ? '' : money(amtOf(l.qty, l.price))}))),
         (kind === 'po' && !buyOn()) ? null : h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('b', {text:'合計'}), h('b', {text:money(d.total)}))]),
@@ -10047,7 +10071,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bc';
+const APP_VERSION = '2026.10.11-bd';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
