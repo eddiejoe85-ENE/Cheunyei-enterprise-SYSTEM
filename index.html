@@ -10047,7 +10047,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bb';
+const APP_VERSION = '2026.10.11-bc';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -10532,9 +10532,10 @@ function ruleApply(r, base, p){
   if (r.kind === 'markup') return (p.cost || 0) * (1 + v / 100);
   return base;
 }
-function roundPrice(x){
+function roundPrice(x, kind){
   const m = S.set.priceRound || 'round';
   x = Math.max(x, 0);
+  if (kind === 'fixed') return r2(x);   // 「指定單價」就是指定的價格，不再四捨五入／進位／捨去（最多留 2 位小數）
   if (m === 'none') return r2(x);
   return ({round:Math.round, ceil:v => Math.ceil(v - 1e-9), floor:v => Math.floor(v + 1e-9)}[m] || Math.round)(x);
 }
@@ -10558,7 +10559,7 @@ function resolvePrice(a){
   const p = a.product, base = a.side === 'purchase' ? (p.cost || 0) : (p.price || 0);
   const q0 = a.qty || 1, fq = Math.max(Number(a.famQty) || 0, Number(q0) || 0), fam = !!famOf(p);
   const cands = [];
-  for (const r of priceRules()) if (ruleMatch(r, a.side, a.partner, p, (r.merge && fam) ? fq : q0, a.date || today())) cands.push({r, price:roundPrice(ruleApply(r, base, p))});
+  for (const r of priceRules()) if (ruleMatch(r, a.side, a.partner, p, (r.merge && fam) ? fq : q0, a.date || today())) cands.push({r, price:roundPrice(ruleApply(r, base, p), r.kind)});
   if (!cands.length) return {price:base, rule:null, base};
   const best = (S.set.priceMode === 'lowest') ? cands.reduce((x, y) => y.price < x.price ? y : x) : cands[0];
   return {price:best.price, rule:best.r, base};
@@ -10649,7 +10650,7 @@ function promoEval(lines, partner, date){
         const ln = paid.find(l => l.pid === it.pid && !l.manual); if (!ln) continue;
         const base = Number(ln.price) || 0, v = Number(x.value) || 0;
         let np = x.kind === 'percent' ? base * v / 100 : (x.kind === 'off' ? base - v : Number(it.price));
-        if (!isFinite(np)) continue; np = roundPrice(np);
+        if (!isFinite(np)) continue; np = roundPrice(np, x.kind);
         if (np < base - 1e-9 && (!over[it.pid] || np < over[it.pid].price - 1e-9)) over[it.pid] = {price:np, promo:x, base};
       }
     } else if (x.type === 'gift'){
