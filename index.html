@@ -3254,12 +3254,47 @@ function suggestions(){
   return out.sort((a, b) => cmpSku(a.p, b.p));
 }
 
-/* ---- 編輯器 ---- */
+/* ---- 修改訂單：把修改前後的差異寫成一句話，存進「修改紀錄」 ---- */
+function docChangeText(kind, ed, nw){
+  const D = DOCS[kind], out = [], showP = !(kind === 'po' && !buyOn()), nm = l => l.name || (S.products[l.pid] || {}).name || '商品';
+  const oldM = new Map((ed.lines || []).map(l => [l.pid, l])), newM = new Map(nw.lines.map(l => [l.pid, l]));
+  for (const l of nw.lines){
+    const o = oldM.get(l.pid);
+    if (!o){ out.push('新增 ' + nm(l) + ' ×' + num(l.qty)); continue; }
+    const p = [];
+    if (Math.abs((Number(o.qty) || 0) - l.qty) > 0.0004) p.push(num(o.qty) + '→' + num(l.qty));
+    if (showP && Math.abs((Number(o.price) || 0) - l.price) > 0.004) p.push('單價 ' + money(o.price) + '→' + money(l.price));
+    if (p.length) out.push(nm(l) + ' ' + p.join('，'));
+  }
+  for (const o of ed.lines || []) if (!newM.has(o.pid)) out.push('移除 ' + nm(o));
+  if ((nw.expected || '') !== (ed.expected || '')) out.push(D.dateLabel + ' ' + (ed.expected || '—') + '→' + nw.expected);
+  if (nw.date !== ed.date) out.push('訂單日期 ' + ed.date + '→' + nw.date);
+  if ((nw.partnerId || '') !== (ed.partnerId || '')) out.push(PLABEL[D.partner] + '改為 ' + (partyName(nw.partnerId) || '—'));
+  if ((nw.note || '') !== (ed.note || '')) out.push('備註已修改');
+  if (nw.wh !== undefined && (nw.wh || '') !== (ed.wh || WH_MAIN)) out.push('倉庫已修改');
+  return out.join('；');
+}
+/* ---- 編輯器（新增、也用來修改：pre.edit＝訂單編號） ---- */
 function openDocEditor(kind, pre){
   pre = pre || {};
   const D = DOCS[kind];
   if (!can(kind === 'co' ? 'sale' : 'purchase')) return toast('你的角色沒有這項操作的權限');
-  const st = {date:today(), wh:pre.wh || defaultWh(), expected:kind === 'co' ? today() : addDays(today(), 7), partnerId:pre.partnerId || '', note:'', lines:[]};
+  const ed = pre.edit ? S[D.coll][pre.edit] : null;
+  if (pre.edit){
+    if (!ed) return toast('找不到這張' + D.label);
+    if (!(S.isAdmin || (ed.by && ed.by === S.meId))) return toast('你沒有修改這張' + D.label + '的權限（只有建立的人或管理員可以修改）');
+    const pr0 = docProgress(kind, ed);
+    if (!pr0.active) return toast('這張' + D.label + '已是「' + pr0.label + '」，不能修改');
+    if (revGuard(kind === 'co' ? 'corder' : 'porder', ed, '修改')) return;
+  }
+  const gotOf = pid => ed ? r3((S.d.fill[ed.id] || {})[pid] || 0) : 0;      // 這張訂單這個商品已經出（收）了多少
+  const ownRem = pid => ed ? Math.max(r3((((ed.lines || []).find(l => l.pid === pid)) || {qty:0}).qty - gotOf(pid)), 0) : 0;   // 這張訂單自己還沒出的量（不算「被其他訂單預留」）
+  const st = ed ? {date:ed.date, wh:ed.wh || defaultWh(), expected:ed.expected || ed.date, partnerId:ed.partnerId || '', note:ed.note || '', lines:(ed.lines || []).map(l => {
+      const p = S.products[l.pid], list = Number(l.listPrice) || (p ? Number(p.price) : 0) || 0;
+      return {pid:l.pid, qty:l.qty, price:l.price, manual:true, list, disc:Number(l.listPrice) > 0 ? (Number(l.disc) || 100) : discPct(list, l.price), fb:p ? null : {id:l.pid, name:l.name || '（已刪除的商品）', sku:l.sku || '', unit:l.unit || '', price:Number(l.price) || 0, cost:Number(l.cost) || 0, safety:0}}; })}
+    : {date:today(), wh:pre.wh || defaultWh(), expected:kind === 'co' ? today() : addDays(today(), 7), partnerId:pre.partnerId || '', note:'', lines:[]};
+  const sig = () => JSON.stringify([st.partnerId, st.date, st.expected, st.wh, st.note.trim(), st.lines.map(l => [l.pid, toNum(l.qty), toNum(l.price)])]);
+  let sig0 = '';
   const refs = [];
   let saving = false;
   const linesBox = h('div'), pickBox = h('div', {class:'pick'}), totEl = h('div', {class:'tot'});
@@ -3269,7 +3304,7 @@ function openDocEditor(kind, pre){
   const famRefreshD = ln => { const k = famKey(S.products[ln.pid]); if (!k) return; for (const l of st.lines){ if (l === ln || l.manual || famKey(S.products[l.pid]) !== k) continue; l.price = docAuto(S.products[l.pid], l.qty).price; l.disc = discPct(l.list, l.price); const rf = refs.find(x => x.ln === l); if (rf){ if (rf.priceIn) rf.priceIn.value = l.price; if (rf.discIn) rf.discIn.value = zheIn(l); } } };
   const paintTierD = r => { if (!r.qtier) return; const q = toNum(r.ln.qty), on = q > 0 && (kind === 'co' || buyOn()); const t = on ? qtyTierHint({side:D.price === 'cost' ? 'purchase' : 'sale', product:r.p, partner:S.partners[st.partnerId], qty:q, famQty:famQtyOf(st.lines, r.p, q), date:st.date, curPrice:toNum(r.ln.price)}) : null; setKids(r.qtier, t ? h('span', {text:tierHintText(t, r.p)}) : null); };
   const histD = kind === 'co' ? histPanel({hasPartner:() => !!st.partnerId, getHist:() => getHistD(st.partnerId), added:pid => st.lines.some(l => l.pid === pid), add:(pid, q) => addLine(pid, q), conv:x => x}) : {el:null, paint(){}};
-  st.expTouched = false;
+  st.expTouched = !!ed;   // 修改時，改訂單日期不要連動改交貨日
   const expIn = h('input', {class:'in', type:'date', value:st.expected, 'aria-label':D.dateLabel, onchange:e => { st.expected = e.target.value || st.expected; st.expTouched = true; paintArr(); }});
   const arrBox = h('div');
   const paintArr = () => { if (kind !== 'po'){ setKids(arrBox); return; } const l = leadOf(st.partnerId), same = poOnDay(st.expected); setKids(arrBox, h('small', {class:'hint', style:'display:block', text:(st.partnerId ? ((S.partners[st.partnerId] || {}).name || '') + ' ' : '') + '通常 ' + l.min + '～' + l.max + ' 天到貨' + (same.length ? '；' + mdw(st.expected) + ' 已有 ' + same.length + ' 張採購單' : '')}), arrivalChips(l.min, l.max, () => st.expected, day => { st.expected = day; st.expTouched = true; expIn.value = day; paintArr(); })); };
@@ -3319,7 +3354,7 @@ function openDocEditor(kind, pre){
   function paintLines(){
     refs.length = 0;
     setKids(linesBox, st.lines.map((ln, i) => {
-      const p = S.products[ln.pid], sub = h('b'), hint = h('small', {class:'hint'}), qwarn = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'});
+      const p = S.products[ln.pid] || ln.fb, sub = h('b'), hint = h('small', {class:'hint'}), qwarn = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'});
       const ref = {ln, p, sub, hint, qwarn, qtier, priceIn:null};
       refs.push(ref);
       const sel = e => e.target.select();
@@ -3332,7 +3367,7 @@ function openDocEditor(kind, pre){
       }
       return h('div', {class:'ln'},
         h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name}), h('small', {text:p.sku + '　' + (p.unit || '')})),
-          h('span', {style:'display:flex;gap:6px;align-items:center'}, kind === 'co' ? infoBtn(ln.pid, {partnerId:st.partnerId, onPick:pr => { ln.price = pr; ln.manual = true; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshD(gone); paintLines(); }}, icon('x')))),
+          h('span', {style:'display:flex;gap:6px;align-items:center'}, kind === 'co' && S.products[ln.pid] ? infoBtn(ln.pid, {partnerId:st.partnerId, onPick:pr => { ln.price = pr; ln.manual = true; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', disabled:gotOf(ln.pid) > 0.0004, title:gotOf(ln.pid) > 0.0004 ? '已' + D.act + '，不能移除' : '', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshD(gone); paintLines(); }}, icon('x')))),
         (() => { const qtyDiv = h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', onfocus:sel, oninput:e => { ln.qty = e.target.value; if (!ln.manual){ ln.price = docAuto(p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); ref.priceIn.value = ln.price; if (discIn) discIn.value = zheIn(ln); } famRefreshD(ln); calc(); }}));
           return showDisc ? [h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'定價'}), listIn), h('div', null, h('label', {text:'折數（0.9＝9折）'}), discIn)), h('div', {class:'ln-g', style:'margin-top:6px'}, h('div', null, h('label', {text:'單價（定價 × 折數）'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub))]
             : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, qwarn, qtier);
@@ -3345,9 +3380,11 @@ function openDocEditor(kind, pre){
       const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price); total += amt;
       r.sub.textContent = money(amt);
       const pid = r.ln.pid;
-      r.hint.textContent = kind === 'co'
-        ? '庫存 ' + num(stockOf(pid)) + '　已被其他訂單預留 ' + num(S.d.commit[pid] || 0) + (stockOf(pid) - (S.d.commit[pid] || 0) < q ? '　可能缺貨' : '')
-        : '庫存 ' + num(stockOf(pid)) + '　採購在途 ' + num(S.d.incoming[pid] || 0) + (r.p.safety > 0 ? '　安全庫存 ' + num(r.p.safety) : '') + (buyRule(r.p) ? '　' + buyRule(r.p) : '');
+      const oth = r3(Math.max((S.d.commit[pid] || 0) - ownRem(pid), 0)), inc = r3(Math.max((S.d.incoming[pid] || 0) - ownRem(pid), 0));   // 修改時，扣掉這張訂單自己
+      r.hint.textContent = (kind === 'co'
+        ? '庫存 ' + num(stockOf(pid)) + '　已被其他訂單預留 ' + num(oth) + (stockOf(pid) - oth < q ? '　可能缺貨' : '')
+        : '庫存 ' + num(stockOf(pid)) + '　採購在途 ' + num(inc) + (r.p.safety > 0 ? '　安全庫存 ' + num(r.p.safety) : '') + (buyRule(r.p) ? '　' + buyRule(r.p) : ''))
+        + (gotOf(pid) > 0.0004 ? '　已' + D.act + ' ' + num(gotOf(pid)) + '（數量不能低於這個）' : '');
       if (kind === 'po') setQwarn(r, q);
       paintTierD(r);
     }
@@ -3360,18 +3397,41 @@ function openDocEditor(kind, pre){
     if (st.expected < st.date) return toast(D.dateLabel + '不可早於訂單日期');
     const lines = [];
     for (const ln of st.lines){
-      const p = S.products[ln.pid], q = toNum(ln.qty), pr = toNum(ln.price);
+      const p = S.products[ln.pid] || ln.fb, q = toNum(ln.qty), pr = toNum(ln.price), orig = ed ? (ed.lines || []).find(x => x.pid === ln.pid) : null;
       if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
       if (pr < 0) return toast('單價不可為負');
-      lines.push({pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', qty:q, price:pr, cost:p.cost || 0, ...(kind === 'co' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {})});
+      lines.push({...(orig || {}), pid:p.id, name:orig ? orig.name : p.name, sku:p.sku, unit:p.unit || '', qty:q, price:pr, cost:orig ? (Number(orig.cost) || 0) : (p.cost || 0), ...(kind === 'co' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {})});
     }
-    if (st.partnerId && !await suspendOk(st.partnerId, '建立這張' + D.label)) return;
+    if (st.partnerId && (!ed || st.partnerId !== ed.partnerId) && !await suspendOk(st.partnerId, (ed ? '修改這張' : '建立這張') + D.label)) return;
+    if (ed){
+      const pr0 = docProgress(kind, ed), un = kind === 'co' ? '出貨單' : '進貨單';
+      if (pr0.done > 0.0004 && st.partnerId !== ed.partnerId) return toast('這張' + D.label + '已有' + un + '，不能更換' + PLABEL[D.partner]);
+      for (const l of pr0.lines){
+        if (!(l.got > 0.0004)) continue;
+        const nl = lines.find(x => x.pid === l.pid);
+        if (!nl) return toast('「' + l.name + '」已' + D.act + ' ' + num(l.got) + '，不能移除');
+        if (nl.qty < l.got - 0.0004) return toast('「' + l.name + '」已' + D.act + ' ' + num(l.got) + '，數量不能低於這個數字');
+      }
+      const chg = docChangeText(kind, ed, {partnerId:st.partnerId, date:st.date, expected:st.expected, note:st.note.trim(), lines, wh:multiWh() ? st.wh : undefined});
+      if (!chg){ toast('沒有修改任何內容'); sh.forceClose(); return; }
+      const total = mInt(lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
+      saving = true; saveBtn.disabled = true;
+      const ok = await run(async () => {
+        lockGuardNew('orders', ed.date); lockGuardNew('orders', st.date);
+        await S.db.doc(D.coll + '/' + ed.id).update({partnerId:st.partnerId, date:st.date, expected:st.expected, lines, total, note:st.note.trim(), ...(multiWh() ? {wh:st.wh} : {}), editedBy:S.meId || null, editedAt:Date.now(),
+          hist:[...(ed.hist || []).slice(-19), {at:Date.now(), by:S.meId || null, byName:myName(), chg, from:Number(ed.total) || 0, to:total}]});
+        return true;
+      });
+      saving = false; saveBtn.disabled = false;
+      if (ok){ toast('已更新 ' + ed.no); sh.forceClose(); }
+      return;
+    }
     saving = true; saveBtn.disabled = true;
     const doc = await run(() => createDoc(kind, {partnerId:st.partnerId, date:st.date, expected:st.expected, lines, note:st.note.trim(), extra:{wh:st.wh}}));
     saving = false; saveBtn.disabled = false;
     if (doc){ toast('已建立 ' + doc.no); sh.forceClose(); }
-  }}, '建立' + D.label);
-  const sh = sheet({title:'新增' + D.label, guard:() => st.lines.length ? dialog({title:'放棄這張' + D.label + '？', msg:'已輸入的內容不會保存。', ok:'放棄', danger:true}) : true});
+  }}, ed ? '儲存修改' : ('建立' + D.label));
+  const sh = sheet({title:ed ? '修改' + D.label + ' ' + ed.no : '新增' + D.label, guard:() => ed ? (sig() !== sig0 ? dialog({title:'放棄這次的修改？', msg:'這次的修改不會保存。', ok:'放棄', danger:true}) : true) : (st.lines.length ? dialog({title:'放棄這張' + D.label + '？', msg:'已輸入的內容不會保存。', ok:'放棄', danger:true}) : true)});
   fillPartners();
   put(sh.bodyEl,
     h('div', {class:'f'}, h('label', {text:PLABEL[D.partner]}),
@@ -3384,9 +3444,9 @@ function openDocEditor(kind, pre){
     multiWh() ? fld('倉庫', whPicker(() => st.wh, v => { st.wh = v; }, '倉庫')) : null,
     kind === 'po' && see('cost') ? h('div', {class:'f'}, h('button', {class:'btn ghost sm', 'aria-label':'切換單價顯示', onclick:() => { S.ui.showBuy = !S.ui.showBuy; paintLines(); }}, '顯示／隱藏單價與金額')) : null,
     h('label', {class:'search'}, icon('search'), searchIn), pickBox, linesBox,
-    fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', oninput:e => { st.note = e.target.value; }})));
+    fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', value:st.note, 'aria-label':'備註', oninput:e => { st.note = e.target.value; }})));
   sh.footEl.append(totEl, saveBtn);
-  paintLines(); paintArr();
+  paintLines(); paintArr(); sig0 = sig();
   if (pre.pid) addLine(pre.pid, pre.qty);
 }
 
@@ -3402,13 +3462,14 @@ function openDocDetail(kind, id){
   liveSheet({title:D.label}, [D.coll, 'orders', 'partners', 'products', 'names'], sh => {
     const d = S[D.coll][id]; if (!d) return false;
     const pt = S.partners[d.partnerId], pr = docProgress(kind, d);
-    ensureNames([d.by]);
+    ensureNames([d.by, d.editedBy]);
     const late = pr.active && d.expected && daysBetween(today(), d.expected) < 0;
     const linked = Object.values(S.orders).filter(o => o.srcId === id).sort(cmpOrd);
     const short = kind === 'co' && pr.active ? pr.lines.filter(l => l.rem > 0 && stockOf(l.pid) < l.rem) : [];
     const canX = can(kind === 'co' ? 'sale' : 'purchase') && (S.isAdmin || (d.by && d.by === S.meId));
     const more = [];
     if (can(kind === 'co' ? 'sale' : 'purchase') && pr.active){
+      if (canX && !reviewLock(kind === 'co' ? 'corder' : 'porder', d)) more.push(h('button', {class:'btn ghost sm', 'aria-label':'修改' + D.label, onclick:() => openDocEditor(kind, {edit:id})}, '修改'));
       more.push(h('button', {class:'btn ghost sm', onclick:async () => {
         if (!await dialog({title:'結案 ' + d.no + '？', msg:'剩餘 ' + num(pr.rem) + ' 件不會再' + D.act + '，也不再計入預留或在途。', ok:'結案'})) return;
         const ok = await run(async () => { await S.db.doc(D.coll + '/' + id).update({status:'closed', closedBy:S.meId || null, closedAt:Date.now()}); return true; });
@@ -3422,12 +3483,13 @@ function openDocDetail(kind, id){
     }
     const body = h('div', null,
       h('div', {class:'dhead'}, h('span', {class:'tag ' + D.tagCls, text:D.short}), h('div', null, h('b', {class:'big', text:d.no}), h('small', {text:D.label + '　' + pr.label}))),
+      pr.active ? reviewNote(kind === 'co' ? 'corder' : 'porder', d) : null,
       late ? h('div', {class:'note bad', text:D.dateLabel + ' ' + d.expected + ' 已逾期 ' + (-daysBetween(today(), d.expected)) + ' 天'}) : null,
       short.length ? h('div', {class:'note warn'}, '有 ' + short.length + ' 項庫存不足，',
         h('button', {style:'text-decoration:underline', onclick:() => { S.tab = 'buy'; S.ui.buySeg = 'sug'; [...layers].forEach(l => l.forceClose()); draw(); }}, '查看採購建議')) : null,
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
         kv(PLABEL[D.partner], pt ? pt.name : '—'), kv('訂單日期', d.date), kv(D.dateLabel, d.expected || '—'),
-        multiWh() && d.wh ? kv('倉庫', whName(d.wh)) : null, d.from === 'suggestion' ? kv('來源', '採購建議') : null, d.note ? kv('備註', d.note) : null, kv('建立者', who(d.by) + '，' + fmtDT(d.at)), reviewKv(kind === 'co' ? 'corder' : 'porder', d)),
+        multiWh() && d.wh ? kv('倉庫', whName(d.wh)) : null, d.from === 'suggestion' ? kv('來源', '採購建議') : null, d.note ? kv('備註', d.note) : null, kv('建立者', who(d.by) + '，' + fmtDT(d.at)), d.editedAt ? kv('最後修改', who(d.editedBy) + '，' + fmtDT(d.editedAt)) : null, reviewKv(kind === 'co' ? 'corder' : 'porder', d)),
       h('div', {class:'panel', style:'margin-bottom:14px'}, [...pr.lines.map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
         h('span', null, h('b', {text:l.name}), h('br'),
           h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '')}),
@@ -3435,6 +3497,9 @@ function openDocDetail(kind, id){
         h('b', {text:(kind === 'po' && !buyOn()) ? '' : money(amtOf(l.qty, l.price))}))),
         (kind === 'po' && !buyOn()) ? null : h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('b', {text:'合計'}), h('b', {text:money(d.total)}))]),
       more.length ? h('div', {class:'btns', style:'margin-bottom:14px'}, more) : null,
+      (d.hist && d.hist.length) ? [h('div', {class:'sec-h'}, h('h2', {text:'修改紀錄'})), h('div', {class:'panel', 'aria-label':'修改紀錄', style:'margin-bottom:14px'}, d.hist.slice().reverse().map(x => h('div', {class:'mv', style:'grid-template-columns:1fr'},
+        h('span', null, h('b', {text:fmtDT(x.at) + '　' + (x.byName || who(x.by))}), h('br'), h('small', {text:x.chg || '（沒有說明）'}),
+          (x.from !== undefined && x.to !== undefined && Math.abs(x.from - x.to) > 0.004 && !(kind === 'po' && !buyOn())) ? [h('br'), h('small', {text:'合計 ' + money(x.from) + ' → ' + money(x.to)})] : null))))] : null,
       linked.length ? [h('div', {class:'sec-h'}, h('h2', {text:kind === 'co' ? '出貨單' : '進貨單'})), h('div', {class:'panel'}, linked.map(orderRow))] : null);
     const foot = [];
     if (can(kind === 'co' ? 'sale' : 'purchase') || see('export')) foot.push(h('button', {class:'btn ghost' + (pr.active && pr.rem > 0 ? '' : ' grow'), onclick:async e => { const b = e.currentTarget; b.disabled = true; await exportDocPdf(kind, d); b.disabled = false; }}, icon('down'), '轉成 PDF'));
@@ -6727,7 +6792,7 @@ function openLineSettings(){
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:x => ruleProdObj(x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels()}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:x => ruleProdObj(x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels()}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -9982,7 +10047,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ba';
+const APP_VERSION = '2026.10.11-bb';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
