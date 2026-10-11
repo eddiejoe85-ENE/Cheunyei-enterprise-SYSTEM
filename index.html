@@ -1778,7 +1778,11 @@ function openOrder(type, pre){
       const okPO = await run(async () => { await S.db.doc('porders/' + po.id).update({lines:nl, total:mInt(nl.reduce((a, l) => a + amtOf(l.qty, l.price), 0)), status:'closed', closedAt:Date.now(), closeNote:'進貨數量與採購單不同，已依實際進貨修正並結案'}); return true; });
       if (doc){ toast('已建立 ' + doc.no + (okPO ? '，採購單 ' + po.no + ' 已依實收修改數量並結案' : '，但採購單沒有更新成功，請到採購單確認')); sh.forceClose(); }
     }
-    else if (doc){ toast('已建立 ' + doc.no); sh.forceClose(); if (printChk && printChk.checked) printDirect(doc); }
+    else if (doc){
+      const lp = type === 'sale' ? lineSlipPlan(doc) : null;
+      toast('已建立 ' + doc.no + (lp && lp.ok ? '，已排入 LINE 通知客戶出貨商品' : '')); sh.forceClose(); if (printChk && printChk.checked) printDirect(doc);
+      if (lp && lp.ok) lineNotifySlip(doc).then(r => { if (r.why === 'error') toast(doc.no + ' 已建立，但 LINE 通知沒有排入，可到單據詳情按「通知商品數量」重寄'); });
+    }
   }
 }
 
@@ -1803,6 +1807,7 @@ function openOrderDetail(id){
         o.type === 'purchase' && o.volume ? kv('回頭車', o.truckDate + '　' + num(o.volume) + ' 才　運費 ' + money(o.freight || 0) + (o.freightCash ? '（零用金）' : '')) : null,
         kv('建立者', (o.byName || who(o.by)) + (o.at ? '，' + fmtDT(o.at) : '')), o.byAcct ? kv('建立帳號', o.byAcct) : null, reviewKv('order', o), o.editedAt ? kv('最後修改', who(o.editedBy) + '，' + fmtDT(o.editedAt)) : null,
         (o.type === 'sale' && !isVoid && see('print')) ? kv('統一發票', o.invNo ? h('button', {style:'text-decoration:underline', onclick:() => openInvoice(id)}, o.invNo) : h('button', {class:'btn ghost sm', onclick:() => openInvoice(id)}, '套印發票')) : null,
+        (o.type === 'sale' && !isVoid && can('sale') && pt && pt.lineUserId && LINE().on) ? kv('LINE 通知客戶', h('span', {style:'display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end'}, o.lineSlipAt ? h('small', {class:'hint', 'aria-label':'LINE 通知狀態', text:'已通知 ' + lineTimeTxt(o.lineSlipAt)}) : null, h('button', {class:'btn ghost sm', 'aria-label':'通知商品數量', onclick:() => openLineSlipNotify(o)}, o.lineSlipAt ? '再通知一次' : '通知商品數量'))) : null,
         o.srcNo ? (o.srcKind === 'sale' ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => S.orders[o.srcId] && openOrderDetail(o.srcId)}, o.srcNo)) : kv('來源' + (o.srcKind === 'co' ? '訂單' : '採購單'), h('button', {style:'text-decoration:underline', onclick:() => S[DOCS[o.srcKind].coll][o.srcId] && openDocDetail(o.srcKind, o.srcId)}, o.srcNo))) : null,
         o.type === 'sale' && (o.shipAddress || o.shipSpecial || o.shipContact || o.shipPhone || o.shipMethod) ? kv('送貨', [o.shipMethod, o.shipSpecial || o.shipAddress].filter(Boolean).join('　')) : null, o.type === 'sale' && o.shipSpecial ? kv(o.shipOnly ? '只送特別地址' : '指送特別地址', o.shipSpecial + (o.shipOnly ? '（不送原本的送貨地址' + (o.shipAddress ? '：' + o.shipAddress : '') + '）' : (o.shipAddress ? '（取代原本的 ' + o.shipAddress + '）' : ''))) : null, o.type === 'sale' && o.shipSpot ? kv('指送特別地點', o.shipSpot) : null, o.type === 'sale' && o.urgent ? kv('早一點', '是（列印會蓋「早一點」郵戳）') : null, o.type === 'sale' && o.store ? kv('叫貨店面', o.store) : null, o.type === 'sale' && o.driver ? kv('送貨員', o.driver) : null, o.type === 'sale' ? kv('預計送貨日', deliveryOf(o)) : null, o.type === 'sale' && o.truckPlate ? kv('派車', o.truckPlate + '　' + truckSlotTxt(o) + (o.truckSeq ? '　第 ' + o.truckSeq + ' 站' : '') + (o.truckMerged ? '（中午不回公司）' : '') + (o.driver ? '　駕駛 ' + o.driver : '')) : null, (() => { const tr = o.type === 'sale' ? tripOfOrder(o.id) : null; return tr ? kv('出車', tr.date + ' ' + SLOTS[tr.slot] + '　' + vehLabel(S.vehicles[tr.vehicleId]) + (tr.driver ? '（' + tr.driver + '）' : '') + (tr.outTime ? '　' + tr.outTime + '→' + (tr.backTime || '--:--') : '')) : null; })(),
         o.type === 'sale' && (o.shipContact || o.shipPhone) ? kv('送貨聯絡', [o.shipContact, o.shipPhone].filter(Boolean).join('　')) : null,
@@ -5965,7 +5970,8 @@ function openArReturn(){
 const LINE_TPL_CONFIRM = '【{公司}】{客戶}您好，您的訂單已確認建立（單號 {單號}）：\n{品項}\n合計 {金額}。目前等候安排配送，確認配送時間後會再通知您。';
 const LINE_TPL_DELIVER = '【{公司}】{客戶}您好，您的訂單 {單號} 已安排配送：{日期}（{時段}）{送貨員}。如有問題請與我們聯絡。';
 const LINE_TPL_REJECT = '【{公司}】{客戶}您好，抱歉，您 {時間} 傳來的訂單目前無法確認{原因}。請與我們聯絡，謝謝。';
-const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, tplConfirm:LINE_TPL_CONFIRM, tplDeliver:LINE_TPL_DELIVER, tplReject:LINE_TPL_REJECT, ...(S.set.line || {})});
+const LINE_TPL_SLIP = '【{公司}】{客戶}您好，您訂購的商品已開立銷貨單 {單號}（{日期}），出貨內容如下：\n{品項}\n共 {品項數} 項。{未出貨}\n如與您的訂單不符，請與我們聯絡，謝謝。';
+const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, notifySlip:true, slipScope:'order', tplConfirm:LINE_TPL_CONFIRM, tplDeliver:LINE_TPL_DELIVER, tplReject:LINE_TPL_REJECT, tplSlip:LINE_TPL_SLIP, ...(S.set.line || {})});
 const lineFill = (tpl, v) => String(tpl || '').replace(/\{([^}]+)\}/g, (m, k) => v[k] !== undefined ? v[k] : m);
 const linePending = () => Object.values(S.lineorders || {}).filter(x => x.status === 'pending').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 const lineOriginOf = o => o ? (o.lineOrderId || ((S.corders[o.srcId] || {}).lineOrderId) || '') : '';
@@ -5990,6 +5996,80 @@ async function lineDeliveryNotices(t){
     const nos = g.os.map(o => o.no).sort(), drv = tripDriver(t);
     await queueLine(['deliv', g.pt.id, t.date, t.slot, nos.join('+')].join('_'), {to:g.pt.lineUserId, type:'deliver', partnerId:g.pt.id, orderIds:g.os.map(o => o.id), text:lineFill(L.tplDeliver, {公司:S.set.co || S.set.name || '', 客戶:g.pt.shortName || g.pt.name || '', 單號:nos.join('、'), 日期:mdw(t.date), 時段:SLOTS[t.slot] || '', 送貨員:drv ? '，送貨員 ' + drv : ''})});
   }
+}
+
+/* ---- 銷貨單開立後：用 LINE 通知客戶「出貨的商品和數量」 ----
+   只會發給已綁定 LINE 的客戶。預設只通知「從客戶訂單轉出的銷貨單」（設定裡可改成所有銷貨單）；
+   一張銷貨單只自動通知一次（用單據編號當排入佇列的識別，重複儲存不會重複發），要再發可以在單據詳情手動按。 */
+const LINE_SLIP_MAX = 3600;
+/* 這張銷貨單的出貨明細，並和來源訂單比對：這次少出的（尚欠）、完全沒出的（尚未出貨） */
+function slipNoticeModel(o){
+  const co = o.srcKind === 'co' && o.srcId ? S.corders[o.srcId] : null, EPS = 0.0004;
+  const prior = {}, ord = {}, here = {}, nm = {};
+  if (co){
+    for (const x of Object.values(S.orders)) if (x.type === 'sale' && x.status !== 'void' && x.srcId === co.id && x.id !== o.id) for (const l of x.lines || []) prior[l.pid] = r3((prior[l.pid] || 0) + (Number(l.qty) || 0));
+    for (const l of co.lines || []){ ord[l.pid] = r3((ord[l.pid] || 0) + (Number(l.qty) || 0)); if (!nm[l.pid]) nm[l.pid] = {name:l.name || (S.products[l.pid] || {}).name || '', unit:l.unit || (S.products[l.pid] || {}).unit || ''}; }
+  }
+  for (const l of o.lines || []) if (!l.gift) here[l.pid] = r3((here[l.pid] || 0) + (Number(l.qty) || 0));
+  const noted = new Set(), rows = (o.lines || []).map(l => {
+    const r = {pid:l.pid, name:l.name || (S.products[l.pid] || {}).name || '', unit:l.unit || '', qty:Number(l.qty) || 0, gift:!!l.gift};
+    if (co && !l.gift && ord[l.pid] !== undefined && !noted.has(l.pid)){ noted.add(l.pid); const short = r3(ord[l.pid] - (prior[l.pid] || 0) - here[l.pid]); if (short > EPS){ r.ord = ord[l.pid]; r.short = short; } }
+    return r;
+  });
+  const pending = [];
+  if (co) for (const pid of Object.keys(ord)){ if (here[pid] !== undefined) continue; const rem = r3(ord[pid] - (prior[pid] || 0)); if (rem > EPS && nm[pid].name) pending.push({pid, name:nm[pid].name, unit:nm[pid].unit, rem}); }
+  return {rows, pending, co};
+}
+/* 訊息文字。tpl 可以傳入還沒儲存的範本（設定頁預覽用） */
+function slipNoticeText(o, tpl){
+  const L = LINE(), pt = S.partners[o.partnerId] || {}, m = slipNoticeModel(o), qtyTxt = (q, u) => '×' + num(q) + (u ? ' ' + u : '');
+  const items = m.rows.map(r => '・' + r.name + ' ' + qtyTxt(r.qty, r.unit) + (r.short ? '（訂購 ' + num(r.ord) + '，尚欠 ' + num(r.short) + '）' : ''));
+  let shown = items, cut = 0;
+  if (items.join('\n').length > LINE_SLIP_MAX){ shown = []; let n = 0; for (const t of items){ if (n + t.length + 1 > LINE_SLIP_MAX) break; shown.push(t); n += t.length + 1; } cut = items.length - shown.length; }
+  const pend = m.pending.length ? '\n尚未出貨：' + m.pending.map(r => r.name + ' ' + qtyTxt(r.rem, r.unit)).join('、') : '';
+  return lineFill(tpl || L.tplSlip || LINE_TPL_SLIP, {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 單號:o.no || '', 日期:mdw(o.date || today()), 訂單單號:m.co ? m.co.no : (o.srcNo || ''),
+    品項:shown.join('\n') + (cut ? '\n…另有 ' + cut + ' 項，請與我們聯絡或看銷貨單' : ''), 品項數:String(items.length), 金額:money(o.total || 0), 未出貨:pend});
+}
+/* 這張單現在能不能通知、通知給誰。manual＝人工按的，不看「自動通知」和範圍設定 */
+function lineSlipPlan(o, manual){
+  const L = LINE();
+  if (!o || o.type !== 'sale' || o.status === 'void') return {ok:false, why:'notsale'};
+  if (!L.on) return {ok:false, why:'off'};
+  const pt = S.partners[o.partnerId];
+  if (!pt || !pt.lineUserId) return {ok:false, why:'unbound'};
+  if (!manual){
+    if (!L.notifySlip) return {ok:false, why:'disabled'};
+    if (L.slipScope !== 'all' && !(o.srcKind === 'co' && o.srcId)) return {ok:false, why:'scope'};
+  }
+  if (!(o.lines || []).length) return {ok:false, why:'empty'};
+  return {ok:true, to:pt.lineUserId, pt, text:slipNoticeText(o)};
+}
+async function lineNotifySlip(o, manual){
+  try {
+    const p = lineSlipPlan(o, manual); if (!p.ok) return {sent:false, why:p.why};
+    const q = await queueLine(manual ? 'slip_' + o.id + '_' + Date.now() : 'slip_' + o.id, {to:p.to, type:'slip', partnerId:o.partnerId, orderId:o.id, text:p.text});
+    if (q) await S.db.doc('orders/' + o.id).update({lineSlipAt:Date.now()}).catch(() => null);
+    return {sent:!!q, why:q ? '' : 'dup'};
+  } catch (e) { console.error(e); return {sent:false, why:'error', err:e}; }
+}
+const LINE_SLIP_WHY = {off:'LINE 通知還沒啟用（更多 → 系統與設定 → LINE 通知設定）', unbound:'這位客戶還沒綁定 LINE', empty:'這張單沒有商品', notsale:'只有銷貨單可以通知'};
+function openLineSlipNotify(o){
+  const p = lineSlipPlan(o, true); if (!p.ok) return toast(LINE_SLIP_WHY[p.why] || '現在不能通知');
+  const sh = sheet({title:'通知客戶商品數量'});
+  put(sh.bodyEl,
+    h('p', {class:'note', text:'會用 LINE 傳給「' + (p.pt.shortName || p.pt.name) + '」，用掉 1 則訊息額度。' + (o.lineSlipAt ? '這張單 ' + lineTimeTxt(o.lineSlipAt) + ' 已經通知過一次，再按會再傳一則。' : '')}),
+    h('div', {'aria-label':'LINE 訊息預覽', style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:p.text}));
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'寄出 LINE 通知', onclick:async () => {
+    const r = await lineNotifySlip(o, true);
+    if (r.sent){ toast('已排入，幾秒內送出'); sh.forceClose(); } else toast(LINE_SLIP_WHY[r.why] || '沒有排入，請稍後再試');
+  }}, '寄出'));
+}
+/* 設定頁：用最近一張銷貨單看看訊息長什麼樣子（用畫面上還沒儲存的範本） */
+function previewSlipNotice(tpl){
+  const o = Object.values(S.orders).filter(x => x.type === 'sale' && x.status !== 'void' && (x.lines || []).length).sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+  if (!o) return toast('還沒有銷貨單可以預覽');
+  const sh = sheet({title:'客戶會收到的訊息（用 ' + o.no + ' 預覽）'});
+  put(sh.bodyEl, h('div', {'aria-label':'LINE 訊息預覽', style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:slipNoticeText(o, tpl)}), h('p', {class:'hint', text:'只是預覽，不會寄出。內容是這張單的品項和數量。'}));
 }
 
 const LINE_TPL_STATEMENT = '【{公司}】{客戶}您好，{月份}對帳通知：\n本月銷貨 {單據數} 張，未稅 {未稅}，稅金 {稅金}，應收 {應收}。\n已收 {已收}；前期未收 {前期未收}。\n目前累計未收 {累計未收}。{付款資訊}\n如與您的帳不符，請與我們聯絡，謝謝。';
@@ -6610,10 +6690,11 @@ function openLineBind(){
 }
 function openLineSettings(){
   if (!S.isAdmin) return toast('只有管理員可以設定');
-  const RC0 = lineRemindCfg(), L0 = LINE(), st = {on:L0.on, remind:JSON.parse(JSON.stringify(RC0)), summaryTime:L0.summaryTime, days:[...L0.days], appUrl:L0.appUrl, notifyConfirm:L0.notifyConfirm, notifyDeliver:L0.notifyDeliver, notifyReject:L0.notifyReject, tplConfirm:L0.tplConfirm, tplDeliver:L0.tplDeliver, tplReject:L0.tplReject, mgrCode:L0.mgrCode};
+  const RC0 = lineRemindCfg(), L0 = LINE(), st = {on:L0.on, remind:JSON.parse(JSON.stringify(RC0)), summaryTime:L0.summaryTime, days:[...L0.days], appUrl:L0.appUrl, notifyConfirm:L0.notifyConfirm, notifyDeliver:L0.notifyDeliver, notifyReject:L0.notifyReject, notifySlip:L0.notifySlip, slipScope:L0.slipScope === 'all' ? 'all' : 'order', tplConfirm:L0.tplConfirm, tplDeliver:L0.tplDeliver, tplReject:L0.tplReject, tplSlip:L0.tplSlip, mgrCode:L0.mgrCode};
   liveSheet({title:'LINE 通知設定'}, ['settings', 'partners'], sh => {
     const L = LINE(), bound = Object.values(S.partners).filter(x => x.type === 'customer' && x.lineUserId).length;
     const wd = '日一二三四五六';
+    const fld = (label, input, hint) => h('div', {class:'f'}, h('label', {text:label}), input, hint ? h('small', {class:'hint', text:hint}) : null);   // 這一頁的說明文字要顯示出來（共用的 fld 第三個參數是樣式，不是說明）
     const chk = (k, t) => h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!st[k], 'aria-label':t, onchange:e => { st[k] = e.target.checked; }}), t);
     const tpl = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:4, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st[k] = e.target.value; }, text:st[k]}), hint);
     const tpl2 = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:6, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st.remind[k] = e.target.value; }, text:st.remind[k]}), hint);
@@ -6628,7 +6709,11 @@ function openLineSettings(){
       h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, h('small', {class:'hint', style:'align-self:center', text:'哪幾天送：'}), [0, 1, 2, 3, 4, 5, 6].map(d => h('button', {class:'chip', 'aria-pressed':st.days.includes(d), 'aria-label':'星期' + wd[d], onclick:e => { st.days = st.days.includes(d) ? st.days.filter(x => x !== d) : [...st.days, d].sort(); e.target.setAttribute('aria-pressed', String(st.days.includes(d))); }}, wd[d]))),
       h('div', {class:'sec-h'}, h('h2', {text:'通知客戶（每則都算 LINE 訊息額度）'})),
       chk('notifyConfirm', '訂單審核通過 → 通知客戶「已確認建立，等候安排配送」'), chk('notifyDeliver', '訂單排進出車排程 → 通知客戶配送日期和時段'), chk('notifyReject', '駁回時預設通知客戶（駁回時也可以個別決定）'),
+      chk('notifySlip', '銷貨單開立後 → 通知客戶出貨的商品和數量'),
+      fld('哪些銷貨單要通知', (() => { const sel = h('select', {class:'in', 'aria-label':'銷貨單通知範圍', onchange:e => { st.slipScope = e.target.value; }}, h('option', {value:'order', text:'只通知從客戶訂單轉出的銷貨單（建議）'}), h('option', {value:'all', text:'所有已綁定 LINE 的客戶的銷貨單'})); sel.value = st.slipScope; return sel; })(), '客戶要先綁定 LINE 才會收到。其他銷貨單可以在單據詳情按「通知商品數量」手動寄。'),
       tpl('tplConfirm', '審核通過的訊息', '可用：{公司} {客戶} {單號} {品項} {金額}'), tpl('tplDeliver', '配送通知的訊息', '可用：{公司} {客戶} {單號} {日期} {時段} {送貨員}'), tpl('tplReject', '駁回的訊息', '可用：{公司} {客戶} {時間} {原因}'),
+      tpl('tplSlip', '銷貨單開立後的訊息', '可用：{公司} {客戶} {單號}（銷貨單） {訂單單號} {日期} {品項}（每項一行，含數量） {品項數} {金額} {未出貨}（訂單還有沒出的品項才會有字）'),
+      h('button', {class:'btn ghost', style:'margin:0 0 12px', 'aria-label':'預覽銷貨單通知', onclick:() => previewSlipNotice(st.tplSlip)}, '用最近一張銷貨單預覽這則訊息'),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶對帳與逾期提醒（每則都算 LINE 訊息額度）'})),
       h('div', {class:'note', text:'只會發給「客戶資料裡勾了 LINE 對帳與逾期提醒」而且已綁定 LINE 的客戶。對帳通知在每個客戶的帳款月份結束後（結帳日當天起，最多補送 3 天）送一則，只對月結客戶；逾期提醒每週送一則，有逾期單據才送。'}),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.remind.monthly.on, 'aria-label':'啟用每月對帳通知', onchange:e => { st.remind.monthly.on = e.target.checked; }}), '每月對帳通知'), h('div', {class:'f', style:'margin-left:26px'}, fld('發送時間（到這個時間之後才送）', h('input', {class:'in', type:'time', value:st.remind.monthly.time, 'aria-label':'對帳通知時間', onchange:e => { st.remind.monthly.time = e.target.value || '09:30'; }}))),
@@ -6638,11 +6723,11 @@ function openLineSettings(){
       tpl2('tplStatement', '對帳通知的訊息', '可用：{公司} {客戶} {月份} {單據數} {未稅} {稅金} {應收} {已收} {前期未收} {累計未收} {付款資訊}'), tpl2('tplOverdue', '逾期提醒的訊息', '可用：{公司} {客戶} {逾期張數} {逾期金額} {最久天數} {付款資訊}'),
       h('div', {class:'panel pad', 'aria-label':'提醒預覽'}, h('div', {text:'已啟用提醒的客戶 ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind).length + ' 位（其中已綁定 LINE ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind && x.lineUserId).length + ' 位）'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'預覽客戶收到的訊息', onclick:() => lineSearchSheet('選一位客戶看他會收到什麼', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:(x.lineRemind ? '已啟用提醒' : '未啟用') + (x.lineUserId ? '、已綁定 LINE' : '、未綁定')})), id => showRemindPreview(S.partners[id]))}, '預覽客戶會收到的訊息')),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶綁定'})), h('div', {class:'panel pad'}, h('div', {text:'已綁定 LINE 的客戶 ' + bound + ' 位'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'管理客戶綁定', onclick:openLineBind}, '管理客戶綁定（產生綁定碼）')));
-    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, tplConfirm:st.tplConfirm || LINE_TPL_CONFIRM, tplDeliver:st.tplDeliver || LINE_TPL_DELIVER, tplReject:st.tplReject || LINE_TPL_REJECT, remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, tplStatement:st.remind.tplStatement || LINE_TPL_STATEMENT, tplOverdue:st.remind.tplOverdue || LINE_TPL_OVERDUE}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
+    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, notifySlip:!!st.notifySlip, slipScope:st.slipScope === 'all' ? 'all' : 'order', tplConfirm:st.tplConfirm || LINE_TPL_CONFIRM, tplDeliver:st.tplDeliver || LINE_TPL_DELIVER, tplReject:st.tplReject || LINE_TPL_REJECT, tplSlip:st.tplSlip || LINE_TPL_SLIP, remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, tplStatement:st.remind.tplStatement || LINE_TPL_STATEMENT, tplOverdue:st.remind.tplOverdue || LINE_TPL_OVERDUE}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -9897,9 +9982,9 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.06-ax';
+const APP_VERSION = '2026.10.07-az';
 const MENU_CATS = [
-  ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣']],
+  ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
   ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '循環盤點', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位設定', '產品標籤列印', '庫存關帳作業']],
   ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
@@ -9927,7 +10012,7 @@ function menuGroups(){
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
     ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
-    ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
+    ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('價格策略匯入匯出', S.isAdmin, openPriceIO, '價格規則、組合優惠與買送：匯出成 Excel／CSV，改好再匯入批次更新'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
     ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
   ];
@@ -10638,6 +10723,403 @@ function openPriceRules(){
   });
 }
 
+/* ================= 價格策略：匯出與匯入（價格規則、組合優惠與買送） ================= */
+/* 匯出的 Excel／CSV 和匯入用的欄位完全相同：先匯出、在 Excel 改好、存成 CSV 再匯入。
+   每一列＝一條規則。「規則編號」相同的列會更新那一條；編號留空＝新增。檔案裡的空白＝「沒有限制」（例如期間迄空白＝一直有效）。 */
+const pioN = t => String(t == null ? '' : t).normalize('NFKC').replace(/[​﻿]/g, '').trim();
+const pioK = t => pioN(t).toLowerCase().replace(/\s+/g, '');
+const pioRaw = t => String(t == null ? '' : t).replace(/[​﻿]/g, '').trim().replace(/^'(?=[=+\-@\t\r])/, '');   // 匯出時開頭是 = + - @ 的文字會加一個 '，匯入時拿掉
+const pioNum = t => { const s = pioN(t).replace(/[,$元件個\s]/g, ''); if (s === '') return null; return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
+function pioDate(t){
+  t = pioN(t); if (!t) return '';
+  const m = t.match(/^(\d{3,4})[-\/.年](\d{1,2})[-\/.月](\d{1,2})日?$/) || t.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!m) return null;
+  let y = +m[1]; const mo = +m[2], d = +m[3];
+  if (m[1].length === 3) y += 1911;
+  if (y < 1990 || y > 2100 || mo < 1 || mo > 12 || d < 1) return null;
+  const dt = new Date(y, mo - 1, d); if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return y + '-' + pad(mo) + '-' + pad(d);
+}
+/* 是／否：回傳 true、false；空白＝''；看不懂＝null */
+const pioYN = t => { const s = pioK(t); if (!s) return ''; if (/^(是|y|yes|true|1|啟用|開|有|v|✓|✔|o|○|可)$/.test(s)) return true; if (/^(否|n|no|false|0|停用|關|無|x|×|不)$/.test(s)) return false; return null; };
+const pioKind = t => { const s = pioK(t); if (!s) return ''; if (/加成|成本/.test(s)) return 'markup'; if (/折讓|減/.test(s)) return 'off'; if (/固定|特價|單價|定價/.test(s)) return 'fixed'; if (/折|%|百分/.test(s)) return 'percent'; return null; };
+const pioPKind = t => { const s = pioK(t); if (!s) return ''; if (/指定|固定|單價/.test(s)) return 'fixed'; if (/減|折讓/.test(s)) return 'off'; if (/折|%|百分/.test(s)) return 'percent'; return null; };
+const PIO_PKIND = {percent:'折數（%）', off:'每件減多少元', fixed:'每樣商品指定單價'};
+/* 數值：折數可以寫 90、9、0.9、90%、9折（都當成 9 折，和「價格等級與折扣」的輸入規則一樣） */
+function pioValue(kind, t, ex){
+  const s = pioN(t).replace(/\s/g, '');
+  if (s === '') return {err:'數值沒填'};
+  if (kind === 'percent'){
+    const z = s.match(/^(\d+(?:\.\d+)?)折$/);
+    const n = z ? Number(z[1]) : pioNum(s.replace(/%$/, ''));
+    if (n === null || !isFinite(n)) return {err:'數值「' + pioRaw(t) + '」不是數字'};
+    if (!(n > 0)) return {err:'折數要大於 0'};
+    if (!z && ex && ex.kind === 'percent' && Number(ex.value) === n) return {v:n};
+    const v = parseZhe(n); if (v === null) return {err:'折數要大於 0'};
+    return {v, warn:(!z && n > 1 && v !== n ? '折數 ' + n + ' 當成 ' + r3(v / 10) + ' 折（單價 × ' + v + '%）' : '') || (v > 100 ? '折數 ' + v + ' 超過 100，單價會變高' : '')};
+  }
+  const n = pioNum(s);
+  if (n === null || !isFinite(n)) return {err:'數值「' + pioRaw(t) + '」不是數字'};
+  if (n < 0) return {err:'數值不能是負的'};
+  return {v:n};
+}
+/* 對照表：商品、客戶／供應商、等級、分類、系列 */
+function pioCtx(){
+  const sku = new Map(), bc = new Map(), nm = new Map(), partners = Object.values(S.partners);
+  for (const p of Object.values(S.products)){
+    const k = pioK(p.sku); if (k && !sku.has(k)) sku.set(k, p);
+    const b = pioK(p.barcode); if (b && !bc.has(b)) bc.set(b, p);
+    const n = pioK(p.name); if (n){ if (!nm.has(n)) nm.set(n, []); nm.get(n).push(p); }
+  }
+  const levels = (S.set.levels || []).map(String), cats = S.d.cats.slice(), fams = famList();
+  const pick = (arr, t) => { const s = pioN(t), k = pioK(t); return arr.find(x => pioN(x) === s) || arr.find(x => pioK(x) === k); };   // 大小寫不同時，先找寫法完全一樣的
+  return {
+    findProd:t => { const k = pioK(t); if (!k) return {none:true}; if (sku.has(k)) return {p:sku.get(k)}; if (bc.has(k)) return {p:bc.get(k)}; const a = nm.get(k) || []; return a.length === 1 ? {p:a[0]} : (a.length > 1 ? {amb:true} : {none:true}); },
+    findPartner:(t, type) => { const k = pioK(t); if (!k) return {none:true}; const list = partners.filter(p => p.type === type), byCode = list.filter(p => pioK(p.code) === k); if (byCode.length === 1) return {p:byCode[0]}; const hit = byCode.length ? byCode : list.filter(p => [p.name, p.shortName].some(v => v && pioK(v) === k)); return hit.length === 1 ? {p:hit[0]} : (hit.length > 1 ? {amb:true} : {none:true}); },
+    level:t => pick(levels, t), cat:t => pick(cats, t), fam:t => pick(fams, t), levels, cats
+  };
+}
+/* 對象、商品範圍：系統資料 → 檔案裡的文字（匯出用）；文字 → 系統資料（匯入用） */
+function pioCustText(c){
+  c = c || {type:'all'};
+  if (c.type === 'level') return ['客戶等級', c.level || ''];
+  if (c.type === 'partner'){
+    const p = S.partners[c.partnerId]; if (!p) return ['指定對象', '（已刪除的對象）'];
+    const dup = Object.values(S.partners).filter(x => x.type === p.type && pioK(x.name) === pioK(p.name)).length > 1;
+    return ['指定對象', dup && p.code ? p.code : p.name];
+  }
+  return ['全部', ''];
+}
+function pioProdText(pr){
+  pr = pr || {type:'all'};
+  if (pr.type === 'category') return ['商品分類', pr.category || ''];
+  if (pr.type === 'family') return ['商品系列', pr.family || ''];
+  if (pr.type === 'product'){ const p = S.products[pr.productId]; return ['指定商品', p ? p.sku : '（已刪除的商品）']; }
+  return ['全部', ''];
+}
+function pioCustParse(tTxt, vTxt, side, C, exCust, exSide){
+  const t = pioK(tTxt), v = pioRaw(vTxt);
+  if (exCust && (exCust.type !== 'partner' || side === exSide)){ const [et, ev] = pioCustText(exCust); if (pioK(et) === t && pioK(ev) === pioK(v)) return {v:JSON.parse(JSON.stringify(exCust))}; }
+  let type;
+  if (!t || /^(全部|所有|all|不限)/.test(t)) type = 'all';
+  else if (/等級|level/.test(t)) type = 'level';
+  else if (/指定|客戶|供應商|對象|partner/.test(t)) type = 'partner';
+  else return {err:'對象「' + pioRaw(tTxt) + '」看不懂（請寫：全部、客戶等級、指定對象）'};
+  if (type === 'all') return v ? {err:'對象是「全部」，但「對象內容」填了「' + v + '」。要限定對象請把「對象」改成客戶等級或指定對象；要適用全部請把「對象內容」清空'} : {v:{type:'all'}};
+  if (!v) return {err:'對象是「' + (type === 'level' ? '客戶等級' : '指定對象') + '」，但「對象內容」沒填'};
+  if (type === 'level'){ const lv = C.level(v); return lv ? {v:{type:'level', level:lv}} : {err:'客戶等級「' + v + '」不在價格等級清單裡（目前有：' + (C.levels.join('、') || '無') + '）'}; }
+  const f = C.findPartner(v, side === 'purchase' ? 'supplier' : 'customer'), who = side === 'purchase' ? '供應商' : '客戶';
+  if (f.p) return {v:{type:'partner', partnerId:f.p.id}};
+  return {err:f.amb ? '有多位' + who + '叫「' + v + '」，請改填代號' : '找不到' + who + '「' + v + '」'};
+}
+function pioProdParse(tTxt, vTxt, C, exProd){
+  const t = pioK(tTxt), v = pioRaw(vTxt);
+  if (exProd){ const [et, ev] = pioProdText(exProd); if (pioK(et) === t && pioK(ev) === pioK(v)) return {v:JSON.parse(JSON.stringify(exProd))}; }
+  let type;
+  if (!t || /^(全部|所有|all|不限)/.test(t)) type = 'all';
+  else if (/系列|family/.test(t)) type = 'family';
+  else if (/分類|類別|category/.test(t)) type = 'category';
+  else if (/商品|料號|品號|編號|product|sku/.test(t)) type = 'product';
+  else return {err:'商品範圍「' + pioRaw(tTxt) + '」看不懂（請寫：全部、商品分類、指定商品、商品系列）'};
+  if (type === 'all') return v ? {err:'商品範圍是「全部」，但「商品內容」填了「' + v + '」。要限定商品請把「商品範圍」改成商品分類、指定商品或商品系列；要適用全部請把「商品內容」清空'} : {v:{type:'all'}};
+  if (!v) return {err:'商品範圍是「' + ({category:'商品分類', product:'指定商品', family:'商品系列'})[type] + '」，但「商品內容」沒填'};
+  if (type === 'category'){ const c = C.cat(v); return c ? {v:{type:'category', category:c}} : {err:'商品分類「' + v + '」不存在（目前有：' + (C.cats.slice(0, 8).join('、') || '無') + (C.cats.length > 8 ? '…' : '') + '）'}; }
+  if (type === 'family'){ const f = C.fam(v); return f ? {v:{type:'family', family:f}} : {err:'商品系列「' + v + '」不存在（商品資料裡沒有商品填這個系列）'}; }
+  const f = C.findProd(v);
+  if (f.p) return {v:{type:'product', productId:f.p.id}};
+  return {err:f.amb ? '有多個商品叫「' + v + '」，請改填料號' : '找不到料號（或條碼、品名）「' + v + '」'};
+}
+/* 把一條規則整理成可以比較的樣子 */
+function pioNormRule(r){
+  const c = r.cust || {type:'all'}, p = r.prod || {type:'all'};
+  return {name:String(r.name || ''), side:r.side || 'sale', cust:c.type === 'level' ? {type:'level', level:c.level || ''} : (c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'}),
+    prod:p.type === 'category' ? {type:'category', category:p.category || ''} : (p.type === 'family' ? {type:'family', family:p.family || ''} : (p.type === 'product' ? {type:'product', productId:p.productId || ''} : {type:'all'})),
+    kind:r.kind || '', value:Number(r.value) || 0, minQty:Number(r.minQty) || 0, maxQty:Number(r.maxQty) || 0, merge:!!r.merge, from:r.from || '', to:r.to || '', promo:!!r.promo, prio:Number(r.prio) || 0, enabled:r.enabled !== false, note:String(r.note || '')};
+}
+const PIO_RLAB = {name:'名稱', side:'適用單據', cust:'對象', prod:'商品', kind:'計價方式', value:'數值', minQty:'數量從', maxQty:'數量到', merge:'合併同系列', from:'期間起', to:'期間迄', promo:'促銷價', prio:'優先順序', enabled:'啟用', note:'備註'};
+const pioDiff = (a, b, lab) => Object.keys(lab).filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+function pioAutoName(d){
+  const who = d.cust.type === 'level' ? d.cust.level : (d.cust.type === 'partner' ? ((S.partners[d.cust.partnerId] || {}).name || '') : '');
+  const what = d.prod.type === 'all' ? '全部商品' : (d.prod.type === 'product' ? ((S.products[d.prod.productId] || {}).name || '') : (d.prod.type === 'category' ? d.prod.category : '系列「' + d.prod.family + '」'));
+  const q = (d.minQty || d.maxQty) ? ' ' + r3(d.minQty || 1) + (d.maxQty ? '～' + r3(d.maxQty) : ' 件以上') : '';
+  return (who ? who + '｜' : '') + what + q + '　' + ruleEffect(d);
+}
+const PIO_R = {id:['規則編號', '編號', '系統編號', 'id'], name:['規則名稱', '名稱'], side:['適用單據', '單據'], custT:['對象', '對象類型', '適用對象'], custV:['對象內容', '對象明細'], prodT:['商品範圍', '商品類型', '適用商品'], prodV:['商品內容', '商品明細'],
+  kind:['計價方式', '計價'], value:['數值'], minQty:['數量從', '最低數量'], maxQty:['數量到', '最高數量'], merge:['合併同系列數量', '合併同系列', '合併系列'], from:['期間起', '開始日期'], to:['期間迄', '結束日期'], promo:['促銷價', '促銷'], prio:['優先順序', '優先'], enabled:['啟用', '狀態'], note:['備註']};
+const pioHead = (rows, spec) => { const head = rows[0].map(pioK), idx = {}; for (const k in spec) idx[k] = head.findIndex(x => spec[k].map(pioK).includes(x)); return idx; };
+/* ---- 價格規則：讀檔、檢查、和現有的規則比對（還不會寫入） ----
+   mode：upsert＝新增並更新；add＝只新增；replace＝完全依檔案取代（檔案裡沒有的規則會被刪除） */
+function pioPlanRules(text, mode){
+  mode = mode || 'upsert';
+  const rows = parseCSV(text);
+  if (rows.length < 2) return {error:'檔案沒有資料列'};
+  const idx = pioHead(rows, PIO_R);
+  if (idx.kind < 0 || idx.value < 0) return {error:'找不到必要欄位「計價方式」與「數值」。請用「匯出」的檔案來修改，或先下載範本。'};
+  const C = pioCtx(), cur = S.prules, g = (r, k) => idx[k] >= 0 ? pioN(r[idx[k]]) : '', raw = (r, k) => idx[k] >= 0 ? pioRaw(r[idx[k]]) : '';
+  const fileIds = new Set(rows.slice(1).map(r => g(r, 'id')).filter(Boolean)), claimed = new Set(), items = [], errors = [], skipped = [], issues = [];
+  let nNew = 0, nUp = 0, nSame = 0, valid = 0, nextPrio = Math.max(0, ...Object.values(cur).map(r => Number(r.prio) || 0));
+  const sigOf = d => JSON.stringify([d.side, d.cust, d.prod.type === 'family' ? {type:'family', family:String(d.prod.family).trim().toLowerCase()} : d.prod, d.kind, d.value, d.minQty, d.maxQty, d.from, d.to]), exSig = new Map();
+  for (const r of Object.values(cur)){ if (fileIds.has(r.id)) continue; const k = sigOf(pioNormRule(r)); if (!exSig.has(k)) exSig.set(k, []); exSig.get(k).push(r); }
+  rows.slice(1).forEach((r, n) => {
+    const line = n + 2, errs = [], warns = [], id = g(r, 'id');
+    let ex = null;
+    if (id){
+      if (claimed.has(id)){ errors.push('第 ' + line + ' 列：規則編號重複（前面的列已經用過這個編號）'); return; }
+      ex = cur[id] || null; if (!ex) warns.push('規則編號「' + id + '」在系統裡找不到（可能是別的資料庫匯出的），當成新規則');
+    }
+    // 1. 內容
+    let side = '', sT = pioK(g(r, 'side'));
+    if (sT){ if (/進貨|採購|供應商|purchase/.test(sT)) side = 'purchase'; else if (/銷貨|銷售|客戶|sale/.test(sT)) side = 'sale'; else errs.push('適用單據「' + raw(r, 'side') + '」看不懂（請寫銷貨或進貨）'); }
+    if (!side) side = ex ? (ex.side || 'sale') : 'sale';
+    const kind = pioKind(g(r, 'kind'));
+    if (kind === null) errs.push('計價方式「' + raw(r, 'kind') + '」看不懂（請寫：折數（%）、折讓金額、固定單價、成本加成（%））'); else if (kind === '') errs.push('計價方式沒填');
+    let value = 0; if (kind){ const pv = pioValue(kind, r[idx.value], ex); if (pv.err) errs.push(pv.err); else { value = pv.v; if (pv.warn) warns.push(pv.warn); } }
+    const cu = pioCustParse(g(r, 'custT'), raw(r, 'custV'), side, C, ex && ex.cust, ex && (ex.side || 'sale')); if (cu.err) errs.push(cu.err);
+    const pr = pioProdParse(g(r, 'prodT'), raw(r, 'prodV'), C, ex && ex.prod); if (pr.err) errs.push(pr.err);
+    const q = (k, lab) => { const v = pioNum(r[idx[k]]); if (idx[k] < 0 || v === null) return 0; if (!isFinite(v) || v < 0){ errs.push(lab + '「' + raw(r, k) + '」不是有效的數量'); return 0; } return v; };
+    const minQty = q('minQty', '數量從'), maxQty = q('maxQty', '數量到');
+    if (maxQty > 0 && maxQty < minQty) errs.push('數量「到」（' + maxQty + '）不能小於「從」（' + minQty + '）');
+    const dt = k => { const v = pioDate(g(r, k)); if (v === null){ errs.push((k === 'from' ? '期間起' : '期間迄') + '「' + raw(r, k) + '」不是日期（請寫 ' + today() + '）'); return ''; } return v; };
+    const from = dt('from'), to = dt('to');
+    if (from && to && from > to) errs.push('期間起（' + from + '）不能晚於期間迄（' + to + '）');
+    if (kind === 'markup' && pr.v && pr.v.type === 'product' && !(Number((S.products[pr.v.productId] || {}).cost) > 0)) warns.push('成本加成要用商品的進價，這個商品的進價是 0，算出來的單價會是 0');
+    if (side === 'purchase' && cu.v && cu.v.type === 'level') warns.push('進貨規則選了客戶等級，不會有作用（等級是客戶才有的）');
+    // 2. 沒填編號時，找「內容完全相同」的現有規則，避免重複匯入變成兩條
+    if (!ex && !errs.length){ const core = {side, cust:cu.v, prod:pr.v, kind, value, minQty, maxQty, from, to}, hit = (exSig.get(sigOf(core)) || []).find(x => !claimed.has(x.id)); if (hit) ex = hit; }
+    const dflt = ex ? pioNormRule(ex) : null;
+    // 3. 其他欄位：空白＝沿用現有的（新規則用預設）
+    const yn = (k, lab, def) => { const v = pioYN(g(r, k)); if (v === null){ warns.push(lab + '「' + raw(r, k) + '」看不懂（請寫是或否），已用' + (def ? '「是」' : '「否」')); return def; } return v === '' ? def : v; };
+    const merge = yn('merge', '合併同系列數量', dflt ? dflt.merge : true), promo = yn('promo', '促銷價', dflt ? dflt.promo : !!(from || to));
+    let enabled = pioYN(g(r, 'enabled')); if (enabled === null){ warns.push('啟用「' + raw(r, 'enabled') + '」看不懂（請寫啟用或停用），已用「啟用」'); enabled = true; } else if (enabled === '') enabled = dflt ? dflt.enabled : true;
+    let prio = pioNum(r[idx.prio]); if (idx.prio < 0) prio = null;
+    if (prio !== null && !isFinite(prio)){ errs.push('優先順序「' + raw(r, 'prio') + '」不是數字'); prio = null; }
+    const label = raw(r, 'name') || ('第 ' + line + ' 列');
+    if (errs.length){ errors.push('第 ' + line + ' 列「' + label + '」：' + errs.join('；')); if (ex) claimed.add(ex.id); return; }
+    if (prio === null) prio = dflt ? dflt.prio : (cu.v.type === 'level' && side === 'sale' ? rulePrio(pr.v.type, minQty) : (nextPrio += 10));
+    else prio = Math.round(prio);
+    const doc = {name:raw(r, 'name'), side, cust:cu.v, prod:pr.v, kind, value, minQty, maxQty, promo, from, to, prio, enabled, note:raw(r, 'note'), merge};
+    if (!doc.name) doc.name = pioAutoName(doc);
+    warns.forEach(w => issues.push('第 ' + line + ' 列「' + doc.name + '」：' + w));
+    if (ex){
+      claimed.add(ex.id);
+      if (mode === 'add'){ skipped.push('第 ' + line + ' 列「' + doc.name + '」：系統裡已經有這條規則，只新增模式略過'); return; }
+      const changes = pioDiff(pioNormRule(ex), pioNormRule(doc), PIO_RLAB);
+      valid++;
+      if (!changes.length){ nSame++; return; }
+      items.push({line, action:'update', id:ex.id, ex, doc, name:doc.name, changes, effect:ruleEffect(doc)}); nUp++;
+    } else { valid++; items.push({line, action:'new', doc, name:doc.name, effect:ruleEffect(doc)}); nNew++; }
+  });
+  const dels = mode === 'replace' ? Object.values(cur).filter(r => !claimed.has(r.id)).map(r => ({id:r.id, name:r.name || '（沒有名稱）'})) : [];
+  return {kind:'rules', mode, items, errors, skipped, issues, nNew, nUp, nSame, dels, valid};
+}
+/* ---- 組合優惠與買送 ---- */
+const PIO_P = {id:['方案編號', '編號', '系統編號', 'id'], name:['方案名稱', '名稱'], type:['類型', '方案類型'], custT:['對象', '對象類型'], custV:['對象內容', '對象明細'], from:['期間起', '開始日期'], to:['期間迄', '結束日期'], prio:['優先順序', '優先'], enabled:['啟用', '狀態'], note:['備註'],
+  mode:['組合方式', '怎麼算'], items:['組合商品', '組合內容'], totalMin:['合計數量', '合計要買幾件以上'], minKinds:['至少幾種', '至少種類'], kind:['優惠方式'], value:['優惠數值', '數值'],
+  buyT:['買的範圍', '購買範圍'], buyV:['買的商品或分類', '購買內容', '買的內容'], buyQty:['買幾件以上', '購買數量'], giftPid:['贈品料號', '贈品'], giftQty:['贈送數量', '送幾件'], repeat:['每滿一次送一次', '每滿再送'], maxGift:['最多送幾件', '最多贈送']};
+function pioNormPromo(x){
+  const c = x.cust || {type:'all'}, base = {type:x.type || 'combo', name:String(x.name || ''), enabled:x.enabled !== false, from:x.from || '', to:x.to || '', prio:Number(x.prio) || 0, note:String(x.note || ''),
+    cust:c.type === 'level' ? {type:'level', level:c.level || ''} : (c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'})};
+  if (base.type === 'gift'){ const b = x.buy || {}, gf = x.gift || {}; return {...base, buyType:b.type === 'category' ? 'category' : 'product', buyPids:b.type === 'category' ? [] : (b.pids || []).slice(), buyCat:b.type === 'category' ? (b.category || '') : '', buyQty:Number(b.minQty) || 0, giftPid:gf.pid || '', giftQty:Number(gf.qty) || 0, repeat:!!x.repeat, maxGift:Number(x.maxGift) || 0}; }
+  return {...base, mode:x.mode === 'all' ? 'all' : 'any', items:(x.items || []).map(i => ({pid:i.pid, minQty:x.mode === 'all' ? (Number(i.minQty) || 1) : 1, price:x.kind === 'fixed' ? (Number(i.price) || 0) : 0})), totalMin:x.mode === 'all' ? 0 : (Number(x.totalMin) || 0), minKinds:x.mode === 'all' ? 0 : (Number(x.minKinds) || 0), kind:x.kind || 'percent', value:x.kind === 'fixed' ? 0 : (Number(x.value) || 0)};
+}
+const PIO_PLAB = {type:'類型', name:'名稱', enabled:'啟用', from:'期間起', to:'期間迄', prio:'優先順序', note:'備註', cust:'對象', mode:'組合方式', items:'組合商品', totalMin:'合計數量', minKinds:'至少幾種', kind:'優惠方式', value:'優惠數值', buyType:'買的範圍', buyPids:'買的商品', buyCat:'買的分類', buyQty:'買幾件以上', giftPid:'贈品', giftQty:'贈送數量', repeat:'每滿再送', maxGift:'最多送幾件'};
+const pioSkuOf = pid => { const p = S.products[pid]; return p ? p.sku : '（已刪除的商品）'; };
+function pioItemsText(x){ return (x.items || []).map(i => pioSkuOf(i.pid) + (x.mode === 'all' ? '*' + r3(Number(i.minQty) || 1) : '') + (x.kind === 'fixed' ? '@' + r3(Number(i.price) || 0) : '')).join('、'); }
+function pioParseItems(text, C, mode, fixed){
+  const parts = pioN(text).split(/[、,;；\n]+/).map(s => s.trim()).filter(Boolean), out = [], errs = [], seen = new Set();
+  for (const part of parts){
+    const m = part.match(/^(.*?)(?:[*×]\s*(\d+(?:\.\d+)?))?(?:@\s*(\d+(?:\.\d+)?))?$/), key = (m && m[1] || '').trim();
+    const f = C.findProd(key);
+    if (!f.p){ errs.push(f.amb ? '有多個商品叫「' + key + '」，請改填料號' : '找不到料號「' + key + '」'); continue; }
+    if (seen.has(f.p.id)){ errs.push('組合商品「' + f.p.sku + '」重複'); continue; } seen.add(f.p.id);
+    const q = m[2] !== undefined ? Number(m[2]) : 1, pr = m[3] !== undefined ? Number(m[3]) : null;
+    if (mode === 'all' && !(q > 0)) errs.push('「' + f.p.sku + '」的至少數量要大於 0');
+    if (fixed && pr === null) errs.push('「' + f.p.sku + '」要指定優惠單價（寫成 ' + f.p.sku + '@單價）');
+    out.push({pid:f.p.id, minQty:mode === 'all' ? q : 1, price:fixed ? (pr || 0) : 0});
+  }
+  return {items:out, errs};
+}
+function pioPlanPromos(text, mode){
+  mode = mode || 'upsert';
+  const rows = parseCSV(text);
+  if (rows.length < 2) return {error:'檔案沒有資料列'};
+  const idx = pioHead(rows, PIO_P);
+  if (idx.type < 0 || idx.name < 0) return {error:'找不到必要欄位「方案名稱」與「類型」。請用「匯出」的檔案來修改，或先下載範本。'};
+  const C = pioCtx(), cur = S.promos || {}, g = (r, k) => idx[k] >= 0 ? pioN(r[idx[k]]) : '', raw = (r, k) => idx[k] >= 0 ? pioRaw(r[idx[k]]) : '';
+  const fileIds = new Set(rows.slice(1).map(r => g(r, 'id')).filter(Boolean)), claimed = new Set(), items = [], errors = [], skipped = [], issues = [];
+  let nNew = 0, nUp = 0, nSame = 0, valid = 0, nextPrio = Math.max(0, ...Object.values(cur).map(r => Number(r.prio) || 0));
+  rows.slice(1).forEach((r, n) => {
+    const line = n + 2, errs = [], warns = [], id = g(r, 'id'), name = raw(r, 'name');
+    let ex = null;
+    if (id){
+      if (claimed.has(id)){ errors.push('第 ' + line + ' 列：方案編號重複（前面的列已經用過這個編號）'); return; }
+      ex = cur[id] || null; if (!ex) warns.push('方案編號「' + id + '」在系統裡找不到，當成新方案');
+    }
+    const label = name || ('第 ' + line + ' 列');
+    if (!name) errs.push('方案名稱沒填');
+    const tp = pioK(g(r, 'type')); let type = '';
+    if (/買送|贈品|gift/.test(tp)) type = 'gift'; else if (/組合|combo/.test(tp)) type = 'combo'; else errs.push(tp ? '類型「' + raw(r, 'type') + '」看不懂（請寫：組合優惠 或 買送贈品）' : '類型沒填（組合優惠 或 買送贈品）');
+    const cu = pioCustParse(g(r, 'custT'), raw(r, 'custV'), 'sale', C, ex && ex.cust, 'sale'); if (cu.err) errs.push(cu.err);
+    if (cu.v && cu.v.type === 'partner'){ const p = S.partners[cu.v.partnerId]; if (p && p.type !== 'customer') errs.push('組合優惠與買送只能指定客戶'); }
+    const dt = k => { const v = pioDate(g(r, k)); if (v === null){ errs.push((k === 'from' ? '期間起' : '期間迄') + '「' + raw(r, k) + '」不是日期（請寫 ' + today() + '）'); return ''; } return v; };
+    const from = dt('from'), to = dt('to'); if (from && to && from > to) errs.push('期間起不能晚於期間迄');
+    let prio = idx.prio < 0 ? null : pioNum(r[idx.prio]); if (prio !== null && !isFinite(prio)){ errs.push('優先順序「' + raw(r, 'prio') + '」不是數字'); prio = null; }
+    let enabled = pioYN(g(r, 'enabled')); if (enabled === null){ warns.push('啟用「' + raw(r, 'enabled') + '」看不懂，已用「啟用」'); enabled = true; }
+    const num0 = (k, lab) => { const v = idx[k] < 0 ? null : pioNum(r[idx[k]]); if (v === null) return 0; if (!isFinite(v) || v < 0){ errs.push(lab + '「' + raw(r, k) + '」不是有效的數字'); return 0; } return v; };
+    const spec = {};
+    if (type === 'combo'){
+      const md = pioK(g(r, 'mode')), mode2 = /套裝|all/.test(md) ? 'all' : (!md || /任選|any/.test(md) ? 'any' : null);
+      if (mode2 === null) errs.push('組合方式「' + raw(r, 'mode') + '」看不懂（請寫：任選 或 套裝）');
+      const kd = pioPKind(g(r, 'kind')); if (kd === null) errs.push('優惠方式「' + raw(r, 'kind') + '」看不懂（請寫：折數（%）、每件減多少元、每樣商品指定單價）'); else if (kd === '') errs.push('優惠方式沒填');
+      const its = pioParseItems(g(r, 'items'), C, mode2 || 'any', kd === 'fixed'); its.errs.forEach(e => errs.push(e));
+      if (its.items.length < 2 && !its.errs.length) errs.push('組合優惠要有 2 樣以上的商品');
+      const totalMin = num0('totalMin', '合計數量'), minKinds = Math.round(num0('minKinds', '至少幾種'));
+      if (mode2 === 'any'){ if (!(totalMin > 0)) errs.push('任選的組合要填「合計數量」（合計要買幾件以上）'); if (minKinds > its.items.length) errs.push('「至少幾種」（' + minKinds + '）不能比組合裡的商品數（' + its.items.length + '）多'); }
+      let value = 0;
+      if (kd && kd !== 'fixed'){ const pv = pioValue(kd, r[idx.value], ex && ex.kind === kd ? ex : null); if (pv.err) errs.push('優惠' + pv.err); else { value = pv.v; if (pv.warn) warns.push(pv.warn); if (kd === 'percent' && value >= 100) errs.push('折數要小於 100（90 ＝ 9 折）'); if (kd === 'off' && !(value > 0)) errs.push('每件減的金額要大於 0'); } }
+      Object.assign(spec, {mode:mode2 || 'any', items:its.items, totalMin:mode2 === 'all' ? 0 : totalMin, minKinds:mode2 === 'all' ? 0 : minKinds, kind:kd || 'percent', value:kd === 'fixed' ? 0 : value});
+    } else if (type === 'gift'){
+      const bt = pioK(g(r, 'buyT')), bty = /分類|類別|category/.test(bt) ? 'category' : (!bt || /商品|料號|product/.test(bt) ? 'product' : null);
+      if (bty === null) errs.push('買的範圍「' + raw(r, 'buyT') + '」看不懂（請寫：指定商品 或 商品分類）');
+      const buy = {type:bty || 'product', pids:[], category:'', minQty:num0('buyQty', '買幾件以上')};
+      if (!(buy.minQty > 0)) errs.push('請填「買幾件以上」');
+      if (bty === 'category'){ const c = C.cat(raw(r, 'buyV')); if (!c) errs.push(raw(r, 'buyV') ? '商品分類「' + raw(r, 'buyV') + '」不存在' : '買的範圍是商品分類，但沒填分類'); else buy.category = c; }
+      else { const its = pioParseItems(g(r, 'buyV'), C, 'any', false); its.errs.forEach(e => errs.push('買的商品：' + e)); if (!its.items.length && !its.errs.length) errs.push('請填要買的商品料號'); buy.pids = its.items.map(i => i.pid); }
+      const gf = C.findProd(g(r, 'giftPid')); let gpid = ''; if (!g(r, 'giftPid')) errs.push('請填贈品料號'); else if (!gf.p) errs.push(gf.amb ? '有多個商品叫「' + raw(r, 'giftPid') + '」，贈品請改填料號' : '找不到贈品「' + raw(r, 'giftPid') + '」'); else { gpid = gf.p.id; if (gf.p.active === false) warns.push('贈品「' + gf.p.sku + '」已停用，開單時不會送'); }
+      const gq = idx.giftQty < 0 || pioNum(r[idx.giftQty]) === null ? 1 : num0('giftQty', '贈送數量'); if (!(gq > 0)) errs.push('贈送數量要大於 0');
+      let rp = pioYN(g(r, 'repeat')); if (rp === null){ warns.push('每滿一次送一次「' + raw(r, 'repeat') + '」看不懂，已用「否」'); rp = false; } else if (rp === '') rp = ex && ex.type === 'gift' ? !!ex.repeat : false;
+      Object.assign(spec, {buy, gift:{pid:gpid, qty:gq}, repeat:rp, maxGift:Math.max(Math.round(num0('maxGift', '最多送幾件')), 0)});
+    }
+    // 沒填編號時，用「類型＋名稱」找現有的方案（同名有多個就請她填編號）
+    if (!ex && !errs.length){ const hits = Object.values(cur).filter(x => !fileIds.has(x.id) && !claimed.has(x.id) && (x.type || 'combo') === type && pioK(x.name) === pioK(name)); if (hits.length > 1) errs.push('系統裡有 ' + hits.length + ' 個同名的方案，請填「方案編號」指定要更新哪一個'); else if (hits.length === 1) ex = hits[0]; }
+    if (errs.length){ errors.push('第 ' + line + ' 列「' + label + '」：' + errs.join('；')); if (ex) claimed.add(ex.id); return; }
+    if (enabled === '') enabled = ex ? ex.enabled !== false : true;
+    if (prio === null) prio = ex ? (Number(ex.prio) || 0) : (nextPrio += 10); else prio = Math.round(prio);
+    const doc = {type, name, enabled, from, to, prio, cust:cu.v, note:raw(r, 'note'), ...spec};
+    warns.forEach(w => issues.push('第 ' + line + ' 列「' + name + '」：' + w));
+    const effect = type === 'gift' ? '送 ' + pnm(doc.gift.pid) + ' ' + r3(doc.gift.qty) : promoEffect(doc);
+    if (ex){
+      claimed.add(ex.id);
+      if (mode === 'add'){ skipped.push('第 ' + line + ' 列「' + name + '」：系統裡已經有這個方案，只新增模式略過'); return; }
+      const changes = pioDiff(pioNormPromo(ex), pioNormPromo(doc), PIO_PLAB); valid++;
+      if (!changes.length){ nSame++; return; }
+      items.push({line, action:'update', id:ex.id, ex, doc, name, changes, effect}); nUp++;
+    } else { valid++; items.push({line, action:'new', doc, name, effect}); nNew++; }
+  });
+  const dels = mode === 'replace' ? Object.values(cur).filter(x => !claimed.has(x.id)).map(x => ({id:x.id, name:x.name || '（沒有名稱）'})) : [];
+  return {kind:'promos', mode, items, errors, skipped, issues, nNew, nUp, nSame, dels, valid};
+}
+/* ---- 匯出資料 ---- */
+const PIO_RCOLS = () => [XC('規則編號', 'text', 22), XC('規則名稱', 'text', 28), XC('適用單據', 'text', 9), XC('對象', 'text', 10), XC('對象內容', 'text', 16), XC('商品範圍', 'text', 10), XC('商品內容', 'text', 16), XC('計價方式', 'text', 14), XC('數值', 'number', 9), XC('數量從', 'number', 9), XC('數量到', 'number', 9), XC('合併同系列數量', 'text', 14), XC('期間起', 'text', 12), XC('期間迄', 'text', 12), XC('促銷價', 'text', 8), XC('優先順序', 'number', 9), XC('啟用', 'text', 8), XC('備註', 'text', 20), XC('效果（參考）', 'text', 14), XC('商品品名（參考）', 'text', 22)];
+function dsPriceRules(){
+  const list = Object.values(S.prules).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
+  const rows = list.map(r => { const [ct, cv] = pioCustText(r.cust), [pt, pv] = pioProdText(r.prod); return [r.id, r.name || '', (r.side || 'sale') === 'purchase' ? '進貨' : '銷貨', ct, cv, pt, pv, PR_KIND[r.kind] || r.kind || '', Number(r.value) || 0, Number(r.minQty) || 0, Number(r.maxQty) || 0, r.merge ? '是' : '否', r.from || '', r.to || '', r.promo ? '是' : '否', Number(r.prio) || 0, r.enabled === false ? '停用' : '啟用', r.note || '', ruleEffect(r), r.prod && r.prod.type === 'product' ? ((S.products[r.prod.productId] || {}).name || '') : '']; });
+  return {title:'價格規則', sub:'共 ' + list.length + ' 條　' + today() + '　欄位和「匯入價格規則」相同；修改後存成 CSV 再匯入，就會依「規則編號」更新（編號留空＝新增）', filename:'價格規則_' + today(), sections:[{name:'價格規則', cols:PIO_RCOLS(), rows}]};
+}
+const PIO_PCOLS = () => [XC('方案編號', 'text', 22), XC('方案名稱', 'text', 28), XC('類型', 'text', 11), XC('對象', 'text', 10), XC('對象內容', 'text', 16), XC('期間起', 'text', 12), XC('期間迄', 'text', 12), XC('優先順序', 'number', 9), XC('啟用', 'text', 8), XC('備註', 'text', 20), XC('組合方式', 'text', 10), XC('組合商品', 'text', 30), XC('合計數量', 'number', 10), XC('至少幾種', 'number', 10), XC('優惠方式', 'text', 18), XC('優惠數值', 'number', 10), XC('買的範圍', 'text', 10), XC('買的商品或分類', 'text', 24), XC('買幾件以上', 'number', 11), XC('贈品料號', 'text', 14), XC('贈送數量', 'number', 10), XC('每滿一次送一次', 'text', 14), XC('最多送幾件', 'number', 11), XC('說明（參考）', 'text', 40)];
+function dsPromos(){
+  const list = Object.values(S.promos || {}).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
+  const rows = list.map(x => {
+    const [ct, cv] = pioCustText(x.cust), gift = x.type === 'gift', b = x.buy || {}, gf = x.gift || {}, combo = !gift;
+    return [x.id, x.name || '', gift ? '買送贈品' : '組合優惠', ct, cv, x.from || '', x.to || '', Number(x.prio) || 0, x.enabled === false ? '停用' : '啟用', x.note || '',
+      combo ? (x.mode === 'all' ? '套裝' : '任選') : '', combo ? pioItemsText(x) : '', combo && x.mode !== 'all' ? Number(x.totalMin) || 0 : '', combo && x.mode !== 'all' ? Number(x.minKinds) || 0 : '', combo ? PIO_PKIND[x.kind] || '' : '', combo && x.kind !== 'fixed' ? Number(x.value) || 0 : '',
+      gift ? (b.type === 'category' ? '商品分類' : '指定商品') : '', gift ? (b.type === 'category' ? b.category || '' : (b.pids || []).map(pioSkuOf).join('、')) : '', gift ? Number(b.minQty) || 0 : '', gift ? pioSkuOf(gf.pid) : '', gift ? Number(gf.qty) || 0 : '', gift ? (x.repeat ? '是' : '否') : '', gift ? Number(x.maxGift) || 0 : '', promoDesc(x)];
+  });
+  return {title:'組合優惠與買送', sub:'共 ' + list.length + ' 個方案　' + today() + '　欄位和「匯入組合優惠與買送」相同；組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔', filename:'組合優惠與買送_' + today(), sections:[{name:'組合優惠與買送', cols:PIO_PCOLS(), rows}]};
+}
+/* ---- 範本（用目前系統裡真的有的等級、分類、商品當範例） ---- */
+function pioTemplate(kind){
+  const lv = (S.set.levels || [])[0] || '', cat = S.d.cats[0] || '', ps = Object.values(S.products).filter(p => p.active !== false).sort(cmpSku), p = ps[0], p2 = ps[1], y = new Date().getFullYear(), ex = [];
+  if (kind === 'promos'){
+    const head = PIO_PCOLS().map(c => c.label); head.length -= 1;
+    const row = o => head.map(h2 => o[h2] === undefined ? '' : o[h2]);
+    if (p && p2) ex.push(row({'方案名稱':p.name + '＋' + p2.name + ' 任選 10 件 9 折', '類型':'組合優惠', '對象':'全部', '期間起':y + '-10-01', '期間迄':y + '-12-31', '啟用':'啟用', '組合方式':'任選', '組合商品':p.sku + '、' + p2.sku, '合計數量':10, '優惠方式':'折數（%）', '優惠數值':90}));
+    if (p && p2) ex.push(row({'方案名稱':'買 ' + p.name + ' 10 件送 ' + p2.name + ' 1 件', '類型':'買送贈品', '對象':'全部', '啟用':'啟用', '買的範圍':'指定商品', '買的商品或分類':p.sku, '買幾件以上':10, '贈品料號':p2.sku, '贈送數量':1, '每滿一次送一次':'是'}));
+    return csvText([head, ...ex]);
+  }
+  const head = PIO_RCOLS().map(c => c.label); head.length -= 2;
+  const row = o => head.map(h2 => o[h2] === undefined ? '' : o[h2]);
+  if (lv && cat) ex.push(row({'規則名稱':lv + '｜' + cat + ' 9 折', '適用單據':'銷貨', '對象':'客戶等級', '對象內容':lv, '商品範圍':'商品分類', '商品內容':cat, '計價方式':'折數（%）', '數值':90, '啟用':'啟用'}));
+  if (lv && p) ex.push(row({'規則名稱':lv + '｜' + p.name + ' 買 10 件以上特價', '適用單據':'銷貨', '對象':'客戶等級', '對象內容':lv, '商品範圍':'指定商品', '商品內容':p.sku, '計價方式':'固定單價', '數值':Math.max(Math.round((Number(p.price) || 0) * 0.9), 1), '數量從':10, '數量到':49, '合併同系列數量':'是', '啟用':'啟用'}));
+  if (p) ex.push(row({'規則名稱':p.name + ' 雙十促銷', '適用單據':'銷貨', '對象':'全部', '商品範圍':'指定商品', '商品內容':p.sku, '計價方式':'折讓金額', '數值':5, '期間起':y + '-10-10', '期間迄':y + '-10-12', '促銷價':'是', '啟用':'啟用'}));
+  return csvText([head, ...ex]);
+}
+/* ---- 畫面：價格策略匯入／匯出 ---- */
+function openPriceIO(){
+  if (!S.isAdmin) return toast('只有管理員可以匯入、匯出價格策略');
+  liveSheet({title:'價格策略匯入／匯出'}, ['prules', 'promos'], sh => {
+    const card = (key, title, n, unit, desc, ds, kind) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'價格策略區塊 ' + title},
+      h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:title}), h('span', {class:'hint', text:n + ' ' + unit})),
+      h('p', {class:'hint', style:'margin:4px 0 10px', text:desc}),
+      h('div', {class:'btns'}, h('button', {class:'btn', style:'flex:1', 'aria-label':'匯出' + title, onclick:() => openExport(ds())}, icon('down'), '匯出'), h('button', {class:'btn ghost', style:'flex:1', 'aria-label':'匯入' + title, onclick:() => openPriceImport(kind)}, '匯入／更新')),
+      h('button', {class:'btn plain', style:'margin-top:6px', 'aria-label':'下載' + title + '範本', onclick:() => saveFile(title + '匯入範本.csv', pioTemplate(kind))}, '下載空白範本（含範例）'));
+    const body = h('div', null,
+      h('div', {class:'note', style:'margin-top:0', text:'先匯出，在 Excel 改好、存成 CSV，再匯入，就能批次更新價格策略。匯入前會先顯示預覽（新增幾條、更新幾條、哪幾列有問題），確認後才會寫入。'}),
+      card('rules', '價格規則', Object.keys(S.prules).length, '條', '等級價、客戶專屬價、數量階梯價、促銷期間價、成本加成等（含「價格等級與折扣」裡設定的規則）。', dsPriceRules, 'rules'),
+      card('promos', '組合優惠與買送', Object.keys(S.promos || {}).length, '個', '兩樣以上商品合買的優惠、買到一定數量送贈品。', dsPromos, 'promos'),
+      h('div', {class:'hint', text:'價格等級（例如 一般、批發、VIP）請在「設定 → 價格策略 → 客戶等級」維護；每位客戶是哪個等級，在「客戶資料匯入／匯出」的「價格等級」欄。'}));
+    return {body};
+  });
+}
+function openPriceImport(kind){
+  if (!S.isAdmin) return toast('只有管理員可以匯入價格策略');
+  const rules = kind !== 'promos', K = rules ? {title:'價格規則', plan:pioPlanRules, ds:dsPriceRules, coll:'prules', unit:'條'} : {title:'組合優惠與買送', plan:pioPlanPromos, ds:dsPromos, coll:'promos', unit:'個'};
+  const sh = sheet({title:'匯入' + K.title});
+  const st = {mode:'upsert', text:null, plan:null}, info = h('div'), goBtn = h('button', {class:'btn grow', 'aria-label':'開始匯入', disabled:true}, '開始匯入');
+  const blocked = pl => pl.mode === 'replace' && (pl.errors.length > 0 || pl.valid === 0);
+  const paint = () => {
+    if (st.text == null){ setKids(info); goBtn.disabled = true; return; }
+    const pl = st.plan = K.plan(st.text, st.mode);
+    if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error})); goBtn.disabled = true; return; }
+    const over = docCount() + pl.nNew > DOC_LIMIT, lines = (arr, n) => arr.slice(0, n).map(t => h('li', null, h('small', {text:t})));
+    const upd = pl.items.filter(i => i.action === 'update'), neu = pl.items.filter(i => i.action === 'new');
+    const lab = rules ? PIO_RLAB : PIO_PLAB;
+    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增', pl.nNew + ' ' + K.unit), kv('更新既有的', pl.nUp + ' ' + K.unit), kv('沒有變動', pl.nSame + ' ' + K.unit), pl.skipped.length ? kv('略過（已存在）', pl.skipped.length + ' 列') : null, kv('有錯誤、不會匯入', pl.errors.length + ' 列'), pl.issues.length ? kv('提醒', pl.issues.length + ' 項') : null, pl.mode === 'replace' ? kv('會刪除（檔案裡沒有）', pl.dels.length + ' ' + K.unit) : null),
+      over ? h('div', {class:'note bad', text:'匯入後會超過資料量上限（' + DOC_LIMIT + '）。'}) : null,
+      pl.mode === 'replace' && pl.errors.length ? h('div', {class:'note bad', text:'有錯誤的列，不能用「完全依檔案取代」（否則那幾列對應的規則可能被誤刪）。請先修正錯誤，或改用「新增並更新」。'}) : null,
+      pl.mode === 'replace' && pl.dels.length && !pl.errors.length ? h('div', {class:'note warn', style:'margin-top:8px'}, h('b', {text:'這 ' + pl.dels.length + ' ' + K.unit + '會被刪除（前 6 個）'}), h('ul', null, lines(pl.dels.map(d => d.name), 6), pl.dels.length > 6 ? h('li', null, h('small', {text:'…還有 ' + (pl.dels.length - 6) + ' ' + K.unit})) : null)) : null,
+      neu.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'會新增的（前 5 ' + K.unit + '）'}), h('ul', null, lines(neu.map(i => i.name + '　' + i.effect), 5))) : null,
+      upd.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的（前 5 ' + K.unit + '）'}), h('ul', null, lines(upd.map(i => i.name + '：' + i.changes.map(k => lab[k]).join('、')), 5))) : null,
+      pl.errors.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'有錯誤的列（不會匯入）'}), h('ul', null, lines(pl.errors, 10), pl.errors.length > 10 ? h('li', null, h('small', {text:'…還有 ' + (pl.errors.length - 10) + ' 列'})) : null)) : null,
+      pl.issues.length || pl.skipped.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'注意事項'}), h('ul', null, lines([...pl.issues, ...pl.skipped], 8), pl.issues.length + pl.skipped.length > 8 ? h('li', null, h('small', {text:'…還有 ' + (pl.issues.length + pl.skipped.length - 8) + ' 項'})) : null)) : null);
+    goBtn.disabled = !(pl.nNew + pl.nUp + (pl.mode === 'replace' ? pl.dels.length : 0)) || over || blocked(pl);
+  };
+  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { st.text = decodeCsv(rd.result); paint(); }; rd.readAsArrayBuffer(f); }});
+  const modes = [['upsert', '新增，並更新已存在的'], ['add', '只新增，已存在的略過'], ['replace', '完全依檔案取代（檔案裡沒有的會刪除）']];
+  const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, modes.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'匯入方式 ' + t, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
+  goBtn.addEventListener('click', async () => {
+    const pl = st.plan; if (!pl || pl.error || blocked(pl)) return;
+    const pl2 = K.plan(st.text, st.mode);
+    if (pl2.error || pl2.nNew !== pl.nNew || pl2.nUp !== pl.nUp || pl2.dels.length !== pl.dels.length){ paint(); return toast('資料剛剛有變動，請再看一次預覽'); }
+    if (pl.dels.length){ if (!await dialog({title:'刪除 ' + pl.dels.length + ' ' + K.unit + '不在檔案裡的' + K.title + '？', msg:'「完全依檔案取代」會把系統裡有、檔案裡沒有的' + K.title + '刪掉，刪除後無法復原。已經開出去的單據不受影響。\n建議先按「先匯出目前的資料」留一份備份。', ok:'刪除並匯入', danger:true})) return; }
+    else if (pl.nUp && !await dialog({title:'更新 ' + pl.nUp + ' ' + K.unit + '既有的' + K.title + '？', msg:'這幾' + K.unit + '會依檔案的內容更新（檔案裡空白的欄位＝沒有限制，例如期間空白就是一直有效）。', ok:'開始匯入'})) return;
+    goBtn.disabled = true;
+    const jobs = [...pl.items.map(it => ({t:it.action, it})), ...pl.dels.map(d => ({t:'del', d}))]; let done = 0;
+    const ok = await run(async () => {
+      for (let i = 0; i < jobs.length; i += 5){
+        const chunk = jobs.slice(i, i + 5);
+        const write = () => Promise.all(chunk.map(async j => {
+          if (j.t === 'del') return S.db.doc(K.coll + '/' + j.d.id).delete();
+          if (j.t === 'update') return S.db.doc(K.coll + '/' + j.it.id).set({...j.it.doc, createdBy:j.it.ex.createdBy || null, createdAt:j.it.ex.createdAt || Date.now()});
+          return S.db.collection(K.coll).doc().set({...j.it.doc, createdBy:S.meId || null, createdAt:Date.now()});
+        }));
+        try { await write(); } catch (e) { if (e && e.code === 'resource_exhausted'){ await new Promise(r => setTimeout(r, 1200)); await write(); } else throw e; }
+        done += chunk.length; goBtn.textContent = '匯入中 ' + done + ' / ' + jobs.length;
+      }
+      return true;
+    });
+    goBtn.textContent = '開始匯入';
+    if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + (pl.dels.length ? '、刪除 ' + pl.dels.length : '') + ' ' + K.unit); sh.forceClose(); } else goBtn.disabled = false;
+  });
+  put(sh.bodyEl,
+    h('div', {class:'note', style:'margin-top:0', text:'請用「匯出」的檔案修改，或先下載範本。一列＝一' + K.unit + '。「' + (rules ? '規則編號' : '方案編號') + '」相同的列會更新那一' + K.unit + '，編號留空就是新增。' + (rules ? '檔案裡的空白＝沒有限制（期間迄空白＝一直有效、數量到空白＝以上）。折數可以寫 90、9、0.9 或 9折，都當成 9 折。' : '組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔；任選的組合只要寫料號，指定單價才加 @價格。') + '檔案要存成 CSV（Excel：另存新檔 → CSV UTF-8）。'}),
+    h('div', {class:'f'}, h('label', {text:'選擇 CSV 檔'}), file),
+    h('div', {class:'f'}, h('label', {text:'匯入方式'}), modeChips),
+    h('div', {style:'display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px'}, h('button', {class:'btn ghost sm', 'aria-label':'先匯出目前的資料', onclick:() => openExport(K.ds())}, icon('down'), '先匯出目前的資料'), h('button', {class:'btn ghost sm', 'aria-label':'下載範本', onclick:() => saveFile(K.title + '匯入範本.csv', pioTemplate(rules ? 'rules' : 'promos'))}, '下載範本')),
+    info);
+  sh.footEl.append(goBtn);
+}
+
 /* ---- 備份與還原 ---- */
 const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers', 'promos'];
 const BK_SET = () => ({main:S.setRaw || {}, invoice:S.invCfg || {}, slipform:S.slipCfg || {}, slipform_south:S.slipCfgS || {}, roles:S.roles || {}});
@@ -10826,7 +11308,8 @@ function openSettings(){
     fld('客戶等級（用「、」分隔，可指定給客戶並套用等級價）', levelsIn), fld('多條規則符合時', pmodeSel), fld('規則算出的單價', proundSel),
     h('label', {class:'check'}, histIn, '銷貨、訂單、報價優先帶入這位客戶的上次成交價（沒有歷史成交價才依價格策略）'),
     h('button', {class:'btn ghost', style:'width:100%;margin-bottom:8px', 'aria-label':'價格等級與折扣', onclick:openPriceLevels}, '價格等級與折扣（依客戶類別、商品類別、數量、期間設定）'),
-    h('button', {class:'btn ghost', style:'width:100%;margin-bottom:14px', onclick:openPriceRules}, '管理價格規則（' + Object.values(S.prules).filter(r => r.enabled !== false).length + ' 條啟用）'),
+    h('button', {class:'btn ghost', style:'width:100%;margin-bottom:8px', onclick:openPriceRules}, '管理價格規則（' + Object.values(S.prules).filter(r => r.enabled !== false).length + ' 條啟用）'),
+    h('button', {class:'btn ghost', style:'width:100%;margin-bottom:14px', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出（Excel／CSV）'),
     h('div', {class:'sec-h', style:'margin-top:4px'}, h('h2', {text:'倉庫'})),
     whBox,
     h('p', {class:'hint', style:'margin:-2px 0 12px', text:'「主倉庫」是預設倉庫，無法刪除。單據和盤點會記錄倉庫，庫存依倉庫分開計算；有多個倉庫時才會出現倉庫選項與「調撥」。用過的倉庫只能停用，不能刪除。'}),
@@ -11422,7 +11905,7 @@ const dsProductMaster = () => {
 /* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
 function openDataHub(){
   if (!can('partner') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
-  liveSheet({title:'資料匯入匯出'}, ['partners', 'products'], sh => {
+  liveSheet({title:'資料匯入匯出'}, ['partners', 'products', 'prules', 'promos'], sh => {
     const nCust = Object.values(S.partners).filter(x => x.type === 'customer').length, nSup = Object.values(S.partners).filter(x => x.type === 'supplier').length, nProd = Object.keys(S.products).length;
     const card = (key, title, n, unit, desc, exp, imp) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 ' + title},
       h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:title}), h('span', {class:'hint', text:n + ' ' + unit})),
@@ -11433,6 +11916,7 @@ function openDataHub(){
       card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
       card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
       card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、進價、售價、安全庫存、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
+      S.isAdmin ? h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 價格策略'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:'價格策略'}), h('span', {class:'hint', text:Object.keys(S.prules).length + ' 條規則・' + Object.keys(S.promos || {}).length + ' 個組合／買送'})), h('p', {class:'hint', style:'margin:4px 0 10px', text:'價格規則（等級價、數量階梯、促銷期間、客戶專屬價）、組合優惠與買送贈品。匯入前會先預覽，確認後才寫入。'}), h('button', {class:'btn', style:'width:100%', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出')) : null,
       S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
     return {body};
   });
