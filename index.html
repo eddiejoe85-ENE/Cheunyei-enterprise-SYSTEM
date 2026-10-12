@@ -6816,7 +6816,7 @@ function openLineSettings(){
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:x => ruleProdObj(x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels()}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:x => ruleProdObj(x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -8950,7 +8950,7 @@ const rulePrio = (scope, minQty) => ({product:100, family:150, category:200, all
 const levelRuleKind = r => { const p = r.prod || {type:'all'}, hasQty = (Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0; return hasQty || p.type === 'family' ? 'qty' : (p.type === 'product' ? 'product' : (p.type === 'category' ? 'category' : 'all')); };
 function openLevelRuleForm(level, kind, id){
   if (!S.isAdmin) return toast('只有管理員可以設定價格');
-  if (id && S.prules[id] && rulePrices((S.prules[id] || {}).prod)) return openPriceRuleForm(id);   // 各商品價格不同：用完整的規則表單編輯
+  if (id && S.prules[id] && (rulePrices((S.prules[id] || {}).prod) || custLevels((S.prules[id] || {}).cust).length > 1)) return openPriceRuleForm(id);   // 各商品價格不同、或同時適用多個等級：用完整的規則表單編輯
   const ex = id ? S.prules[id] : null, p0 = ex ? (ex.prod || {type:'all'}) : {type:kind === 'category' ? 'category' : (kind === 'product' ? 'product' : 'all')};
   const st = {scope:p0.type, category:p0.category || S.d.cats[0] || '', productId:p0.productId || '', pids:ruleProdIds(p0), family:p0.family || famList()[0] || '', merge:ex ? !!ex.merge : true, kind:ex ? ex.kind : (kind === 'qty' ? 'fixed' : 'percent'), value:ex ? (ex.kind === 'percent' ? zheTxt(ex.value) : String(ex.value)) : '', minQty:ex ? ex.minQty || '' : '', maxQty:ex ? ex.maxQty || '' : '', from:ex ? ex.from || '' : '', to:ex ? ex.to || '' : '', note:ex ? ex.note || '' : '', enabled:!ex || ex.enabled !== false};
   const isQty = kind === 'qty', title = {category:'依商品類別的折扣率', product:'依商品編號的折扣率', qty:'依購買數量的特價'}[kind] || '價格規則';
@@ -8992,15 +8992,15 @@ function openPriceLevels(){
     if (!levels.includes(U.level)) U.level = levels[0] || '';
     const custN = lv => Object.values(S.partners).filter(p => p.type === 'customer' && levelOf(p) === lv).length;
     const rowOf = r => { const stt = ruleStatus(r), pr = r.prod || {type:'all'}, what = pr.type === 'family' ? '系列「' + pr.family + '」' : pr.type === 'category' ? '類別「' + pr.category + '」' : (pr.type === 'product' ? ruleProdName(pr, 'both') : '全部商品'), k = levelRuleKind(r);
-      return h('button', {class:'row' + (r.enabled === false ? ' void' : ''), 'aria-label':'規則 ' + r.name, onclick:() => openLevelRuleForm(r.cust.level, k, r.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:what}), h('br'), h('small', {text:((Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0 ? '數量 ' + num(r.minQty || 1) + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') + '　' : '') + (r.merge ? '同系列合併計算　' : '') + (r.from || r.to ? (r.from || '') + ' ～ ' + (r.to || '') : '不限期間')})), h('span', {class:'right'}, h('b', {text:ruleEffect(r)}), h('br'), h('span', {class:'pd-m ' + ({on:'cash', soon:'transfer', over:'other', off:'other'}[stt[0]]), text:stt[1]}))); };
-    const sec = (lv, kind, title, hint) => { const list = allRules.filter(r => r.cust.level === lv && levelRuleKind(r) === kind).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0));
+      return h('button', {class:'row' + (r.enabled === false ? ' void' : ''), 'aria-label':'規則 ' + r.name, onclick:() => openLevelRuleForm(r.cust.level, k, r.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:what}), h('br'), h('small', {text:((Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0 ? '數量 ' + num(r.minQty || 1) + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') + '　' : '') + (r.merge ? '同系列合併計算　' : '') + (r.from || r.to ? (r.from || '') + ' ～ ' + (r.to || '') : '不限期間')}), custLevels(r.cust).length > 1 ? [h('br'), h('small', {style:'color:var(--brand)', text:'與「' + custLevels(r.cust).filter(x => x !== U.level).join('、') + '」共用'})] : null), h('span', {class:'right'}, h('b', {text:ruleEffect(r)}), h('br'), h('span', {class:'pd-m ' + ({on:'cash', soon:'transfer', over:'other', off:'other'}[stt[0]]), text:stt[1]}))); };
+    const sec = (lv, kind, title, hint) => { const list = allRules.filter(r => custLevels(r.cust).includes(lv) && levelRuleKind(r) === kind).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0));
       return [h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:title}), h('button', {class:'btn ghost sm', 'aria-label':'新增 ' + title, onclick:() => openLevelRuleForm(lv, kind)}, icon('plus'), '新增')), list.length ? h('div', {class:'panel'}, list.map(rowOf)) : h('div', {class:'panel empty', style:'padding:14px', text:hint})]; };
     let content;
     if (U.tab === 'levels'){
       content = [levels.length ? h('div', {class:'chips', style:'padding-top:0'}, levels.map(l => h('button', {class:'chip', 'aria-pressed':U.level === l, 'aria-label':'價格等級 ' + l, onclick:() => { U.level = l; render('prules'); }}, l + '（' + custN(l) + ' 家）'))) : h('div', {class:'note warn', text:'還沒有價格等級。到「客戶類別與等級」分頁新增。'}),
-        U.level ? [h('div', {class:'note', style:'margin-top:4px', text:'「' + U.level + '」等級的客戶，開銷貨單時自動帶入下面設定的價格。優先順序：數量特價與商品編號 > 商品類別 > 其他；符合多條時，數量門檻較高的先用。沒有符合的，用商品標準售價。'}),
+        U.level ? [h('div', {class:'note', style:'margin-top:4px', text:'「' + U.level + '」等級的客戶，開銷貨單時自動帶入下面設定的價格。優先順序：數量特價與商品編號 > 商品類別 > 其他；符合多條時，數量門檻較高的先用。沒有符合的，用商品標準售價。同一條規則要同時給幾個等級用，請到下方「全部規則（進階）」新增，對象選「客戶等級」後可以複選。'}),
           sec(U.level, 'category', '依商品類別的折扣率', '還沒設定。例如：飲料類 9 折。'), sec(U.level, 'product', '依商品編號的折扣率', '還沒設定。例如：A1001 8.5 折。'), sec(U.level, 'qty', '依購買數量的特價', '還沒設定。例如：買 10 件以上，每件特價 90 元。'),
-          allRules.filter(r => r.cust.level === U.level && levelRuleKind(r) === 'all').length ? sec(U.level, 'all', '整個等級的折扣', '') : null] : null];
+          allRules.filter(r => custLevels(r.cust).includes(U.level) && levelRuleKind(r) === 'all').length ? sec(U.level, 'all', '整個等級的折扣', '') : null] : null];
     }
     if (U.tab === 'cats'){
       const catIn = h('div', null, cats.length ? h('div', {class:'panel'}, cats.map((c, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto auto;gap:8px;align-items:center'}, h('span', null, h('b', {text:c.name}), h('br'), h('small', {text:Object.values(S.partners).filter(p => p.type === 'customer' && p.custCat === c.name).length + ' 家客戶'})), (() => { const s2 = h('select', {class:'in', 'aria-label':'類別等級 ' + c.name, style:'height:38px;width:120px', onchange:e => run(async () => { const arr = cats.map(x => ({...x})); arr[i].level = e.target.value; await S.db.doc('settings/main').update({custCats:arr}); return true; })}, h('option', {value:'', text:'（不指定）'}), ...levels.map(l => h('option', {value:l, text:l}))); s2.value = c.level || ''; return s2; })(), h('button', {class:'ic sm', 'aria-label':'刪除類別 ' + c.name, onclick:async () => { if (await dialog({title:'刪除客戶類別「' + c.name + '」？', msg:'已經歸在這個類別的客戶，會變成沒有類別。', ok:'刪除', danger:true})) run(async () => { await S.db.doc('settings/main').update({custCats:cats.filter((_, j) => j !== i)}); return true; }); }}, icon('x'))))) : h('div', {class:'panel empty', text:'還沒有客戶類別。例如：連鎖加盟、餐飲、零售、經銷商。'}));
@@ -10072,7 +10072,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-be';
+const APP_VERSION = '2026.10.11-bf';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -10543,12 +10543,31 @@ function prodPickBlock(pids, change, px){   // px：{prices:{商品id:文字}}�
         h('button', {class:'ic sm', 'aria-label':'移除 ' + (p ? p.sku : id), onclick:() => change(pids.filter(x => x !== id))}, icon('x'))); })) : h('div', {class:'panel empty', style:'padding:14px', text:'還沒有選商品'}),
     h('button', {class:'btn ghost sm', style:'margin-top:6px', 'aria-label':'選擇商品', onclick:() => pickProductsSheet('選擇商品（可多選）', pids, change)}, pids.length ? '＋ 增減商品（已選 ' + pids.length + ' 項）' : '＋ 選擇商品（可多選）'));
 }
+/* ---- 規則與組合優惠的「對象＝客戶等級」可以複選 ----
+   cust = {type:'level', level:第一個等級, levels:[全部等級]}。只選一個等級時維持舊格式 {type:'level', level}，已經存的規則不用轉換。 */
+const custLevels = c => (c && c.type === 'level') ? (Array.isArray(c.levels) && c.levels.length ? c.levels.filter(Boolean) : (c.level ? [c.level] : [])) : [];
+const custObjLevels = lvs => { lvs = [...new Set((lvs || []).filter(Boolean))]; return lvs.length > 1 ? {type:'level', level:lvs[0], levels:lvs} : {type:'level', level:lvs[0] || ''}; };
+const custLevelOk = (c, partner) => { if (!partner) return false; const lv = levelOf(partner), ls = custLevels(c); return ls.length ? ls.includes(lv) : lv === c.level; };
+/* 表單裡的「客戶等級」：每個等級一個勾選框，可以複選。lvs：目前勾選的等級；change(新的等級陣列)：勾選變動時呼叫（不重畫，輸入到一半的欄位不會被清掉） */
+function levelPickBlock(lvs, change){
+  const all = (S.set.levels || []).map(String), list = [...all, ...lvs.filter(l => !all.includes(l))], cur = new Set(lvs);
+  if (!list.length) return h('div', {class:'note warn', style:'margin:0', 'aria-label':'客戶等級（可複選）', text:'還沒有價格等級。請先到「價格等級與折扣 → 客戶類別與等級」新增等級。'});
+  const custN = l => Object.values(S.partners).filter(p => p.type === 'customer' && levelOf(p) === l).length;
+  const picked = () => list.filter(l => cur.has(l)), sum = h('small', {class:'hint', 'aria-label':'已選客戶等級'});
+  const setSum = () => { const a = picked(); sum.textContent = a.length ? '已選 ' + a.length + ' 個等級：' + a.join('、') + (a.length > 1 ? '（共用同一個計價方式）' : '') : '還沒有勾選等級'; };
+  setSum();
+  return h('div', {'aria-label':'客戶等級（可複選）'},
+    h('div', {class:'panel', style:'padding:2px 12px'}, list.map(l => h('label', {class:'check', style:'padding:8px 0'},
+      h('input', {type:'checkbox', checked:cur.has(l), 'aria-label':'客戶等級 ' + l, onchange:e => { if (e.target.checked) cur.add(l); else cur.delete(l); change(picked()); setSum(); }}),
+      h('span', null, l + (all.includes(l) ? '' : '（已不在等級清單）'), h('small', {class:'hint', style:'margin-left:8px;display:inline', text:custN(l) + ' 家客戶'}))))),
+    sum);
+}
 const PR_KIND = {percent:'折數（%）', off:'折讓金額', fixed:'固定單價', markup:'成本加成（%）'};
 const priceRules = () => Object.values(S.prules).filter(r => r.enabled !== false).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
 function ruleMatch(r, side, partner, p, qty, date){
   if ((r.side || 'sale') !== side) return false;
   const c = r.cust || {type:'all'};
-  if (c.type === 'level' && (!partner || levelOf(partner) !== c.level)) return false;
+  if (c.type === 'level' && !custLevelOk(c, partner)) return false;
   if (c.type === 'partner' && (!partner || partner.id !== c.partnerId)) return false;
   const pr = r.prod || {type:'all'};
   if (pr.type === 'category' && p.category !== pr.category) return false;
@@ -10636,7 +10655,7 @@ function ruleEffect(r){
 }
 function ruleDesc(r){
   const c = r.cust || {type:'all'}, p = r.prod || {type:'all'};
-  const who = c.type === 'level' ? '等級「' + c.level + '」' : (c.type === 'partner' ? ((S.partners[c.partnerId] || {}).name || '指定客戶') : '所有' + ((r.side || 'sale') === 'purchase' ? '供應商' : '客戶'));
+  const who = c.type === 'level' ? '等級「' + custLevels(c).join('、') + '」' : (c.type === 'partner' ? ((S.partners[c.partnerId] || {}).name || '指定客戶') : '所有' + ((r.side || 'sale') === 'purchase' ? '供應商' : '客戶'));
   const what = p.type === 'family' ? '系列「' + p.family + '」' : p.type === 'category' ? '分類「' + p.category + '」' : (p.type === 'product' ? ruleProdName(p, 'name') : '所有商品');
   return (r.promo ? '【促銷】' : '') + ((r.side || 'sale') === 'purchase' ? '進貨　' : '銷貨　') + who + '／' + what + ((r.minQty || r.maxQty) ? '　數量 ' + (r.minQty ? num(r.minQty) : '1') + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') : '') + (r.merge && (r.minQty || r.maxQty) ? '（同系列合併計算）' : '') + (r.from || r.to ? '　' + (r.from || '') + ' ~ ' + (r.to || '') : '');
 }
@@ -10647,7 +10666,7 @@ const promoList = () => Object.values(S.promos || {}).filter(x => x.enabled !== 
 function promoOn(x, partner, date){
   if (x.from && date < x.from) return false; if (x.to && date > x.to) return false;
   const c = x.cust || {type:'all'};
-  if (c.type === 'level' && (!partner || levelOf(partner) !== c.level)) return false;
+  if (c.type === 'level' && !custLevelOk(c, partner)) return false;
   if (c.type === 'partner' && (!partner || partner.id !== c.partnerId)) return false;
   return true;
 }
@@ -10657,7 +10676,7 @@ function promoEffect(x){
   return x.kind === 'percent' ? zheTxt(v) + ' 折' : (x.kind === 'off' ? '每件減 ' + money(v) : '指定單價');
 }
 function promoDesc(x){
-  const c = x.cust || {type:'all'}, who = c.type === 'level' ? '等級「' + c.level + '」' : (c.type === 'partner' ? ((S.partners[c.partnerId] || {}).name || '指定客戶') : '所有客戶'), when = x.from || x.to ? '　' + (x.from || '') + ' ~ ' + (x.to || '') : '';
+  const c = x.cust || {type:'all'}, who = c.type === 'level' ? '等級「' + custLevels(c).join('、') + '」' : (c.type === 'partner' ? ((S.partners[c.partnerId] || {}).name || '指定客戶') : '所有客戶'), when = x.from || x.to ? '　' + (x.from || '') + ' ~ ' + (x.to || '') : '';
   if (x.type === 'gift'){ const b = x.buy || {}, g = x.gift || {}; return '【買送】' + who + '　買 ' + (b.type === 'category' ? '分類「' + b.category + '」' : (b.pids || []).map(pnm).join('、')) + ' 滿 ' + num(b.minQty) + '，送 ' + pnm(g.pid) + ' ' + num(g.qty || 1) + (x.repeat ? '（每滿一次送一次）' : '') + when; }
   const its = x.items || [];
   return '【組合】' + who + '　' + (x.mode === 'any' ? its.map(i => pnm(i.pid)).join('、') + ' 任選合計滿 ' + num(x.totalMin) + (Number(x.minKinds) > 1 ? '（至少 ' + x.minKinds + ' 種）' : '') : its.map(i => pnm(i.pid) + '×' + num(i.minQty || 1)).join(' ＋ ')) + when;
@@ -10705,11 +10724,13 @@ function openPromoForm(id){
   const ex = id ? S.promos[id] : null;
   const st = ex ? JSON.parse(JSON.stringify(ex)) : {type:'combo', name:'', enabled:true, from:'', to:'', prio:String(Math.max(0, ...Object.values(S.promos || {}).map(r => Number(r.prio) || 0)) + 10), cust:{type:'all'}, mode:'any', items:[], totalMin:'', minKinds:'', kind:'percent', value:'', buy:{type:'product', pids:[], category:'', minQty:''}, gift:{pid:'', qty:'1'}, repeat:false, maxGift:'', note:''};
   st.cust = st.cust || {type:'all'}; st.items = st.items || []; st.buy = st.buy || {type:'product', pids:[], minQty:''}; st.gift = st.gift || {pid:'', qty:'1'};
+  let lvs = custLevels(st.cust);   // 對象是「客戶等級」時勾選的等級（可複選）
+  if (st.cust.type === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1);
   const sh = sheet({title:ex ? '編輯' + PROMO_TYPE[st.type] : '新增組合優惠／買送贈品'}), box = h('div'), custBox = h('div');
   const sel = (opts, cur, on, label) => { const s2 = h('select', {class:'in', 'aria-label':label, onchange:e => on(e.target.value)}, ...opts.map(([v, t]) => h('option', {value:v, text:t}))); s2.value = cur; return s2; };
   const txt = (k, o, label, ph, ty) => h('input', {class:'in', type:'text', inputmode:ty || 'decimal', value:o[k] === undefined ? '' : o[k], placeholder:ph || '', 'aria-label':label, onfocus:e => e.target.select(), oninput:e => { o[k] = e.target.value; }});
   const pick = (title, onPick) => lineSearchSheet(title, () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), onPick);
-  const paintCust = () => setKids(custBox, st.cust.type === 'level' ? sel((S.set.levels || []).map(l => [l, l]), st.cust.level || (S.set.levels || [])[0] || '', v => { st.cust.level = v; }, '客戶等級') : null, st.cust.type === 'partner' ? sel([['', '請選擇'], ...Object.values(S.partners).filter(p => p.type === 'customer').sort(cmpName).map(p => [p.id, p.name])], st.cust.partnerId || '', v => { st.cust.partnerId = v; }, '指定客戶') : null);
+  const paintCust = () => setKids(custBox, st.cust.type === 'level' ? h('div', {style:'margin-top:8px'}, levelPickBlock(lvs, next => { lvs = next; })) : null, st.cust.type === 'partner' ? sel([['', '請選擇'], ...Object.values(S.partners).filter(p => p.type === 'customer').sort(cmpName).map(p => [p.id, p.name])], st.cust.partnerId || '', v => { st.cust.partnerId = v; }, '指定客戶') : null);
   const paint = () => {
     const prodRows = (list, withQty, withPrice) => h('div', {class:'panel', 'aria-label':'商品清單'}, list.length ? list.map((it, i) => h('div', {class:'row', style:'align-items:center;grid-template-columns:1fr auto'}, h('span', {style:'min-width:0'}, h('b', {text:pnm(it.pid)}), h('br'), h('small', {text:(S.products[it.pid] || {}).sku + '　標準售價 ' + money((S.products[it.pid] || {}).price)})),
       h('span', {style:'display:flex;gap:6px;align-items:center'}, withQty ? [h('small', {class:'hint', text:'至少'}), txt('minQty', it, '至少數量 ' + (i + 1), '1', 'decimal')] : null, withPrice ? [h('small', {class:'hint', text:'單價'}), txt('price', it, '優惠單價 ' + (i + 1), '', 'decimal')] : null, h('button', {class:'ic sm', 'aria-label':'移除 ' + pnm(it.pid), onclick:() => { list.splice(i, 1); paint(); }}, icon('x'))))) : h('div', {class:'empty', text:'還沒有商品'}));
@@ -10740,7 +10761,7 @@ function openPromoForm(id){
     h('div', {class:'f'}, h('label', {text:'類型'}), sel(Object.entries(PROMO_TYPE), st.type, v => { st.type = v; paint(); }, '方案類型')),
     box,
     h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'適用的客戶與期間'})),
-    h('div', {class:'f'}, h('label', {text:'對象'}), sel([['all', '全部客戶'], ['level', '客戶等級'], ['partner', '指定客戶']], st.cust.type, v => { st.cust = {type:v}; if (v === 'level') st.cust.level = (S.set.levels || [])[0] || ''; paintCust(); }, '對象類型'), custBox),
+    h('div', {class:'f'}, h('label', {text:'對象'}), sel([['all', '全部客戶'], ['level', '客戶等級'], ['partner', '指定客戶']], st.cust.type, v => { st.cust = {type:v}; if (v === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1); paintCust(); }, '對象類型'), custBox),
     h('div', {class:'f2'}, fld('期間起（選填）', h('input', {class:'in', type:'date', value:st.from || '', 'aria-label':'期間起', onchange:e => { st.from = e.target.value; }})), fld('期間迄（選填）', h('input', {class:'in', type:'date', value:st.to || '', 'aria-label':'期間迄', onchange:e => { st.to = e.target.value; }}))),
     fld('優先順序（小的先；同一商品同時符合多個組合優惠時取單價最低的）', h('input', {class:'in', type:'text', inputmode:'numeric', value:st.prio, 'aria-label':'優先順序', oninput:e => { st.prio = e.target.value; }})),
     fld('備註', h('input', {class:'in', value:st.note || '', 'aria-label':'備註', oninput:e => { st.note = e.target.value; }})),
@@ -10753,7 +10774,8 @@ function openPromoForm(id){
     if (!st.name.trim()) return toast('請填方案名稱');
     if (st.from && st.to && st.from > st.to) return toast('期間起不可晚於期間迄');
     if (st.cust.type === 'partner' && !st.cust.partnerId) return toast('請選擇指定客戶');
-    const doc = {type:st.type, name:st.name.trim(), enabled:st.enabled !== false, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), cust:st.cust, note:(st.note || '').trim()};
+    if (st.cust.type === 'level' && !lvs.length) return toast('請至少勾選一個客戶等級');
+    const doc = {type:st.type, name:st.name.trim(), enabled:st.enabled !== false, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), cust:st.cust.type === 'level' ? custObjLevels(lvs) : st.cust, note:(st.note || '').trim()};
     if (st.type === 'combo'){
       const items = st.items.filter(i => S.products[i.pid]);
       if (items.length < 2) return toast('組合優惠要有 2 樣以上的商品');
@@ -10780,7 +10802,8 @@ function openPriceRuleForm(id){
   const st = ex ? JSON.parse(JSON.stringify(ex)) : {name:'', side:'sale', cust:{type:'all'}, prod:{type:'all'}, kind:'percent', value:'', minQty:'', maxQty:'', promo:false, from:'', to:'', prio:String((Math.max(0, ...Object.values(S.prules).map(r => Number(r.prio) || 0)) + 10)), enabled:true, note:'', merge:true};
   st.cust = st.cust || {type:'all'}; st.prod = st.prod || {type:'all'};
   const sh = sheet({title:ex ? '編輯價格規則' : '新增價格規則'});
-  const custBox = h('div'), prodBox = h('div'), prodListBox = h('div'), pidHint = h('small', {class:'hint'});
+  const custBox = h('div'), levelListBox = h('div'), prodBox = h('div'), prodListBox = h('div'), pidHint = h('small', {class:'hint'});
+  let lvs = custLevels(st.cust);   // 對象是「客戶等級」時勾選的等級（可複選）
   let pids = ruleProdIds(st.prod);   // 指定商品（可多個）
   const pp0 = rulePrices(st.prod), prices = {};   // 各商品分別指定的固定單價（商品 id → 輸入的文字）
   if (pp0) for (const id of pids) if (pp0[id] != null) prices[id] = String(pp0[id]);
@@ -10796,9 +10819,11 @@ function openPriceRuleForm(id){
   };
   const setPidHint = () => { pidHint.textContent = st.prod.type === 'product' && pids.length > 1 ? (st.kind === 'fixed' ? (perProd ? '選了 ' + pids.length + ' 個商品：每個商品用自己的固定單價，請在上面的清單各自填寫（單價旁邊有標準售價可以對照）。' : '選了 ' + pids.length + ' 個商品：每個商品都會是同一個固定單價。各商品要不同的價格，請勾選上面的「各商品分別指定價格」。') : '選了 ' + pids.length + ' 個商品：每個商品都用同樣的' + (st.kind === 'markup' ? '加成' : '折數／金額') + '。之後要改折數或期間，改這一條就全部一起改。') : ''; };
   const sel = (opts, cur, on, label) => { const s = h('select', {class:'in', 'aria-label':label, onchange:e => on(e.target.value)}, ...opts.map(([v, t]) => h('option', {value:v, text:t}))); s.value = cur; return s; };
-  const paintCust = () => setKids(custBox,
-    st.cust.type === 'level' ? sel((S.set.levels || []).map(l => [l, l]), st.cust.level || (S.set.levels || [])[0] || '', v => { st.cust.level = v; }, '客戶等級') : null,
-    st.cust.type === 'partner' ? sel([['', '請選擇'], ...Object.values(S.partners).filter(p => p.type === (st.side === 'purchase' ? 'supplier' : 'customer')).sort(cmpName).map(p => [p.id, p.name])], st.cust.partnerId || '', v => { st.cust.partnerId = v; }, '指定對象') : null);
+  const paintCust = () => {
+    setKids(custBox, st.cust.type === 'partner' ? sel([['', '請選擇'], ...Object.values(S.partners).filter(p => p.type === (st.side === 'purchase' ? 'supplier' : 'customer')).sort(cmpName).map(p => [p.id, p.name])], st.cust.partnerId || '', v => { st.cust.partnerId = v; }, '指定對象') : null);
+    setKids(levelListBox, st.cust.type === 'level' ? fld('適用的客戶等級（可複選）', levelPickBlock(lvs, next => { lvs = next; })) : null);   // 每個等級一個勾選框
+    levelListBox.style.margin = st.cust.type === 'level' ? '2px 0 12px' : '0';
+  };
   const paintProd = () => {
     setKids(prodBox,
       st.prod.type === 'category' ? sel(S.d.cats.map(c => [c, c]), st.prod.category || S.d.cats[0] || '', v => { st.prod.category = v; }, '商品分類') : null,
@@ -10810,7 +10835,7 @@ function openPriceRuleForm(id){
     prodListBox.style.margin = st.prod.type === 'product' ? '2px 0 12px' : '0';
     setPidHint();
   };
-  if (st.cust.type === 'level' && !st.cust.level) st.cust.level = (S.set.levels || [])[0] || '';
+  if (st.cust.type === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1);
   const valLabel = h('label', {text:'數值'});
   const valHint = h('small', {class:'hint'});
   const setHint = () => { valHint.textContent = perProd && canPer() ? '每個商品各自的固定單價，請在上面「已選商品」的清單裡填寫。' : {percent:'例：90 ＝ 9 折（單價 × 90%）', off:'例：5 ＝ 每件減 5 元', fixed:'例：120 ＝ 固定單價 120 元', markup:'例：25 ＝ 成本 × 1.25（需要商品有進價）'}[st.kind]; setPidHint(); };
@@ -10819,8 +10844,9 @@ function openPriceRuleForm(id){
     fld('規則名稱', h('input', {class:'in', value:st.name, placeholder:'例如：批發價 9 折、A 客戶專案價', oninput:e => { st.name = e.target.value; }})),
     h('div', {class:'f'}, h('label', {text:'適用單據'}), sel([['sale', '銷貨（賣給客戶）'], ['purchase', '進貨（向供應商買）']], st.side, v => { st.side = v; if (st.cust.type === 'partner') st.cust.partnerId = ''; paintCust(); }, '適用單據')),
     h('div', {class:'f2'},
-      h('div', {class:'f'}, h('label', {text:'對象'}), sel([['all', '全部'], ['level', '客戶等級'], ['partner', '指定對象']], st.cust.type, v => { st.cust = {type:v}; if (v === 'level') st.cust.level = (S.set.levels || [])[0] || ''; paintCust(); }, '對象類型'), custBox),
+      h('div', {class:'f'}, h('label', {text:'對象'}), sel([['all', '全部'], ['level', '客戶等級'], ['partner', '指定對象']], st.cust.type, v => { st.cust = {type:v}; if (v === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1); paintCust(); }, '對象類型'), custBox),
       h('div', {class:'f'}, h('label', {text:'商品'}), sel([['all', '全部'], ['category', '商品分類'], ['product', '指定商品（多選）'], ['family', '商品系列（同款不同顏色）']], st.prod.type, v => { st.prod = {type:v}; if (v === 'category') st.prod.category = S.d.cats[0] || ''; if (v === 'family') st.prod.family = famList()[0] || ''; paintProd(); }, '商品類型'), prodBox)),
+    levelListBox,
     prodListBox,
     h('div', {class:'f2'},
       h('div', {class:'f'}, h('label', {text:'計價方式'}), sel(Object.entries(PR_KIND), st.kind, v => { st.kind = v; paintProd(); syncVal(); setHint(); }, '計價方式')),
@@ -10854,11 +10880,12 @@ function openPriceRuleForm(id){
     else if (st.value === '' || v < 0) return toast('請輸入數值');
     if (st.kind === 'percent' && !(v > 0)) return toast('折數需大於 0');
     if (st.cust.type === 'partner' && !st.cust.partnerId) return toast('請選擇指定對象');
+    if (st.cust.type === 'level' && !lvs.length) return toast('請至少勾選一個客戶等級');
     if (st.prod.type === 'product' && !pids.length) return toast('請選擇指定商品（可以選多個）');
     if (st.prod.type === 'family' && !st.prod.family) return toast('請選擇商品系列');
     if (st.from && st.to && st.from > st.to) return toast('期間起不可晚於期間迄');
     if (toNum(st.maxQty) > 0 && toNum(st.maxQty) < toNum(st.minQty)) return toast('數量「到」不能小於「從」');
-    const doc = {name:st.name.trim(), side:st.side, cust:st.cust, prod:st.prod.type === 'product' ? ruleProdObj(pids, per ? Object.fromEntries(pids.map(id => [id, toNum(prices[id])])) : null) : st.prod, kind:st.kind, value:v, minQty:toNum(st.minQty), maxQty:toNum(st.maxQty), promo:!!st.promo, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), enabled:st.enabled !== false, note:(st.note || '').trim(), merge:!!st.merge};
+    const doc = {name:st.name.trim(), side:st.side, cust:st.cust.type === 'level' ? custObjLevels(lvs) : st.cust, prod:st.prod.type === 'product' ? ruleProdObj(pids, per ? Object.fromEntries(pids.map(id => [id, toNum(prices[id])])) : null) : st.prod, kind:st.kind, value:v, minQty:toNum(st.minQty), maxQty:toNum(st.maxQty), promo:!!st.promo, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), enabled:st.enabled !== false, note:(st.note || '').trim(), merge:!!st.merge};
     saving = true; btn.disabled = true;
     const ok = await run(async () => { if (ex) await S.db.doc('prules/' + id).set({...doc, createdBy:ex.createdBy || null, createdAt:ex.createdAt || Date.now()}); else await S.db.collection('prules').doc().set({...doc, createdBy:S.meId || null, createdAt:Date.now()}); return true; });
     saving = false; btn.disabled = false;
@@ -10954,7 +10981,7 @@ function pioCtx(){
 /* 對象、商品範圍：系統資料 → 檔案裡的文字（匯出用）；文字 → 系統資料（匯入用） */
 function pioCustText(c){
   c = c || {type:'all'};
-  if (c.type === 'level') return ['客戶等級', c.level || ''];
+  if (c.type === 'level') return ['客戶等級', custLevels(c).join('、')];
   if (c.type === 'partner'){
     const p = S.partners[c.partnerId]; if (!p) return ['指定對象', '（已刪除的對象）'];
     const dup = Object.values(S.partners).filter(x => x.type === p.type && pioK(x.name) === pioK(p.name)).length > 1;
@@ -10979,7 +11006,14 @@ function pioCustParse(tTxt, vTxt, side, C, exCust, exSide){
   else return {err:'對象「' + pioRaw(tTxt) + '」看不懂（請寫：全部、客戶等級、指定對象）'};
   if (type === 'all') return v ? {err:'對象是「全部」，但「對象內容」填了「' + v + '」。要限定對象請把「對象」改成客戶等級或指定對象；要適用全部請把「對象內容」清空'} : {v:{type:'all'}};
   if (!v) return {err:'對象是「' + (type === 'level' ? '客戶等級' : '指定對象') + '」，但「對象內容」沒填'};
-  if (type === 'level'){ const lv = C.level(v); return lv ? {v:{type:'level', level:lv}} : {err:'客戶等級「' + v + '」不在價格等級清單裡（目前有：' + (C.levels.join('、') || '無') + '）'}; }
+  if (type === 'level'){   // 「對象內容」可以寫多個等級：批發、VIP（用「、」分隔）
+    const whole = C.level(v); if (whole) return {v:custObjLevels([whole])};   // 等級名稱本身有標點時，整串當一個等級
+    const parts = [...new Set(pioN(v).split(/[、,;；\n]+/).map(x => x.trim()).filter(Boolean))], lvs = [], bad = [];
+    if (!parts.length) return {err:'對象是「客戶等級」，但「對象內容」沒填'};
+    for (const part of parts){ const lv = C.level(part); if (!lv) bad.push(part); else if (!lvs.includes(lv)) lvs.push(lv); }
+    if (bad.length) return {err:'客戶等級' + bad.map(x => '「' + (parts.length === 1 ? v : x) + '」').join('、') + '不在價格等級清單裡（目前有：' + (C.levels.join('、') || '無') + '）'};
+    return {v:custObjLevels(lvs)};
+  }
   const f = C.findPartner(v, side === 'purchase' ? 'supplier' : 'customer'), who = side === 'purchase' ? '供應商' : '客戶';
   if (f.p) return {v:{type:'partner', partnerId:f.p.id}};
   return {err:f.amb ? '有多位' + who + '叫「' + v + '」，請改填代號' : '找不到' + who + '「' + v + '」'};
@@ -11014,18 +11048,20 @@ function pioProdParse(tTxt, vTxt, C, exProd){
   if (none.length || amb.length || bad.length || dup.length) return {err:[none.length ? '找不到料號（或條碼、品名）' + none.map(x => '「' + x + '」').join('、') : '', amb.length ? '有多個商品叫' + amb.map(x => '「' + x + '」').join('、') + '，請改填料號' : '', bad.length ? '單價不是有效的數字：' + bad.map(x => '「' + x + '」').join('、') : '', dup.length ? '商品重複：' + dup.map(x => '「' + x + '」').join('、') : ''].filter(Boolean).join('；')};
   return {v:ruleProdObj(ids, atN ? prices : null)};
 }
+/* 對象整理成可以比較的樣子：多個等級排序，只有一個等級維持舊格式（這樣「批發、VIP」和「VIP、批發」算同一個） */
+const pioCustNorm = c => { c = c || {type:'all'}; if (c.type === 'level'){ const ls = custLevels(c); return ls.length > 1 ? {type:'level', levels:ls.slice().sort()} : {type:'level', level:ls[0] || c.level || ''}; } return c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'}; };
 const pioPairs = pr => { const pp = rulePrices(pr); return pp ? Object.keys(pp).sort().map(k => [k, Number(pp[k])]) : (pr && pr.pairs) || null; };
 /* 把一條規則整理成可以比較的樣子 */
 function pioNormRule(r){
   const c = r.cust || {type:'all'}, p = r.prod || {type:'all'};
-  return {name:String(r.name || ''), side:r.side || 'sale', cust:c.type === 'level' ? {type:'level', level:c.level || ''} : (c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'}),
+  return {name:String(r.name || ''), side:r.side || 'sale', cust:pioCustNorm(c),
     prod:p.type === 'category' ? {type:'category', category:p.category || ''} : (p.type === 'family' ? {type:'family', family:p.family || ''} : (p.type === 'product' ? {type:'product', productIds:ruleProdIds(p).slice().sort(), ...(rulePrices(p) ? {pairs:pioPairs(p)} : {})} : {type:'all'})),
     kind:r.kind || '', value:Number(r.value) || 0, minQty:Number(r.minQty) || 0, maxQty:Number(r.maxQty) || 0, merge:!!r.merge, from:r.from || '', to:r.to || '', promo:!!r.promo, prio:Number(r.prio) || 0, enabled:r.enabled !== false, note:String(r.note || '')};
 }
 const PIO_RLAB = {name:'名稱', side:'適用單據', cust:'對象', prod:'商品', kind:'計價方式', value:'數值', minQty:'數量從', maxQty:'數量到', merge:'合併同系列', from:'期間起', to:'期間迄', promo:'促銷價', prio:'優先順序', enabled:'啟用', note:'備註'};
 const pioDiff = (a, b, lab) => Object.keys(lab).filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 function pioAutoName(d){
-  const who = d.cust.type === 'level' ? d.cust.level : (d.cust.type === 'partner' ? ((S.partners[d.cust.partnerId] || {}).name || '') : '');
+  const who = d.cust.type === 'level' ? custLevels(d.cust).join('、') : (d.cust.type === 'partner' ? ((S.partners[d.cust.partnerId] || {}).name || '') : '');
   const what = d.prod.type === 'all' ? '全部商品' : (d.prod.type === 'product' ? ruleProdName(d.prod, 'name') : (d.prod.type === 'category' ? d.prod.category : '系列「' + d.prod.family + '」'));
   const q = (d.minQty || d.maxQty) ? ' ' + r3(d.minQty || 1) + (d.maxQty ? '～' + r3(d.maxQty) : ' 件以上') : '';
   return (who ? who + '｜' : '') + what + q + '　' + ruleEffect(d);
@@ -11044,7 +11080,7 @@ function pioPlanRules(text, mode){
   const C = pioCtx(), cur = S.prules, g = (r, k) => idx[k] >= 0 ? pioN(r[idx[k]]) : '', raw = (r, k) => idx[k] >= 0 ? pioRaw(r[idx[k]]) : '';
   const fileIds = new Set(rows.slice(1).map(r => g(r, 'id')).filter(Boolean)), claimed = new Set(), items = [], errors = [], skipped = [], issues = [];
   let nNew = 0, nUp = 0, nSame = 0, valid = 0, nextPrio = Math.max(0, ...Object.values(cur).map(r => Number(r.prio) || 0));
-  const sigOf = d => JSON.stringify([d.side, d.cust, d.prod.type === 'family' ? {type:'family', family:String(d.prod.family).trim().toLowerCase()} : (d.prod.type === 'product' ? {type:'product', ids:ruleProdIds(d.prod).slice().sort(), pairs:pioPairs(d.prod)} : d.prod), d.kind, d.value, d.minQty, d.maxQty, d.from, d.to]), exSig = new Map();
+  const sigOf = d => JSON.stringify([d.side, pioCustNorm(d.cust), d.prod.type === 'family' ? {type:'family', family:String(d.prod.family).trim().toLowerCase()} : (d.prod.type === 'product' ? {type:'product', ids:ruleProdIds(d.prod).slice().sort(), pairs:pioPairs(d.prod)} : d.prod), d.kind, d.value, d.minQty, d.maxQty, d.from, d.to]), exSig = new Map();
   for (const r of Object.values(cur)){ if (fileIds.has(r.id)) continue; const k = sigOf(pioNormRule(r)); if (!exSig.has(k)) exSig.set(k, []); exSig.get(k).push(r); }
   rows.slice(1).forEach((r, n) => {
     const line = n + 2, errs = [], warns = [], id = g(r, 'id');
@@ -11111,7 +11147,7 @@ const PIO_P = {id:['方案編號', '編號', '系統編號', 'id'], name:['方�
   buyT:['買的範圍', '購買範圍'], buyV:['買的商品或分類', '購買內容', '買的內容'], buyQty:['買幾件以上', '購買數量'], giftPid:['贈品料號', '贈品'], giftQty:['贈送數量', '送幾件'], repeat:['每滿一次送一次', '每滿再送'], maxGift:['最多送幾件', '最多贈送']};
 function pioNormPromo(x){
   const c = x.cust || {type:'all'}, base = {type:x.type || 'combo', name:String(x.name || ''), enabled:x.enabled !== false, from:x.from || '', to:x.to || '', prio:Number(x.prio) || 0, note:String(x.note || ''),
-    cust:c.type === 'level' ? {type:'level', level:c.level || ''} : (c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'})};
+    cust:pioCustNorm(c)};
   if (base.type === 'gift'){ const b = x.buy || {}, gf = x.gift || {}; return {...base, buyType:b.type === 'category' ? 'category' : 'product', buyPids:b.type === 'category' ? [] : (b.pids || []).slice(), buyCat:b.type === 'category' ? (b.category || '') : '', buyQty:Number(b.minQty) || 0, giftPid:gf.pid || '', giftQty:Number(gf.qty) || 0, repeat:!!x.repeat, maxGift:Number(x.maxGift) || 0}; }
   return {...base, mode:x.mode === 'all' ? 'all' : 'any', items:(x.items || []).map(i => ({pid:i.pid, minQty:x.mode === 'all' ? (Number(i.minQty) || 1) : 1, price:x.kind === 'fixed' ? (Number(i.price) || 0) : 0})), totalMin:x.mode === 'all' ? 0 : (Number(x.totalMin) || 0), minKinds:x.mode === 'all' ? 0 : (Number(x.minKinds) || 0), kind:x.kind || 'percent', value:x.kind === 'fixed' ? 0 : (Number(x.value) || 0)};
 }
@@ -11305,7 +11341,7 @@ function openPriceImport(kind){
     if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + (pl.dels.length ? '、刪除 ' + pl.dels.length : '') + ' ' + K.unit); sh.forceClose(); } else goBtn.disabled = false;
   });
   put(sh.bodyEl,
-    h('div', {class:'note', style:'margin-top:0', text:'請用「匯出」的檔案修改，或先下載範本。一列＝一' + K.unit + '。「' + (rules ? '規則編號' : '方案編號') + '」相同的列會更新那一' + K.unit + '，編號留空就是新增。' + (rules ? '檔案裡的空白＝沒有限制（期間迄空白＝一直有效、數量到空白＝以上）。折數可以寫 90、9、0.9 或 9折，都當成 9 折。「商品範圍」是指定商品時，「商品內容」可以填多個料號，用「、」分隔；計價方式是固定單價時，每個商品可以各自指定價格，寫成「料號@單價」（例：A001@80、A002@85，此時「數值」可以空白）。' : '組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔；任選的組合只要寫料號，指定單價才加 @價格。') + '檔案要存成 CSV（Excel：另存新檔 → CSV UTF-8）。'}),
+    h('div', {class:'note', style:'margin-top:0', text:'請用「匯出」的檔案修改，或先下載範本。一列＝一' + K.unit + '。「' + (rules ? '規則編號' : '方案編號') + '」相同的列會更新那一' + K.unit + '，編號留空就是新增。' + (rules ? '檔案裡的空白＝沒有限制（期間迄空白＝一直有效、數量到空白＝以上）。折數可以寫 90、9、0.9 或 9折，都當成 9 折。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP），這幾個等級的客戶都適用同一條規則。「商品範圍」是指定商品時，「商品內容」可以填多個料號，用「、」分隔；計價方式是固定單價時，每個商品可以各自指定價格，寫成「料號@單價」（例：A001@80、A002@85，此時「數值」可以空白）。' : '組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔；任選的組合只要寫料號，指定單價才加 @價格。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP）。') + '檔案要存成 CSV（Excel：另存新檔 → CSV UTF-8）。'}),
     h('div', {class:'f'}, h('label', {text:'選擇 CSV 檔'}), file),
     h('div', {class:'f'}, h('label', {text:'匯入方式'}), modeChips),
     h('div', {style:'display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px'}, h('button', {class:'btn ghost sm', 'aria-label':'先匯出目前的資料', onclick:() => openExport(K.ds())}, icon('down'), '先匯出目前的資料'), h('button', {class:'btn ghost sm', 'aria-label':'下載範本', onclick:() => saveFile(K.title + '匯入範本.csv', pioTemplate(rules ? 'rules' : 'promos'))}, '下載範本')),
