@@ -6816,7 +6816,7 @@ function openLineSettings(){
   });
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:x => ruleProdObj(x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -8947,10 +8947,10 @@ const custCatList = () => (Array.isArray(S.set.custCats) ? S.set.custCats : []).
 const levelOf = pt => (pt && (pt.level || ((custCatList().find(c => c.name === pt.custCat) || {}).level))) || '';
 const ruleStatus = r => { const t = today(); if (r.enabled === false) return ['off', '已停用']; if (r.from && t < r.from) return ['soon', '未開始']; if (r.to && t > r.to) return ['over', '已過期']; return ['on', r.from || r.to ? '期間內' : '生效中']; };
 const rulePrio = (scope, minQty) => ({product:100, family:150, category:200, all:300}[scope] || 300) - Math.min(Math.round(Number(minQty) || 0), 99);
-const levelRuleKind = r => { const p = r.prod || {type:'all'}, hasQty = (Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0; return hasQty || p.type === 'family' ? 'qty' : (p.type === 'product' ? 'product' : (p.type === 'category' ? 'category' : 'all')); };
+const levelRuleKind = r => { const p = r.prod || {type:'all'}, hasQty = (Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0 || !!ruleTiers(p); return hasQty || p.type === 'family' ? 'qty' : (p.type === 'product' ? 'product' : (p.type === 'category' ? 'category' : 'all')); };
 function openLevelRuleForm(level, kind, id){
   if (!S.isAdmin) return toast('只有管理員可以設定價格');
-  if (id && S.prules[id] && (rulePrices((S.prules[id] || {}).prod) || custLevels((S.prules[id] || {}).cust).length > 1)) return openPriceRuleForm(id);   // 各商品價格不同、或同時適用多個等級：用完整的規則表單編輯
+  if (id && S.prules[id] && (rulePrices((S.prules[id] || {}).prod) || ruleTiers((S.prules[id] || {}).prod) || custLevels((S.prules[id] || {}).cust).length > 1)) return openPriceRuleForm(id);   // 各商品價格不同、各商品有數量階梯、或同時適用多個等級：用完整的規則表單編輯
   const ex = id ? S.prules[id] : null, p0 = ex ? (ex.prod || {type:'all'}) : {type:kind === 'category' ? 'category' : (kind === 'product' ? 'product' : 'all')};
   const st = {scope:p0.type, category:p0.category || S.d.cats[0] || '', productId:p0.productId || '', pids:ruleProdIds(p0), family:p0.family || famList()[0] || '', merge:ex ? !!ex.merge : true, kind:ex ? ex.kind : (kind === 'qty' ? 'fixed' : 'percent'), value:ex ? (ex.kind === 'percent' ? zheTxt(ex.value) : String(ex.value)) : '', minQty:ex ? ex.minQty || '' : '', maxQty:ex ? ex.maxQty || '' : '', from:ex ? ex.from || '' : '', to:ex ? ex.to || '' : '', note:ex ? ex.note || '' : '', enabled:!ex || ex.enabled !== false};
   const isQty = kind === 'qty', title = {category:'依商品類別的折扣率', product:'依商品編號的折扣率', qty:'依購買數量的特價'}[kind] || '價格規則';
@@ -8992,13 +8992,13 @@ function openPriceLevels(){
     if (!levels.includes(U.level)) U.level = levels[0] || '';
     const custN = lv => Object.values(S.partners).filter(p => p.type === 'customer' && levelOf(p) === lv).length;
     const rowOf = r => { const stt = ruleStatus(r), pr = r.prod || {type:'all'}, what = pr.type === 'family' ? '系列「' + pr.family + '」' : pr.type === 'category' ? '類別「' + pr.category + '」' : (pr.type === 'product' ? ruleProdName(pr, 'both') : '全部商品'), k = levelRuleKind(r);
-      return h('button', {class:'row' + (r.enabled === false ? ' void' : ''), 'aria-label':'規則 ' + r.name, onclick:() => openLevelRuleForm(r.cust.level, k, r.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:what}), h('br'), h('small', {text:((Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0 ? '數量 ' + num(r.minQty || 1) + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') + '　' : '') + (r.merge ? '同系列合併計算　' : '') + (r.from || r.to ? (r.from || '') + ' ～ ' + (r.to || '') : '不限期間')}), custLevels(r.cust).length > 1 ? [h('br'), h('small', {style:'color:var(--brand)', text:'與「' + custLevels(r.cust).filter(x => x !== U.level).join('、') + '」共用'})] : null), h('span', {class:'right'}, h('b', {text:ruleEffect(r)}), h('br'), h('span', {class:'pd-m ' + ({on:'cash', soon:'transfer', over:'other', off:'other'}[stt[0]]), text:stt[1]}))); };
+      return h('button', {class:'row' + (r.enabled === false ? ' void' : ''), 'aria-label':'規則 ' + r.name, onclick:() => openLevelRuleForm(r.cust.level, k, r.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:what}), h('br'), h('small', {text:((Number(r.minQty) || 0) > 1 || (Number(r.maxQty) || 0) > 0 ? '數量 ' + num(r.minQty || 1) + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') + '　' : '') + (r.merge ? '同系列合併計算　' : '') + (r.from || r.to ? (r.from || '') + ' ～ ' + (r.to || '') : '不限期間')}), custLevels(r.cust).length > 1 ? [h('br'), h('small', {style:'color:var(--brand)', text:'與「' + custLevels(r.cust).filter(x => x !== U.level).join('、') + '」共用'})] : null), h('span', {class:'right'}, h('b', {text:ruleEffect(r)}), h('br'), h('span', {class:'pd-m ' + ({on:'cash', soon:'transfer', over:'other', off:'other'}[stt[0]]), text:stt[1]})), ruleTiers(pr) ? h('span', {style:'grid-column:1 / -1;text-align:left;margin-top:2px', 'aria-label':'數量階梯 ' + r.name}, ruleTierLines(r).flatMap((t, i) => [i ? h('br') : null, h('small', {text:t})])) : null); };
     const sec = (lv, kind, title, hint) => { const list = allRules.filter(r => custLevels(r.cust).includes(lv) && levelRuleKind(r) === kind).sort((a, b) => (Number(a.prio) || 0) - (Number(b.prio) || 0));
       return [h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:title}), h('button', {class:'btn ghost sm', 'aria-label':'新增 ' + title, onclick:() => openLevelRuleForm(lv, kind)}, icon('plus'), '新增')), list.length ? h('div', {class:'panel'}, list.map(rowOf)) : h('div', {class:'panel empty', style:'padding:14px', text:hint})]; };
     let content;
     if (U.tab === 'levels'){
       content = [levels.length ? h('div', {class:'chips', style:'padding-top:0'}, levels.map(l => h('button', {class:'chip', 'aria-pressed':U.level === l, 'aria-label':'價格等級 ' + l, onclick:() => { U.level = l; render('prules'); }}, l + '（' + custN(l) + ' 家）'))) : h('div', {class:'note warn', text:'還沒有價格等級。到「客戶類別與等級」分頁新增。'}),
-        U.level ? [h('div', {class:'note', style:'margin-top:4px', text:'「' + U.level + '」等級的客戶，開銷貨單時自動帶入下面設定的價格。優先順序：數量特價與商品編號 > 商品類別 > 其他；符合多條時，數量門檻較高的先用。沒有符合的，用商品標準售價。同一條規則要同時給幾個等級用，請到下方「全部規則（進階）」新增，對象選「客戶等級」後可以複選。'}),
+        U.level ? [h('div', {class:'note', style:'margin-top:4px', text:'「' + U.level + '」等級的客戶，開銷貨單時自動帶入下面設定的價格。優先順序：數量特價與商品編號 > 商品類別 > 其他；符合多條時，數量門檻較高的先用。沒有符合的，用商品標準售價。同一條規則要同時給幾個等級用，請到下方「全部規則（進階）」新增，對象選「客戶等級」後可以複選。每個商品要各自依購買數量給不同特價（例：紅 T 10 件 90 元、30 件 80 元），也是在那裡新增，指定商品後勾選「各商品分別設定數量特價」。'}),
           sec(U.level, 'category', '依商品類別的折扣率', '還沒設定。例如：飲料類 9 折。'), sec(U.level, 'product', '依商品編號的折扣率', '還沒設定。例如：A1001 8.5 折。'), sec(U.level, 'qty', '依購買數量的特價', '還沒設定。例如：買 10 件以上，每件特價 90 元。'),
           allRules.filter(r => custLevels(r.cust).includes(U.level) && levelRuleKind(r) === 'all').length ? sec(U.level, 'all', '整個等級的折扣', '') : null] : null];
     }
@@ -10072,7 +10072,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bf';
+const APP_VERSION = '2026.10.11-bg';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -10493,17 +10493,75 @@ function dueDateOf(o){
    prod = {type:'product', productId:第一個商品, productIds:[全部商品]}。
    只有一個商品時維持舊格式 {type:'product', productId}，已經存的規則不用轉換。 */
 const ruleProdIds = pr => (pr && pr.type === 'product') ? (Array.isArray(pr.productIds) && pr.productIds.length ? pr.productIds.filter(Boolean) : (pr.productId ? [pr.productId] : [])) : [];
-const ruleProdObj = (ids, prices) => {
+/* ---- 各商品的數量特價階梯 ----
+   prod.tiers = {商品id: [{minQty, maxQty, value}, …]}：規則裡每個商品各自有「買幾件以上」的特價。value 依規則的「計價方式」解讀
+   （固定單價＝單價、折數＝90 代表 9 折、折讓金額＝每件減多少、成本加成＝加成 %）。
+   買到哪個階梯就用哪個（符合的階梯中「從」最大的）；買不到第一個階梯＝這條規則不適用（照標準價或其他規則）。
+   有 tiers 的規則：規則本身的 minQty／maxQty 存 0（數量只看階梯），value 存所有階梯中最小的數值（舊版本讀到也不會是 0）。 */
+const ruleTiers = pr => { const t = pr && pr.type === 'product' && pr.tiers; return t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).length ? t : null; };
+const tiersClean = (ids, tiers) => {   // 只留 ids 裡的商品、「從」大於 0 的階梯，每個商品依「從」由小到大排；沒有任何階梯的商品不存
+  if (!tiers) return null;
+  const out = {};
+  for (const id of ids){
+    const arr = (Array.isArray(tiers[id]) ? tiers[id] : []).map(t => ({minQty:r3(Number(t && t.minQty) || 0), maxQty:r3(Number(t && t.maxQty) || 0), value:r2(Number(t && t.value) || 0)})).filter(t => t.minQty > 0).sort((a, b) => a.minQty - b.minQty);
+    if (arr.length) out[id] = arr;
+  }
+  return Object.keys(out).length ? out : null;
+};
+const ruleProdObj = (ids, prices, tiers) => {
   ids = [...new Set((ids || []).filter(Boolean))];
-  if (ids.length < 2) return {type:'product', productId:ids[0] || ''};
+  const tt = tiersClean(ids, tiers);   // 有數量階梯時，一個商品也要存成多商品格式（才放得下 tiers）；階梯已經包含各商品的價格，不再存 prices
+  if (ids.length < 2 && !tt) return {type:'product', productId:ids[0] || ''};
   const o = {type:'product', productId:ids[0], productIds:ids};
-  if (prices){ const pp = {}; for (const id of ids) if (prices[id] != null && prices[id] !== '' && isFinite(Number(prices[id]))) pp[id] = r2(Number(prices[id])); if (Object.keys(pp).length === ids.length) o.prices = pp; }   // 每個商品都有價格才存
+  if (tt) o.tiers = tt;
+  else if (prices){ const pp = {}; for (const id of ids) if (prices[id] != null && prices[id] !== '' && isFinite(Number(prices[id]))) pp[id] = r2(Number(prices[id])); if (Object.keys(pp).length === ids.length) o.prices = pp; }   // 每個商品都有價格才存
   return o;
 };
 /* 「固定單價」規則可以讓每個商品各有自己的價格：prod.prices = {商品id: 單價}。沒有 prices 的舊規則照舊（全部用 value）。
    有 prices 時，value 存各商品中最低的單價（不受商品順序影響，舊版本讀到也不會是 0）。 */
 const rulePrices = pr => { const pp = pr && pr.type === 'product' && pr.prices; return pp && typeof pp === 'object' && !Array.isArray(pp) && Object.keys(pp).length ? pp : null; };
 const rulePriceOf = (r, pid) => { const pp = r.kind === 'fixed' ? rulePrices(r.prod) : null; return pp && pp[pid] != null && pp[pid] !== '' && isFinite(Number(pp[pid])) ? Number(pp[pid]) : (Number(r.value) || 0); };
+/* 這條規則對「商品 pid、數量 qty」適用哪一個階梯：規則沒有階梯 → null（照規則本身的數量從／到）；有階梯但這個數量沒有符合的 → false；
+   有 → {minQty, maxQty, value}（符合的階梯中「從」最大的）。 */
+function ruleTierFor(r, pid, qty){
+  const tt = ruleTiers(r.prod); if (!tt) return null;
+  let best = false;
+  for (const t of (Array.isArray(tt[pid]) ? tt[pid] : [])){
+    const lo = Number(t.minQty) || 0, hi = Number(t.maxQty) || 0;
+    if (qty < lo || (hi > 0 && qty > hi)) continue;
+    if (!best || lo > best.minQty) best = {minQty:lo, maxQty:hi, value:Number(t.value) || 0};
+  }
+  return best;
+}
+/* 「再買幾件就有優惠」的提示要看的數量門檻：有階梯 → 這個商品每個階梯的「從」；沒有 → 規則的「數量從」 */
+const ruleQtyStarts = (r, pid) => { const tt = ruleTiers(r.prod); return tt ? (Array.isArray(tt[pid]) ? tt[pid] : []).map(t => Number(t.minQty) || 0).filter(x => x > 0) : ((Number(r.minQty) || 0) > 0 ? [Number(r.minQty)] : []); };
+/* 階梯的文字（清單、說明用）：10 件起、10～19 件；數值依計價方式 */
+const tierFromTo = t => Number(t.maxQty) > 0 ? num(t.minQty) + '～' + num(t.maxQty) + ' 件' : num(t.minQty) + ' 件起';
+const tierValTxt = (kind, v) => ({percent:zheTxt(v) + ' 折', off:'−' + money(v), fixed:money(v), markup:'成本 +' + (Number(v) || 0) + '%'})[kind] || '';
+const ruleTierLines = r => {
+  const tt = ruleTiers(r.prod); if (!tt) return [];
+  return ruleProdIds(r.prod).filter(id => Array.isArray(tt[id]) && tt[id].length).map(id => { const p = S.products[id]; return (p ? p.sku : '（已刪除的商品）') + '　' + tt[id].map(t => tierFromTo(t) + ' ' + tierValTxt(r.kind, t.value)).join('、'); });
+};
+const ruleTierText = r => { const tl = ruleTierLines(r); return tl.slice(0, 3).join('；') + (tl.length > 3 ? '…等 ' + tl.length + ' 項商品' : ''); };
+/* 表單裡階梯的數值（輸入的文字 → 數字）：折數可以寫 90、9、0.9、9折，都是 9 折。看不懂回傳 null */
+function tierVal(kind, text){
+  const t = String(text == null ? '' : text).replace(/,/g, '').replace(/[折%％]\s*$/, '').trim();
+  if (t === '' || !isFinite(Number(t))) return null;
+  if (kind === 'percent') return parseZhe(t);
+  const n = Number(t); return n < 0 ? null : n;
+}
+/* 表單裡一個商品的階梯，用白話寫出來：「未達 10 件：不適用這條規則；10～29 件 $90；30 件起 $80」（rows：輸入的文字） */
+function tierSumText(rows, kind){
+  const ok = [];
+  for (const t of rows || []){
+    const lo = toNum(t.minQty), hi = String(t.maxQty == null ? '' : t.maxQty).trim() === '' ? 0 : toNum(t.maxQty), v = tierVal(kind, t.value);
+    if (!(lo > 0) || v === null || (hi > 0 && hi < lo)) continue;
+    ok.push({minQty:lo, maxQty:hi, value:v});
+  }
+  if (!ok.length) return '';
+  ok.sort((a, b) => a.minQty - b.minQty);
+  return '未達 ' + num(ok[0].minQty) + ' 件：不適用這條規則；' + ok.map(t => tierFromTo(t) + ' ' + tierValTxt(kind, t.value)).join('；');
+}
 /* how：'name' 品名、'sku' 料號、'both' 料號＋品名。多個商品時寫成「第一個 等 N 項」 */
 function ruleProdName(pr, how){
   const ids = ruleProdIds(pr), ps = ids.map(id => S.products[id]).filter(Boolean), f = p => how === 'sku' ? p.sku : (how === 'both' ? p.sku + ' ' + p.name : p.name);
@@ -10535,12 +10593,14 @@ function pickProductsSheet(title, cur, done){
   sh.footEl.append(okBtn); paint();
 }
 /* 規則表單裡的「指定商品」：已選商品清單＋「選擇商品（可多選）」按鈕。pids：目前選的商品 id；change(ids)：選完或移除後呼叫 */
-function prodPickBlock(pids, change, px){   // px：{prices:{商品id:文字}}＝每個商品旁邊多一個單價欄
+function prodPickBlock(pids, change, px){   // px：{prices:{商品id:文字}}＝每個商品旁邊多一個單價欄；{tierBox:商品id => 元素}＝每個商品下面多一組「數量階梯」輸入
+  const hasP = !!(px && px.prices), hasT = !!(px && px.tierBox);
   return h('div', {'aria-label':'指定商品'},
-    pids.length ? h('div', {class:'panel', 'aria-label':'已選商品清單', style:'max-height:260px;overflow:auto'}, pids.map(id => { const p = S.products[id];
-      return h('div', {class:'row', style:'align-items:center;grid-template-columns:1fr ' + (px ? 'auto auto' : 'auto')}, h('span', {style:'min-width:0'}, h('b', {text:p ? p.name : '（已刪除的商品）'}), h('br'), h('small', {text:p ? p.sku + (p.unit ? '　' + p.unit : '') + (px && p.price ? '　標準價 ' + money(p.price) : '') : ''})),
-        px ? h('input', {class:'in', type:'text', inputmode:'decimal', style:'width:92px;text-align:right', placeholder:'單價', value:px.prices[id] == null ? '' : px.prices[id], 'aria-label':'單價 ' + (p ? p.sku : id), onfocus:e => e.target.select(), oninput:e => { px.prices[id] = e.target.value; }}) : null,
-        h('button', {class:'ic sm', 'aria-label':'移除 ' + (p ? p.sku : id), onclick:() => change(pids.filter(x => x !== id))}, icon('x'))); })) : h('div', {class:'panel empty', style:'padding:14px', text:'還沒有選商品'}),
+    pids.length ? h('div', {class:'panel', 'aria-label':'已選商品清單', style:hasT ? '' : 'max-height:260px;overflow:auto'}, pids.map(id => { const p = S.products[id];
+      return h('div', {class:'row', style:'align-items:center;grid-template-columns:1fr ' + (hasP ? 'auto auto' : 'auto')}, h('span', {style:'min-width:0'}, h('b', {text:p ? p.name : '（已刪除的商品）'}), h('br'), h('small', {text:p ? p.sku + (p.unit ? '　' + p.unit : '') + ((hasP || hasT) && p.price ? '　標準價 ' + money(p.price) : '') : ''})),
+        hasP ? h('input', {class:'in', type:'text', inputmode:'decimal', style:'width:92px;text-align:right', placeholder:'單價', value:px.prices[id] == null ? '' : px.prices[id], 'aria-label':'單價 ' + (p ? p.sku : id), onfocus:e => e.target.select(), oninput:e => { px.prices[id] = e.target.value; }}) : null,
+        h('button', {class:'ic sm', 'aria-label':'移除 ' + (p ? p.sku : id), onclick:() => change(pids.filter(x => x !== id))}, icon('x')),
+        hasT ? h('div', {style:'grid-column:1 / -1;margin:4px 0 2px'}, px.tierBox(id)) : null); })) : h('div', {class:'panel empty', style:'padding:14px', text:'還沒有選商品'}),
     h('button', {class:'btn ghost sm', style:'margin-top:6px', 'aria-label':'選擇商品', onclick:() => pickProductsSheet('選擇商品（可多選）', pids, change)}, pids.length ? '＋ 增減商品（已選 ' + pids.length + ' 項）' : '＋ 選擇商品（可多選）'));
 }
 /* ---- 規則與組合優惠的「對象＝客戶等級」可以複選 ----
@@ -10573,17 +10633,21 @@ function ruleMatch(r, side, partner, p, qty, date){
   if (pr.type === 'category' && p.category !== pr.category) return false;
   if (pr.type === 'product' && !ruleProdIds(pr).includes(p.id)) return false;
   if (pr.type === 'family' && (!famKey(p) || famKey(p) !== String(pr.family || '').trim().toLowerCase())) return false;
-  if (qty < (Number(r.minQty) || 0)) return false;
-  if ((Number(r.maxQty) || 0) > 0 && qty > Number(r.maxQty)) return false;
+  const tier = ruleTierFor(r, p.id, qty);   // 有「各商品數量階梯」的規則：數量要落在這個商品的某個階梯；沒有階梯的規則照規則本身的數量從／到
+  if (tier === false) return false;
+  if (tier === null){
+    if (qty < (Number(r.minQty) || 0)) return false;
+    if ((Number(r.maxQty) || 0) > 0 && qty > Number(r.maxQty)) return false;
+  }
   if (r.from && date < r.from) return false;
   if (r.to && date > r.to) return false;
   return true;
 }
-function ruleApply(r, base, p){
-  const v = Number(r.value) || 0;
+function ruleApply(r, base, p, qty){
+  const tier = ruleTierFor(r, p.id, qty == null ? 1 : qty), v = tier ? tier.value : (Number(r.value) || 0);   // 有階梯：用買到的那個階梯的數值
   if (r.kind === 'percent') return base * v / 100;
   if (r.kind === 'off') return base - v;
-  if (r.kind === 'fixed') return rulePriceOf(r, p.id);
+  if (r.kind === 'fixed') return tier ? v : rulePriceOf(r, p.id);
   if (r.kind === 'markup') return (p.cost || 0) * (1 + v / 100);
   return base;
 }
@@ -10612,13 +10676,14 @@ function famQtyOf(lines, p, own){
 }
 function resolvePrice(a){
   const p = a.product, base = a.side === 'purchase' ? (p.cost || 0) : (p.price || 0);
-  const q0 = a.qty || 1, fq = Math.max(Number(a.famQty) || 0, Number(q0) || 0), fam = !!famOf(p);
+  const q0 = a.qty || 1, fq = Math.max(Number(a.famQty) || 0, Number(q0) || 0), fam = !!famOf(p), date = a.date || today();
   const cands = [];
-  for (const r of priceRules()) if (ruleMatch(r, a.side, a.partner, p, (r.merge && fam) ? fq : q0, a.date || today())) cands.push({r, price:roundPrice(ruleApply(r, base, p), r.kind)});
+  for (const r of priceRules()){ const q = (r.merge && fam) ? fq : q0; if (ruleMatch(r, a.side, a.partner, p, q, date)) cands.push({r, q, price:roundPrice(ruleApply(r, base, p, q), r.kind)}); }
   if (!cands.length) return {price:base, rule:null, base};
   const best = (S.set.priceMode === 'lowest') ? cands.reduce((x, y) => y.price < x.price ? y : x) : cands[0];
-  const per = best.r.kind === 'fixed' && rulePrices(best.r.prod);
-  return {price:best.price, rule:per ? {...best.r, value:best.price, prod:{type:'product', productId:p.id}} : best.r, base};
+  const per = best.r.kind === 'fixed' && rulePrices(best.r.prod), tier = ruleTierFor(best.r, p.id, best.q);
+  // 各商品價格不同、或有數量階梯的規則：回傳「只含這個商品、這個階梯」的規則，畫面上的說明（效果、門檻）才是這個商品實際套用的
+  return {price:best.price, rule:(per || tier) ? {...best.r, value:tier ? tier.value : best.price, ...(tier ? {minQty:tier.minQty, maxQty:tier.maxQty} : {}), prod:{type:'product', productId:p.id}} : best.r, base};
 }
 /* 數量優惠提示：目前的數量還沒達到某個「數量階梯」的門檻時，回傳再買幾件、單價會變多少（只提示，不強迫）。
    a：{side, product, partner, qty, famQty, date, curPrice}；curPrice＝目前這一行的單價（比它便宜才提示） */
@@ -10628,11 +10693,12 @@ function qtyTierHint(a){
   const cur = a.curPrice != null && a.curPrice !== '' && isFinite(Number(a.curPrice)) ? Number(a.curPrice) : resolvePrice({side:a.side, product:p, partner:a.partner, qty:q, famQty:fq, date}).price;
   const needs = new Set();
   for (const r of priceRules()){
-    const mq = Number(r.minQty) || 0; if (!(mq > 0)) continue;
     const eff = (r.merge && famOf(p)) ? fq : q;
-    if (eff >= mq - 0.0004) continue;
-    if (!ruleMatch(r, a.side, a.partner, p, mq, date)) continue;
-    needs.add(r3(mq - eff));
+    for (const mq of ruleQtyStarts(r, p.id)){   // 規則的「數量從」；有各商品數量階梯時，是這個商品每個階梯的「從」
+      if (eff >= mq - 0.0004) continue;
+      if (!ruleMatch(r, a.side, a.partner, p, mq, date)) continue;
+      needs.add(r3(mq - eff));
+    }
   }
   for (const need of [...needs].sort((x, y) => x - y)){
     const res = resolvePrice({side:a.side, product:p, partner:a.partner, qty:r3(q + need), famQty:r3(fq + need), date});
@@ -10649,7 +10715,11 @@ function tierHintText(t, p){
   return '💡 ' + head + '再買 ' + num(t.need) + ' ' + u + '（累計 ' + num(t.target) + ' ' + u + '）就有數量優惠：單價 ' + money(t.price) + per;
 }
 function ruleEffect(r){
-  const v = Number(r.value) || 0;
+  const v = Number(r.value) || 0, tt = ruleTiers(r.prod);
+  if (tt){   // 各商品依數量階梯：顯示所有階梯數值的範圍
+    const vs = []; for (const id of ruleProdIds(r.prod)) for (const t of (Array.isArray(tt[id]) ? tt[id] : [])) vs.push(Number(t.value) || 0);
+    if (vs.length){ const lo = Math.min(...vs), hi = Math.max(...vs), two = lo !== hi; return '依數量 ' + ({percent:zheTxt(lo) + (two ? '～' + zheTxt(hi) : '') + ' 折', off:'−' + money(lo) + (two ? '～−' + money(hi) : ''), fixed:money(lo) + (two ? '～' + money(hi) : ''), markup:'成本 +' + lo + (two ? '～' + hi : '') + '%'})[r.kind]; }
+  }
   if (r.kind === 'fixed' && rulePrices(r.prod)){ const vs = ruleProdIds(r.prod).map(id => rulePriceOf(r, id)), lo = Math.min(...vs), hi = Math.max(...vs); return '各商品指定價 ' + (lo === hi ? money(lo) : money(lo) + '～' + money(hi)); }
   return ({percent:zheTxt(v) + ' 折', off:'−' + money(v), fixed:money(v), markup:'成本 +' + v + '%'})[r.kind] || '';
 }
@@ -10657,7 +10727,7 @@ function ruleDesc(r){
   const c = r.cust || {type:'all'}, p = r.prod || {type:'all'};
   const who = c.type === 'level' ? '等級「' + custLevels(c).join('、') + '」' : (c.type === 'partner' ? ((S.partners[c.partnerId] || {}).name || '指定客戶') : '所有' + ((r.side || 'sale') === 'purchase' ? '供應商' : '客戶'));
   const what = p.type === 'family' ? '系列「' + p.family + '」' : p.type === 'category' ? '分類「' + p.category + '」' : (p.type === 'product' ? ruleProdName(p, 'name') : '所有商品');
-  return (r.promo ? '【促銷】' : '') + ((r.side || 'sale') === 'purchase' ? '進貨　' : '銷貨　') + who + '／' + what + ((r.minQty || r.maxQty) ? '　數量 ' + (r.minQty ? num(r.minQty) : '1') + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') : '') + (r.merge && (r.minQty || r.maxQty) ? '（同系列合併計算）' : '') + (r.from || r.to ? '　' + (r.from || '') + ' ~ ' + (r.to || '') : '');
+  return (r.promo ? '【促銷】' : '') + ((r.side || 'sale') === 'purchase' ? '進貨　' : '銷貨　') + who + '／' + what + ((r.minQty || r.maxQty) ? '　數量 ' + (r.minQty ? num(r.minQty) : '1') + (r.maxQty ? '～' + num(r.maxQty) : ' 以上') : '') + (r.merge && (r.minQty || r.maxQty || ruleTiers(p)) ? '（同系列合併計算）' : '') + (ruleTiers(p) ? '　數量階梯　' + ruleTierText(r) : '') + (r.from || r.to ? '　' + (r.from || '') + ' ~ ' + (r.to || '') : '');
 }
 
 /* ---- 組合優惠與買送贈品（訂單層級的價格策略） ---- */
@@ -10806,18 +10876,85 @@ function openPriceRuleForm(id){
   let lvs = custLevels(st.cust);   // 對象是「客戶等級」時勾選的等級（可複選）
   let pids = ruleProdIds(st.prod);   // 指定商品（可多個）
   const pp0 = rulePrices(st.prod), prices = {};   // 各商品分別指定的固定單價（商品 id → 輸入的文字）
-  if (pp0) for (const id of pids) if (pp0[id] != null) prices[id] = String(pp0[id]);
+  if (pp0) for (const pid of pids) if (pp0[pid] != null) prices[pid] = String(pp0[pid]);
+  const tt0 = ruleTiers(st.prod), tiers = {};   // 各商品的數量特價階梯（商品 id → [{minQty, maxQty, value}]，都是輸入的文字）
+  if (tt0) for (const pid of pids) tiers[pid] = (Array.isArray(tt0[pid]) ? tt0[pid] : []).map(t => ({minQty:String(t.minQty), maxQty:Number(t.maxQty) > 0 ? String(t.maxQty) : '', value:String(t.value)}));
+  let tierOn = !!tt0 && pids.length >= 1;
   let perProd = !!pp0 && pids.length > 1 && st.kind === 'fixed';
-  const canPer = () => st.prod.type === 'product' && pids.length > 1 && st.kind === 'fixed';
-  const valDiv = h('div', {class:'f'});
-  const syncVal = () => { valDiv.style.display = perProd && canPer() ? 'none' : ''; };
+  const canPer = () => st.prod.type === 'product' && pids.length > 1 && st.kind === 'fixed' && !tierOn;
+  const canTier = () => st.prod.type === 'product' && pids.length >= 1;
+  const tRows = pid => { if (!Array.isArray(tiers[pid]) || !tiers[pid].length) tiers[pid] = [{minQty:'', maxQty:'', value:''}]; return tiers[pid]; };
+  const valDiv = h('div', {class:'f'}), qtyDiv = h('div', {class:'f2', style:'margin-top:10px'});
+  const syncVal = () => { valDiv.style.display = (perProd && canPer()) || (tierOn && canTier()) ? 'none' : ''; qtyDiv.style.display = tierOn && canTier() ? 'none' : ''; };
   const togglePer = on => {
     perProd = on && canPer();
-    if (perProd){ for (const id of pids) if (prices[id] == null || String(prices[id]).trim() === '') prices[id] = String(st.value === '' ? '' : st.value); }   // 一開始都先帶入上面填的單價，再各自修改
-    else if (st.value === ''){ const vs = pids.map(id => toNum(prices[id])).filter(x => String(x) !== '' && isFinite(x)); if (vs.length) st.value = String(Math.min(...vs)); }
+    if (perProd){ for (const pid of pids) if (prices[pid] == null || String(prices[pid]).trim() === '') prices[pid] = String(st.value === '' ? '' : st.value); }   // 一開始都先帶入上面填的單價，再各自修改
+    else if (st.value === ''){ const vs = pids.filter(pid => String(prices[pid] == null ? '' : prices[pid]).trim() !== '').map(pid => toNum(prices[pid])); if (vs.length){ st.value = String(Math.min(...vs)); valIn.value = st.value; } }
     paintProd(); syncVal(); setHint();
   };
-  const setPidHint = () => { pidHint.textContent = st.prod.type === 'product' && pids.length > 1 ? (st.kind === 'fixed' ? (perProd ? '選了 ' + pids.length + ' 個商品：每個商品用自己的固定單價，請在上面的清單各自填寫（單價旁邊有標準售價可以對照）。' : '選了 ' + pids.length + ' 個商品：每個商品都會是同一個固定單價。各商品要不同的價格，請勾選上面的「各商品分別指定價格」。') : '選了 ' + pids.length + ' 個商品：每個商品都用同樣的' + (st.kind === 'markup' ? '加成' : '折數／金額') + '。之後要改折數或期間，改這一條就全部一起改。') : ''; };
+  const toggleTier = on => {
+    tierOn = on && canTier();
+    if (tierOn){   // 開啟：每個商品先放一個階梯，帶入已經填的數值（或各商品的指定價）和數量，再各自修改
+      for (const pid of pids){
+        if (Array.isArray(tiers[pid]) && tiers[pid].length) continue;
+        const v0 = perProd && prices[pid] != null && String(prices[pid]).trim() !== '' ? prices[pid] : st.value;
+        tiers[pid] = [{minQty:st.minQty === '' || st.minQty == null || !(toNum(st.minQty) > 0) ? '' : String(st.minQty), maxQty:toNum(st.maxQty) > 0 ? String(st.maxQty) : '', value:v0 == null ? '' : String(v0)}];
+      }
+      perProd = false;
+    } else if (st.value === ''){   // 關閉：數值欄帶入階梯裡最小的數值
+      const vs = pids.flatMap(pid => (tiers[pid] || []).map(t => tierVal(st.kind, t.value))).filter(x => x !== null);
+      if (vs.length){ st.value = String(Math.min(...vs)); valIn.value = st.value; }
+    }
+    paintProd(); syncVal(); setHint();
+  };
+  const KIND_EX = {fixed:'每件單價', percent:'折數（90、9 或 0.9 都是 9 折）', off:'每件減多少元', markup:'成本加成 %（例：25 ＝ 成本 × 1.25）'};
+  const setPidHint = () => { pidHint.textContent = tierOn && canTier() ? '每個商品各自設定「買幾件以上」的特價：買到哪個階梯就用哪個價（買得愈多，取達到的最高階梯）；買不到第一個階梯，這條規則就不適用（照標準價或其他規則）。「到」不填＝以上。目前的計價方式是「' + PR_KIND[st.kind] + '」，各階梯填' + KIND_EX[st.kind] + '；要改成別的方式，請到下面的「計價方式」選。' : (st.prod.type === 'product' && pids.length > 1 ? (st.kind === 'fixed' ? (perProd ? '選了 ' + pids.length + ' 個商品：每個商品用自己的固定單價，請在上面的清單各自填寫（單價旁邊有標準售價可以對照）。' : '選了 ' + pids.length + ' 個商品：每個商品都會是同一個固定單價。各商品要不同的價格，請勾選上面的「各商品分別指定價格」；要依購買數量給不同特價，請勾選「各商品分別設定數量特價」。') : '選了 ' + pids.length + ' 個商品：每個商品都用同樣的' + (st.kind === 'markup' ? '加成' : '折數／金額') + '。之後要改折數或期間，改這一條就全部一起改。要依購買數量給不同特價，請勾選「各商品分別設定數量特價」。') : (st.prod.type === 'product' && pids.length === 1 ? '要依購買數量給不同特價（例：10 件以上 90 元、30 件以上 80 元），請勾選上面的「依購買數量設定特價階梯」。' : '')); };
+  // 一個商品的數量階梯：每列＝買幾件以上／到幾件（選填）／數值（依上面的計價方式）
+  const TIER_COL = {fixed:['單價', '單價'], percent:['折數', '折數 90'], off:['每件減', '減多少元'], markup:['加成 %', '加成 %']};
+  const tierBox = pid => {
+    const rows = tRows(pid), p = S.products[pid], sku = p ? p.sku : pid, vc = TIER_COL[st.kind] || TIER_COL.fixed;
+    const sum = h('small', {class:'hint', 'aria-label':'階梯說明 ' + sku, style:'margin-top:6px'}), setSum = () => { sum.textContent = tierSumText(rows, st.kind); };
+    const inp = (k, ph, label, i) => h('input', {class:'in', type:'text', inputmode:'decimal', placeholder:ph, value:rows[i][k], 'aria-label':label + ' ' + sku + ' ' + (i + 1), style:'height:40px;padding:0 6px;text-align:center', onfocus:e => e.target.select(), oninput:e => { rows[i][k] = e.target.value; setSum(); }});
+    const grid = 'display:grid;grid-template-columns:1fr 1fr 1fr 38px;gap:6px;align-items:center', lab = t => h('small', {class:'hint', style:'margin:0;text-align:center', text:t});
+    setSum();
+    return h('div', {'aria-label':'數量階梯 ' + sku},
+      h('div', {style:grid}, lab('買幾件以上'), lab('到幾件（選填）'), lab(vc[0]), h('span')),
+      rows.map((t, i) => h('div', {style:grid + ';margin-top:4px'}, inp('minQty', '從', '階梯從', i), inp('maxQty', '到', '階梯到', i), inp('value', vc[1], '階梯數值', i),
+        h('button', {class:'ic sm', 'aria-label':'移除階梯 ' + sku + ' ' + (i + 1), onclick:() => { rows.splice(i, 1); paintProd(); }}, icon('x')))),
+      sum,
+      h('div', {class:'btns', style:'margin:6px 0 0;gap:6px'}, h('button', {class:'btn ghost sm', 'aria-label':'新增階梯 ' + sku, onclick:() => { rows.push({minQty:'', maxQty:'', value:''}); paintProd(); }}, '＋ 新增階梯'),
+        pids.length > 1 ? h('button', {class:'btn ghost sm', 'aria-label':'複製階梯給其他商品 ' + sku, onclick:() => copyTiers(pid)}, '複製給其他商品') : null));
+  };
+  const copyTiers = async pid => {
+    const src = tRows(pid), others = pids.filter(x => x !== pid); if (!others.length) return;
+    if (!await dialog({title:'把「' + pnm(pid) + '」的數量階梯複製給其他 ' + others.length + ' 個商品？', msg:'其他商品原本填的階梯會被取代（複製「買幾件以上、到、數值」，之後還可以各自修改）。', ok:'複製'})) return;
+    for (const o of others) tiers[o] = src.map(t => ({...t}));
+    paintProd(); toast('已複製給其他 ' + others.length + ' 個商品');
+  };
+  // 存檔前檢查每個商品的階梯，回傳 {tiers, min} 或 {err}
+  const collectTiers = () => {
+    const out = {}; let mn = Infinity;
+    const lab = {fixed:'單價', percent:'折數（要大於 0）', off:'每件減多少元', markup:'成本加成 %'}[st.kind] || '數值';
+    for (const pid of pids){
+      const rows = tiers[pid] || [], arr = [], nm = pnm(pid);
+      for (let i = 0; i < rows.length; i++){
+        const t = rows[i], fT = String(t.minQty).trim(), toT = String(t.maxQty).trim(), vT = String(t.value).trim();
+        if (fT === '' && toT === '' && vT === '') continue;   // 完全空白的列略過
+        const tag = '「' + nm + '」第 ' + (i + 1) + ' 個階梯：', lo = toNum(fT), hi = toT === '' ? 0 : toNum(toT);
+        if (!(lo > 0)) return {err:tag + '請輸入「買幾件以上」（要大於 0）'};
+        if (toT !== '' && !(hi > 0)) return {err:tag + '「到幾件」要大於 0（不填＝以上）'};
+        if (hi > 0 && hi < lo) return {err:tag + '「到」不能小於「從」'};
+        const v = tierVal(st.kind, vT);
+        if (v === null) return {err:tag + '請輸入有效的' + lab};
+        arr.push({minQty:r3(lo), maxQty:r3(hi), value:r2(v)});
+      }
+      if (!arr.length) return {err:'請設定「' + nm + '」的數量階梯（至少一個）'};
+      const seen = new Set();
+      for (const t of arr){ if (seen.has(t.minQty)) return {err:'「' + nm + '」有兩個階梯的「買幾件以上」都是 ' + num(t.minQty) + ' 件'}; seen.add(t.minQty); mn = Math.min(mn, t.value); }
+      out[pid] = arr;
+    }
+    return {tiers:out, min:mn};
+  };
   const sel = (opts, cur, on, label) => { const s = h('select', {class:'in', 'aria-label':label, onchange:e => on(e.target.value)}, ...opts.map(([v, t]) => h('option', {value:v, text:t}))); s.value = cur; return s; };
   const paintCust = () => {
     setKids(custBox, st.cust.type === 'partner' ? sel([['', '請選擇'], ...Object.values(S.partners).filter(p => p.type === (st.side === 'purchase' ? 'supplier' : 'customer')).sort(cmpName).map(p => [p.id, p.name])], st.cust.partnerId || '', v => { st.cust.partnerId = v; }, '指定對象') : null);
@@ -10828,9 +10965,11 @@ function openPriceRuleForm(id){
     setKids(prodBox,
       st.prod.type === 'category' ? sel(S.d.cats.map(c => [c, c]), st.prod.category || S.d.cats[0] || '', v => { st.prod.category = v; }, '商品分類') : null,
       st.prod.type === 'family' ? sel([['', '請選擇'], ...famList().map(f => [f, f])], st.prod.family || '', v => { st.prod.family = v; }, '商品系列') : null);
+    if (!canTier()) tierOn = false;
     if (!canPer()) perProd = false;
-    setKids(prodListBox, st.prod.type === 'product' ? prodPickBlock(pids, ids => { pids = ids; if (perProd) for (const id of pids) if (prices[id] == null) prices[id] = ''; paintProd(); syncVal(); setHint(); }, perProd ? {prices} : null) : null,
+    setKids(prodListBox, st.prod.type === 'product' ? prodPickBlock(pids, ids => { pids = ids; if (perProd) for (const pid of pids) if (prices[pid] == null) prices[pid] = ''; paintProd(); syncVal(); setHint(); }, tierOn ? {tierBox} : (perProd ? {prices} : null)) : null,
       canPer() ? h('label', {class:'check', style:'margin-top:8px'}, h('input', {type:'checkbox', checked:perProd, 'aria-label':'各商品分別指定價格', onchange:e => togglePer(e.target.checked)}), '各商品分別指定價格（每個商品自己一個固定單價）') : null,
+      canTier() ? h('label', {class:'check', style:'margin-top:' + (canPer() ? '0' : '8px')}, h('input', {type:'checkbox', checked:tierOn, 'aria-label':'各商品分別設定數量特價', onchange:e => toggleTier(e.target.checked)}), pids.length > 1 ? '各商品分別設定數量特價（每個商品自己有「買幾件以上」的特價階梯）' : '依購買數量設定特價階梯（例：10 件以上 90 元、30 件以上 80 元）') : null,
       st.prod.type === 'product' ? pidHint : null);
     prodListBox.style.margin = st.prod.type === 'product' ? '2px 0 12px' : '0';
     setPidHint();
@@ -10838,25 +10977,28 @@ function openPriceRuleForm(id){
   if (st.cust.type === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1);
   const valLabel = h('label', {text:'數值'});
   const valHint = h('small', {class:'hint'});
-  const setHint = () => { valHint.textContent = perProd && canPer() ? '每個商品各自的固定單價，請在上面「已選商品」的清單裡填寫。' : {percent:'例：90 ＝ 9 折（單價 × 90%）', off:'例：5 ＝ 每件減 5 元', fixed:'例：120 ＝ 固定單價 120 元', markup:'例：25 ＝ 成本 × 1.25（需要商品有進價）'}[st.kind]; setPidHint(); };
-  valDiv.append(valLabel, h('input', {class:'in', type:'text', inputmode:'decimal', value:st.value, 'aria-label':'數值', oninput:e => { st.value = e.target.value; }}));
+  const setHint = () => { valHint.textContent = tierOn && canTier() ? '每個商品的特價，請在上面「已選商品」各商品下面的數量階梯裡填寫；數值依「計價方式」計算。' : (perProd && canPer() ? '每個商品各自的固定單價，請在上面「已選商品」的清單裡填寫。' : {percent:'例：90 ＝ 9 折（單價 × 90%）', off:'例：5 ＝ 每件減 5 元', fixed:'例：120 ＝ 固定單價 120 元', markup:'例：25 ＝ 成本 × 1.25（需要商品有進價）'}[st.kind]); setPidHint(); };
+  const valIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:st.value, 'aria-label':'數值', oninput:e => { st.value = e.target.value; }});
+  valDiv.append(valLabel, valIn);
+  qtyDiv.append(
+    fld('數量從（選填）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.minQty, placeholder:'例：10', 'aria-label':'最低數量', oninput:e => { st.minQty = e.target.value; }})),
+    fld('到（選填，不填＝以上）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.maxQty || '', placeholder:'例：49', 'aria-label':'最高數量', oninput:e => { st.maxQty = e.target.value; }})));
   put(sh.bodyEl,
     fld('規則名稱', h('input', {class:'in', value:st.name, placeholder:'例如：批發價 9 折、A 客戶專案價', oninput:e => { st.name = e.target.value; }})),
     h('div', {class:'f'}, h('label', {text:'適用單據'}), sel([['sale', '銷貨（賣給客戶）'], ['purchase', '進貨（向供應商買）']], st.side, v => { st.side = v; if (st.cust.type === 'partner') st.cust.partnerId = ''; paintCust(); }, '適用單據')),
     h('div', {class:'f2'},
       h('div', {class:'f'}, h('label', {text:'對象'}), sel([['all', '全部'], ['level', '客戶等級'], ['partner', '指定對象']], st.cust.type, v => { st.cust = {type:v}; if (v === 'level' && !lvs.length) lvs = (S.set.levels || []).slice(0, 1); paintCust(); }, '對象類型'), custBox),
-      h('div', {class:'f'}, h('label', {text:'商品'}), sel([['all', '全部'], ['category', '商品分類'], ['product', '指定商品（多選）'], ['family', '商品系列（同款不同顏色）']], st.prod.type, v => { st.prod = {type:v}; if (v === 'category') st.prod.category = S.d.cats[0] || ''; if (v === 'family') st.prod.family = famList()[0] || ''; paintProd(); }, '商品類型'), prodBox)),
+      h('div', {class:'f'}, h('label', {text:'商品'}), sel([['all', '全部'], ['category', '商品分類'], ['product', '指定商品（多選）'], ['family', '商品系列（同款不同顏色）']], st.prod.type, v => { st.prod = {type:v}; if (v === 'category') st.prod.category = S.d.cats[0] || ''; if (v === 'family') st.prod.family = famList()[0] || ''; paintProd(); syncVal(); setHint(); }, '商品類型'), prodBox)),
     levelListBox,
     prodListBox,
     h('div', {class:'f2'},
       h('div', {class:'f'}, h('label', {text:'計價方式'}), sel(Object.entries(PR_KIND), st.kind, v => { st.kind = v; paintProd(); syncVal(); setHint(); }, '計價方式')),
       valDiv),
     valHint,
+    qtyDiv,
     h('div', {class:'f2', style:'margin-top:10px'},
-      fld('數量從（選填）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.minQty, placeholder:'例：10', 'aria-label':'最低數量', oninput:e => { st.minQty = e.target.value; }})),
-      fld('到（選填，不填＝以上）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.maxQty || '', placeholder:'例：49', 'aria-label':'最高數量', oninput:e => { st.maxQty = e.target.value; }})),
       fld('優先順序（小的先）', h('input', {class:'in', type:'text', inputmode:'numeric', value:st.prio, 'aria-label':'優先順序', oninput:e => { st.prio = e.target.value; }}))),
-    h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!st.merge, 'aria-label':'合併同系列數量', onchange:e => { st.merge = e.target.checked; }}), '同一商品不同顏色（商品資料裡填同一個「系列」）合併計算數量，一起達到「數量從～到」的區間'),
+    h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!st.merge, 'aria-label':'合併同系列數量', onchange:e => { st.merge = e.target.checked; }}), '同一商品不同顏色（商品資料裡填同一個「系列」）合併計算數量，一起達到「數量從～到」（或各商品數量階梯）的區間'),
     h('div', {class:'f2'},
       fld('期間起（選填）', h('input', {class:'in', type:'date', value:st.from || '', 'aria-label':'期間起', onchange:e => { st.from = e.target.value; }})),
       fld('期間迄（選填）', h('input', {class:'in', type:'date', value:st.to || '', 'aria-label':'期間迄', onchange:e => { st.to = e.target.value; }}))),
@@ -10873,10 +11015,11 @@ function openPriceRuleForm(id){
   let saving = false;
   const btn = h('button', {class:'btn grow', onclick:async () => {
     if (saving) return;
-    const per = perProd && canPer();
-    const v = per ? Math.min(...pids.map(id => toNum(prices[id]))) : toNum(st.value);
+    const per = perProd && canPer(), tOn = tierOn && canTier(), tr = tOn ? collectTiers() : null;
+    const v = tOn ? (tr.err ? 0 : tr.min) : (per ? Math.min(...pids.map(pid => toNum(prices[pid]))) : toNum(st.value));
     if (!st.name.trim()) return toast('請填寫規則名稱');
-    if (per){ for (const id of pids){ const t = prices[id]; if (t === undefined || String(t).trim() === '' || !(toNum(t) >= 0)) return toast('請輸入「' + pnm(id) + '」的固定單價'); } }
+    if (tOn){ if (tr.err) return toast(tr.err); }
+    else if (per){ for (const pid of pids){ const t = prices[pid]; if (t === undefined || String(t).trim() === '' || !(toNum(t) >= 0)) return toast('請輸入「' + pnm(pid) + '」的固定單價'); } }
     else if (st.value === '' || v < 0) return toast('請輸入數值');
     if (st.kind === 'percent' && !(v > 0)) return toast('折數需大於 0');
     if (st.cust.type === 'partner' && !st.cust.partnerId) return toast('請選擇指定對象');
@@ -10884,8 +11027,8 @@ function openPriceRuleForm(id){
     if (st.prod.type === 'product' && !pids.length) return toast('請選擇指定商品（可以選多個）');
     if (st.prod.type === 'family' && !st.prod.family) return toast('請選擇商品系列');
     if (st.from && st.to && st.from > st.to) return toast('期間起不可晚於期間迄');
-    if (toNum(st.maxQty) > 0 && toNum(st.maxQty) < toNum(st.minQty)) return toast('數量「到」不能小於「從」');
-    const doc = {name:st.name.trim(), side:st.side, cust:st.cust.type === 'level' ? custObjLevels(lvs) : st.cust, prod:st.prod.type === 'product' ? ruleProdObj(pids, per ? Object.fromEntries(pids.map(id => [id, toNum(prices[id])])) : null) : st.prod, kind:st.kind, value:v, minQty:toNum(st.minQty), maxQty:toNum(st.maxQty), promo:!!st.promo, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), enabled:st.enabled !== false, note:(st.note || '').trim(), merge:!!st.merge};
+    if (!tOn && toNum(st.maxQty) > 0 && toNum(st.maxQty) < toNum(st.minQty)) return toast('數量「到」不能小於「從」');
+    const doc = {name:st.name.trim(), side:st.side, cust:st.cust.type === 'level' ? custObjLevels(lvs) : st.cust, prod:st.prod.type === 'product' ? ruleProdObj(pids, per ? Object.fromEntries(pids.map(pid => [pid, toNum(prices[pid])])) : null, tOn ? tr.tiers : null) : st.prod, kind:st.kind, value:v, minQty:tOn ? 0 : toNum(st.minQty), maxQty:tOn ? 0 : toNum(st.maxQty), promo:!!st.promo, from:st.from || '', to:st.to || '', prio:Math.round(toNum(st.prio)), enabled:st.enabled !== false, note:(st.note || '').trim(), merge:!!st.merge};
     saving = true; btn.disabled = true;
     const ok = await run(async () => { if (ex) await S.db.doc('prules/' + id).set({...doc, createdBy:ex.createdBy || null, createdAt:ex.createdAt || Date.now()}); else await S.db.collection('prules').doc().set({...doc, createdBy:S.meId || null, createdAt:Date.now()}); return true; });
     saving = false; btn.disabled = false;
@@ -10989,11 +11132,13 @@ function pioCustText(c){
   }
   return ['全部', ''];
 }
+/* 一個階梯寫成文字：10+:90＝10 件以上 90；10-19:90＝10～19 件 90（冒號後面是數值，依計價方式） */
+const pioTierTok = t => r3(Number(t.minQty) || 0) + (Number(t.maxQty) > 0 ? '-' + r3(Number(t.maxQty)) : '+') + ':' + r3(Number(t.value) || 0);
 function pioProdText(pr){
   pr = pr || {type:'all'};
   if (pr.type === 'category') return ['商品分類', pr.category || ''];
   if (pr.type === 'family') return ['商品系列', pr.family || ''];
-  if (pr.type === 'product'){ const ids = ruleProdIds(pr), pp = rulePrices(pr); return ['指定商品', ids.length ? ids.map(id => pioSkuOf(id) + (pp && pp[id] != null ? '@' + r3(Number(pp[id])) : '')).join('、') : '（已刪除的商品）']; }
+  if (pr.type === 'product'){ const ids = ruleProdIds(pr), pp = rulePrices(pr), tt = ruleTiers(pr); return ['指定商品', ids.length ? ids.map(id => pioSkuOf(id) + (tt && Array.isArray(tt[id]) && tt[id].length ? '@' + tt[id].map(pioTierTok).join('/') : (pp && pp[id] != null ? '@' + r3(Number(pp[id])) : ''))).join('、') : '（已刪除的商品）']; }
   return ['全部', ''];
 }
 function pioCustParse(tTxt, vTxt, side, C, exCust, exSide){
@@ -11018,7 +11163,43 @@ function pioCustParse(tTxt, vTxt, side, C, exCust, exSide){
   if (f.p) return {v:{type:'partner', partnerId:f.p.id}};
   return {err:f.amb ? '有多位' + who + '叫「' + v + '」，請改填代號' : '找不到' + who + '「' + v + '」'};
 }
-function pioProdParse(tTxt, vTxt, C, exProd){
+/* 「10+:90/30+:80」→ 階梯。10+（或 10 以上、只寫 10）＝10 件以上；10-19（或 10~19）＝10～19 件；冒號後面是數值（折數可以寫 90、9、0.9 或 9折） */
+function pioParseTiers(txt, kind){
+  const parts = pioN(txt).split(/[\/\n]+/).map(x => x.trim()).filter(Boolean), out = [], warns = [], bad = [];
+  for (const part of parts){
+    const m = part.match(/^(\d+(?:\.\d+)?)\s*[件個]?\s*(\+|以上|[-~]\s*(\d+(?:\.\d+)?)\s*[件個]?)?\s*[:=]\s*(.+)$/);
+    if (!m || !(Number(m[1]) > 0)){ bad.push(part); continue; }
+    const lo = Number(m[1]), hi = m[3] != null ? Number(m[3]) : 0;
+    if (m[3] != null && !(hi >= lo)) return {err:'階梯「' + part + '」的「到」不能小於「從」'};
+    const pv = pioValue(kind, m[4], null);
+    if (pv.err) return {err:'階梯「' + part + '」：' + pv.err};
+    if (pv.warn) warns.push(pv.warn);
+    out.push({minQty:r3(lo), maxQty:r3(hi), value:r2(pv.v)});
+  }
+  if (bad.length) return {err:'數量階梯看不懂：' + bad.map(x => '「' + x + '」').join('、') + '（請寫成 10+:90/30+:80：10+ 是 10 件以上、10-19 是 10～19 件，冒號後面是數值）'};
+  if (!out.length) return {err:'數量階梯沒填'};
+  const seen = new Set();
+  for (const t of out){ if (seen.has(t.minQty)) return {err:'有兩個階梯的「從」都是 ' + t.minQty + ' 件'}; seen.add(t.minQty); }
+  out.sort((a, b) => a.minQty - b.minQty);
+  return {tiers:out, warns};
+}
+/* 指定商品＋各商品數量階梯：A001@10+:90/30+:80、A002@5+:95（每個商品都要寫階梯；階梯的數值依「計價方式」解讀） */
+function pioProdTiers(parts, tN, C, kind){
+  if (tN < parts.length) return {err:'每個商品後面都要寫數量階梯（例：A001@10+:90/30+:80、A002@5+:95），目前有些商品沒寫，或寫的不是階梯'};
+  if (!kind) return {err:'', quiet:true};   // 計價方式沒填或看不懂（另外會提示），階梯的數值沒辦法解讀
+  const ids = [], tiers = {}, none = [], amb = [], bad = [], dup = [], warns = [];
+  for (const part of parts){
+    const m = part.match(/^(.*?)\s*@\s*(.*)$/), key = m[1].trim(), g2 = C.findProd(key);
+    if (!g2.p){ (g2.amb ? amb : none).push(key); continue; }
+    if (ids.includes(g2.p.id)){ dup.push(g2.p.sku); continue; }
+    const tr = pioParseTiers(m[2], kind);
+    if (tr.err){ bad.push('「' + g2.p.sku + '」' + tr.err); continue; }
+    ids.push(g2.p.id); tiers[g2.p.id] = tr.tiers; tr.warns.forEach(w => warns.push('「' + g2.p.sku + '」' + w));
+  }
+  if (none.length || amb.length || bad.length || dup.length) return {err:[none.length ? '找不到料號（或條碼、品名）' + none.map(x => '「' + x + '」').join('、') : '', amb.length ? '有多個商品叫' + amb.map(x => '「' + x + '」').join('、') + '，請改填料號' : '', dup.length ? '商品重複：' + dup.map(x => '「' + x + '」').join('、') : '', ...bad].filter(Boolean).join('；')};
+  return {v:ruleProdObj(ids, null, tiers), warns};
+}
+function pioProdParse(tTxt, vTxt, C, exProd, kind){
   const t = pioK(tTxt), v = pioRaw(vTxt);
   if (exProd){ const [et, ev] = pioProdText(exProd); if (pioK(et) === t && pioK(ev) === pioK(v)) return {v:JSON.parse(JSON.stringify(exProd))}; }
   let type;
@@ -11034,6 +11215,8 @@ function pioProdParse(tTxt, vTxt, C, exProd){
   const f = C.findProd(v);
   if (f.p) return {v:ruleProdObj([f.p.id])};
   const parts = pioN(v).split(/[、,;；\n]+/).map(x => x.trim()).filter(Boolean);   // 多個商品：料號用「、」分隔
+  const tN = parts.filter(x => { const m = x.match(/^(.*?)\s*@\s*(.*)$/); return !!m && /[:=]/.test(m[2]); }).length;   // 「料號@10+:90/30+:80」：各商品依數量階梯
+  if (tN) return pioProdTiers(parts, tN, C, kind);
   const atN = parts.filter(x => x.includes('@')).length;   // 「料號@單價」：各商品分別指定固定單價
   if (atN && parts.length < 2) return {err:'指定商品只有 1 個時不用寫「@單價」：商品內容只填料號，價格填在「數值」'};
   if (atN && atN < parts.length) return {err:'各商品分別指定單價時，每個料號後面都要寫「@單價」（例：A001@80、A002@85），目前有些商品沒寫'};
@@ -11051,11 +11234,12 @@ function pioProdParse(tTxt, vTxt, C, exProd){
 /* 對象整理成可以比較的樣子：多個等級排序，只有一個等級維持舊格式（這樣「批發、VIP」和「VIP、批發」算同一個） */
 const pioCustNorm = c => { c = c || {type:'all'}; if (c.type === 'level'){ const ls = custLevels(c); return ls.length > 1 ? {type:'level', levels:ls.slice().sort()} : {type:'level', level:ls[0] || c.level || ''}; } return c.type === 'partner' ? {type:'partner', partnerId:c.partnerId || ''} : {type:'all'}; };
 const pioPairs = pr => { const pp = rulePrices(pr); return pp ? Object.keys(pp).sort().map(k => [k, Number(pp[k])]) : (pr && pr.pairs) || null; };
+const pioTierPairs = pr => { const tt = ruleTiers(pr); return tt ? Object.keys(tt).sort().map(k => [k, tt[k].map(t => [Number(t.minQty) || 0, Number(t.maxQty) || 0, Number(t.value) || 0]).sort((a, b) => a[0] - b[0])]) : (pr && pr.tpairs) || null; };
 /* 把一條規則整理成可以比較的樣子 */
 function pioNormRule(r){
   const c = r.cust || {type:'all'}, p = r.prod || {type:'all'};
   return {name:String(r.name || ''), side:r.side || 'sale', cust:pioCustNorm(c),
-    prod:p.type === 'category' ? {type:'category', category:p.category || ''} : (p.type === 'family' ? {type:'family', family:p.family || ''} : (p.type === 'product' ? {type:'product', productIds:ruleProdIds(p).slice().sort(), ...(rulePrices(p) ? {pairs:pioPairs(p)} : {})} : {type:'all'})),
+    prod:p.type === 'category' ? {type:'category', category:p.category || ''} : (p.type === 'family' ? {type:'family', family:p.family || ''} : (p.type === 'product' ? {type:'product', productIds:ruleProdIds(p).slice().sort(), ...(rulePrices(p) ? {pairs:pioPairs(p)} : {}), ...(ruleTiers(p) ? {tpairs:pioTierPairs(p)} : {})} : {type:'all'})),
     kind:r.kind || '', value:Number(r.value) || 0, minQty:Number(r.minQty) || 0, maxQty:Number(r.maxQty) || 0, merge:!!r.merge, from:r.from || '', to:r.to || '', promo:!!r.promo, prio:Number(r.prio) || 0, enabled:r.enabled !== false, note:String(r.note || '')};
 }
 const PIO_RLAB = {name:'名稱', side:'適用單據', cust:'對象', prod:'商品', kind:'計價方式', value:'數值', minQty:'數量從', maxQty:'數量到', merge:'合併同系列', from:'期間起', to:'期間迄', promo:'促銷價', prio:'優先順序', enabled:'啟用', note:'備註'};
@@ -11080,7 +11264,7 @@ function pioPlanRules(text, mode){
   const C = pioCtx(), cur = S.prules, g = (r, k) => idx[k] >= 0 ? pioN(r[idx[k]]) : '', raw = (r, k) => idx[k] >= 0 ? pioRaw(r[idx[k]]) : '';
   const fileIds = new Set(rows.slice(1).map(r => g(r, 'id')).filter(Boolean)), claimed = new Set(), items = [], errors = [], skipped = [], issues = [];
   let nNew = 0, nUp = 0, nSame = 0, valid = 0, nextPrio = Math.max(0, ...Object.values(cur).map(r => Number(r.prio) || 0));
-  const sigOf = d => JSON.stringify([d.side, pioCustNorm(d.cust), d.prod.type === 'family' ? {type:'family', family:String(d.prod.family).trim().toLowerCase()} : (d.prod.type === 'product' ? {type:'product', ids:ruleProdIds(d.prod).slice().sort(), pairs:pioPairs(d.prod)} : d.prod), d.kind, d.value, d.minQty, d.maxQty, d.from, d.to]), exSig = new Map();
+  const sigOf = d => JSON.stringify([d.side, pioCustNorm(d.cust), d.prod.type === 'family' ? {type:'family', family:String(d.prod.family).trim().toLowerCase()} : (d.prod.type === 'product' ? {type:'product', ids:ruleProdIds(d.prod).slice().sort(), pairs:pioPairs(d.prod), tpairs:pioTierPairs(d.prod)} : d.prod), d.kind, d.value, d.minQty, d.maxQty, d.from, d.to]), exSig = new Map();
   for (const r of Object.values(cur)){ if (fileIds.has(r.id)) continue; const k = sigOf(pioNormRule(r)); if (!exSig.has(k)) exSig.set(k, []); exSig.get(k).push(r); }
   rows.slice(1).forEach((r, n) => {
     const line = n + 2, errs = [], warns = [], id = g(r, 'id');
@@ -11095,19 +11279,28 @@ function pioPlanRules(text, mode){
     if (!side) side = ex ? (ex.side || 'sale') : 'sale';
     const kind = pioKind(g(r, 'kind'));
     if (kind === null) errs.push('計價方式「' + raw(r, 'kind') + '」看不懂（請寫：折數（%）、折讓金額、固定單價、成本加成（%））'); else if (kind === '') errs.push('計價方式沒填');
-    const prEarly = pioProdParse(g(r, 'prodT'), raw(r, 'prodV'), C, ex && ex.prod), perPP = prEarly.v && prEarly.v.type === 'product' ? rulePrices(prEarly.v) : null;
+    const prEarly = pioProdParse(g(r, 'prodT'), raw(r, 'prodV'), C, ex && ex.prod, kind), perPP = prEarly.v && prEarly.v.type === 'product' ? rulePrices(prEarly.v) : null, perTT = prEarly.v && prEarly.v.type === 'product' ? ruleTiers(prEarly.v) : null;
     let value = 0;
-    if (perPP){
+    if (perTT){   // 各商品依數量階梯：「數值」＝所有階梯中最小的數值（舊版本讀到也不會是 0）
+      const tv = []; for (const pid of ruleProdIds(prEarly.v)) for (const t of (perTT[pid] || [])) tv.push(Number(t.value) || 0);
+      const first = Math.min(...tv); value = first;
+      if (kind && pioN(r[idx.value]) !== ''){ const pv = pioValue(kind, r[idx.value], ex); if (pv.err) errs.push(pv.err); else if (Math.abs(pv.v - first) > 1e-9) warns.push('「數值」填了 ' + pv.v + '，但「商品內容」已經寫了各商品的數量階梯，以階梯為準（數值會是所有階梯中最小的數值 ' + first + '）'); }
+    }
+    else if (perPP){
       const first = Math.min(...Object.values(perPP).map(Number)); value = first;
       if (kind && kind !== 'fixed') errs.push('商品內容寫了「料號@單價」，只有計價方式是「固定單價」才能各商品分別指定單價');
       else if (kind && pioN(r[idx.value]) !== ''){ const pv = pioValue(kind, r[idx.value], ex); if (pv.err) errs.push(pv.err); else if (Math.abs(pv.v - first) > 1e-9) warns.push('「數值」填了 ' + pv.v + '，但「商品內容」已經用「料號@單價」指定各商品的單價，以那個為準（數值會是各商品中最低的單價 ' + first + '）'); }
     }
     else if (kind){ const pv = pioValue(kind, r[idx.value], ex); if (pv.err) errs.push(pv.err); else { value = pv.v; if (pv.warn) warns.push(pv.warn); } }
     const cu = pioCustParse(g(r, 'custT'), raw(r, 'custV'), side, C, ex && ex.cust, ex && (ex.side || 'sale')); if (cu.err) errs.push(cu.err);
-    const pr = prEarly; if (pr.err) errs.push(pr.err);
+    const pr = prEarly; if (pr.err && !pr.quiet) errs.push(pr.err); (pr.warns || []).forEach(w => warns.push(w));
     const q = (k, lab) => { const v = pioNum(r[idx[k]]); if (idx[k] < 0 || v === null) return 0; if (!isFinite(v) || v < 0){ errs.push(lab + '「' + raw(r, k) + '」不是有效的數量'); return 0; } return v; };
-    const minQty = q('minQty', '數量從'), maxQty = q('maxQty', '數量到');
-    if (maxQty > 0 && maxQty < minQty) errs.push('數量「到」（' + maxQty + '）不能小於「從」（' + minQty + '）');
+    let minQty = q('minQty', '數量從'), maxQty = q('maxQty', '數量到');
+    if (perTT){   // 數量只看各商品的階梯，規則本身的「數量從／到」用不到
+      if (minQty > 0 || maxQty > 0) warns.push('「商品內容」已經寫了各商品的數量階梯，「數量從／到」不會用到，已當成 0');
+      minQty = 0; maxQty = 0;
+    }
+    else if (maxQty > 0 && maxQty < minQty) errs.push('數量「到」（' + maxQty + '）不能小於「從」（' + minQty + '）');
     const dt = k => { const v = pioDate(g(r, k)); if (v === null){ errs.push((k === 'from' ? '期間起' : '期間迄') + '「' + raw(r, k) + '」不是日期（請寫 ' + today() + '）'); return ''; } return v; };
     const from = dt('from'), to = dt('to');
     if (from && to && from > to) errs.push('期間起（' + from + '）不能晚於期間迄（' + to + '）');
@@ -11341,7 +11534,7 @@ function openPriceImport(kind){
     if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + (pl.dels.length ? '、刪除 ' + pl.dels.length : '') + ' ' + K.unit); sh.forceClose(); } else goBtn.disabled = false;
   });
   put(sh.bodyEl,
-    h('div', {class:'note', style:'margin-top:0', text:'請用「匯出」的檔案修改，或先下載範本。一列＝一' + K.unit + '。「' + (rules ? '規則編號' : '方案編號') + '」相同的列會更新那一' + K.unit + '，編號留空就是新增。' + (rules ? '檔案裡的空白＝沒有限制（期間迄空白＝一直有效、數量到空白＝以上）。折數可以寫 90、9、0.9 或 9折，都當成 9 折。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP），這幾個等級的客戶都適用同一條規則。「商品範圍」是指定商品時，「商品內容」可以填多個料號，用「、」分隔；計價方式是固定單價時，每個商品可以各自指定價格，寫成「料號@單價」（例：A001@80、A002@85，此時「數值」可以空白）。' : '組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔；任選的組合只要寫料號，指定單價才加 @價格。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP）。') + '檔案要存成 CSV（Excel：另存新檔 → CSV UTF-8）。'}),
+    h('div', {class:'note', style:'margin-top:0', text:'請用「匯出」的檔案修改，或先下載範本。一列＝一' + K.unit + '。「' + (rules ? '規則編號' : '方案編號') + '」相同的列會更新那一' + K.unit + '，編號留空就是新增。' + (rules ? '檔案裡的空白＝沒有限制（期間迄空白＝一直有效、數量到空白＝以上）。折數可以寫 90、9、0.9 或 9折，都當成 9 折。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP），這幾個等級的客戶都適用同一條規則。「商品範圍」是指定商品時，「商品內容」可以填多個料號，用「、」分隔；計價方式是固定單價時，每個商品可以各自指定價格，寫成「料號@單價」（例：A001@80、A002@85，此時「數值」可以空白）。每個商品也可以依購買數量給不同特價（任何計價方式都可以），寫成「料號@10+:90/30+:80」（10 件以上 90、30 件以上 80；「10-19:90」是 10～19 件；冒號後面是數值，依計價方式計算，折數 90 ＝ 9 折），此時「數量從／到」和「數值」可以空白。' : '組合商品寫成「料號*至少數量@優惠單價」，用「、」分隔；任選的組合只要寫料號，指定單價才加 @價格。「對象」是客戶等級時，「對象內容」可以填多個等級，用「、」分隔（例：批發、VIP）。') + '檔案要存成 CSV（Excel：另存新檔 → CSV UTF-8）。'}),
     h('div', {class:'f'}, h('label', {text:'選擇 CSV 檔'}), file),
     h('div', {class:'f'}, h('label', {text:'匯入方式'}), modeChips),
     h('div', {style:'display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px'}, h('button', {class:'btn ghost sm', 'aria-label':'先匯出目前的資料', onclick:() => openExport(K.ds())}, icon('down'), '先匯出目前的資料'), h('button', {class:'btn ghost sm', 'aria-label':'下載範本', onclick:() => saveFile(K.title + '匯入範本.csv', pioTemplate(rules ? 'rules' : 'promos'))}, '下載範本')),
