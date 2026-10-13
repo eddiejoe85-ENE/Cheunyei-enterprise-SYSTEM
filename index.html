@@ -472,9 +472,9 @@ const ICONS = {
 const S = {
   db:null, user:null, dl:null,
   me:null, meId:null, canWrite:true, isAdmin:false,
-  products:{}, partners:{}, orders:{}, payments:{}, notes:{}, counts:{}, countlines:{}, corders:{}, porders:{}, prules:{}, promos:{},
+  products:{}, partners:{}, orders:{}, payments:{}, notes:{}, counts:{}, countlines:{}, corders:{}, porders:{}, prules:{}, promos:{}, shelves:{},
   set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{}, lineorders:{}, alerts:{}, handovers:{},
-  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, promos:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
+  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, promos:false, shelves:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
   d:{stock:{}, stockW:{}, vehOdo:{}, bal:{}, alloc:{}, fill:{}, commit:{}, incoming:{}, lastSup:{}, usedP:new Set(), usedPt:new Set(), cats:[]},
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
@@ -731,7 +731,7 @@ function level(p){
   if (p.safety > 0 && s <= p.safety) return 'low';
   return 'ok';
 }
-const docCount = () => Object.keys(S.products).length + Object.keys(S.partners).length + Object.keys(S.orders).length + Object.keys(S.payments).length + Object.keys(S.notes).length + Object.keys(S.counts).length + Object.keys(S.countlines).length + Object.keys(S.corders).length + Object.keys(S.porders).length + Object.keys(S.prules).length + Object.keys(S.vehicles).length + Object.keys(S.fuellogs).length + Object.keys(S.maint).length + Object.keys(S.cashbook).length + Object.keys(S.quotes).length + Object.keys(S.closings).length + Object.keys(S.collects).length + Object.keys(S.fuelcards).length + 1;
+const docCount = () => Object.keys(S.products).length + Object.keys(S.partners).length + Object.keys(S.orders).length + Object.keys(S.payments).length + Object.keys(S.notes).length + Object.keys(S.counts).length + Object.keys(S.countlines).length + Object.keys(S.corders).length + Object.keys(S.porders).length + Object.keys(S.prules).length + Object.keys(S.vehicles).length + Object.keys(S.fuellogs).length + Object.keys(S.maint).length + Object.keys(S.cashbook).length + Object.keys(S.quotes).length + Object.keys(S.closings).length + Object.keys(S.collects).length + Object.keys(S.fuelcards).length + Object.keys(S.shelves || {}).length + 1;
 
 function summarize(from, to){
   const r = {sale:0, purchase:0, profit:0, count:0, items:{}};
@@ -1085,7 +1085,7 @@ function openProduct(id){
         gauge(p)),
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
         ...(multiWh() ? whActive().map(w => { const r = whRuleOf(p, w.id), st = stockAt(p.id, w.id); return kv(w.name, '庫存 ' + num(st) + '　安全 ' + num(r.safety) + (r.moq ? '　最小批量 ' + num(r.moq) : '') + (r.lot ? '　批量 ' + num(r.lot) : '') + (r.safety > 0 && st <= r.safety + 0.0004 ? '　⚠ 低於安全庫存' : '')); }) : []),
-        p.family ? kv('系列', p.family) : null, p.labelSpec ? kv('標籤規格', p.labelSpec) : null, shelfText(p) ? kv('架位', shelfText(p)) : null, p.barcode ? kv('條碼', p.barcode) : null, see('cost') ? kv('進價', money(p.cost || 0)) : null, kv('售價', money(p.price || 0)),
+        p.family ? kv('系列', p.family) : null, p.labelSpec ? kv('標籤規格', p.labelSpec) : null, shelfRow(p), Array.isArray(p.shelfLog) && p.shelfLog.length ? kv('架位最近調整', shelfLogTxt(p.shelfLog[0])) : null, p.barcode ? kv('條碼', p.barcode) : null, see('cost') ? kv('進價', money(p.cost || 0)) : null, kv('售價', money(p.price || 0)),
         multiWh() ? whList().map(w => kv('　' + w.name + (w.active === false ? '（停用）' : ''), num(stockAt(id, w.id)))) : null,
         kv('安全庫存', p.safety > 0 ? num(p.safety) + ' ' + (p.unit || '') : '未設定'),
         see('cost') ? kv('庫存價值', money(Math.max(s, 0) * (p.cost || 0))) : null,
@@ -1095,6 +1095,7 @@ function openProduct(id){
         kv('採購來源', p.procSrc === 'make' ? '自行生產' : '國內採購'),
         (Number(p.volume) || 0) > 0 ? kv('材積', num(p.volume) + ' 才／' + (p.unit || '單位') + ((p.dimL && p.dimW && p.dimH) ? '（' + p.dimL + '×' + p.dimW + '×' + p.dimH + ' 公分）' : '')) : null,
         p.note ? kv('備註', p.note) : null),
+      Array.isArray(p.shelfLog) && p.shelfLog.length > 1 ? h('details', {class:'fold', 'aria-label':'架位異動紀錄', style:'margin-bottom:14px'}, h('summary', {text:'架位異動紀錄（' + p.shelfLog.length + '）'}), h('div', {class:'fold-b'}, p.shelfLog.slice(0, 10).map(x => h('div', {class:'kv'}, h('span', {text:shelfLogTxt(x)}))))) : null,
       hasBom(p) ? [h('div', {class:'sec-h'}, h('h2', {text:'產品組成（BOM）'})),
         h('div', {class:'panel', style:'margin-bottom:14px'}, [...bomOf(p).map(c => { const cp = S.products[c.pid]; return h('button', {class:'row', onclick:() => openProduct(c.pid)}, h('span', null, h('b', {text:cp.name}), h('br'), h('small', {text:cp.sku + '　庫存 ' + num(stockOf(c.pid))})), h('b', {text:'× ' + num(c.qty) + ' ' + (cp.unit || '')})); }),
           h('div', {class:'row'}, h('span', {text:'目前可組成'}), h('b', {text:num(bomBuildable(p)) + ' ' + (p.unit || '')})),
@@ -1158,8 +1159,8 @@ function openProductForm(id){
   const getWhRules = () => { const out = ex && ex.whRules ? {...ex.whRules} : {}; if (multiWh()) whActive().forEach(w => { const o = {}; ['safety', 'moq', 'lot'].forEach(k => { const v = whRuleIn[w.id + '|' + k].value.trim(); if (v !== '') o[k] = toNum(v); }); if (Object.keys(o).length) out[w.id] = o; else delete out[w.id]; }); return out; };
   const labelSpecIn = h('input', {class:'in', value:ex ? ex.labelSpec || '' : '', placeholder:'例：500ml × 24 瓶／箱', 'aria-label':'標籤規格文字', autocomplete:'off'});
   const familyIn = h('input', {class:'in', value:ex ? ex.family || '' : '', placeholder:'例：經典T恤（同款不同顏色都填一樣的名稱）', 'aria-label':'系列', autocomplete:'off', list:'famList1'}), famDl = h('datalist', {id:'famList1'}, ...famList().map(f => h('option', {value:f})));
-  const shelfIn = h('input', {class:'in', value:ex ? ex.shelf || '' : '', placeholder:'例：A-03-2（走道-櫃-層）', 'aria-label':'架位', autocomplete:'off'});
-  const shelfWh = {}; if (multiWh()) whActive().filter(w => w.id !== WH_MAIN).forEach(w => { shelfWh[w.id] = h('input', {class:'in', value:(ex && ex.shelves && ex.shelves[w.id]) || '', placeholder:'沒填就用主倉庫的架位', 'aria-label':w.name + ' 架位', autocomplete:'off'}); });
+  const shelfIn = h('input', {class:'in', value:ex ? ex.shelf || '' : '', placeholder:'例：A-03-2（走道-櫃-層）', 'aria-label':'架位', autocomplete:'off', list:'shelfDl_' + WH_MAIN, style:'flex:1;min-width:0'});
+  const shelfWh = {}; if (multiWh()) whActive().filter(w => w.id !== WH_MAIN).forEach(w => { shelfWh[w.id] = h('input', {class:'in', value:(ex && ex.shelves && ex.shelves[w.id]) || '', placeholder:'沒填就用主倉庫的架位', 'aria-label':w.name + ' 架位', autocomplete:'off', list:'shelfDl_' + w.id, style:'flex:1;min-width:0'}); });
   const PH = {photo:{label:'商品', name:'產品', lid:'photoId', lth:'photoThumb', list:'pics'}, pack:{label:'包裝', name:'包裝', lid:'packId', lth:'packThumb', list:'packs'}};
   const phCur = {photo:[...prodPics(ex)], pack:[...prodPacks(ex)]}, phGone = {photo:[], pack:[]}, phPk = {}, phBox = {photo:h('div'), pack:h('div')};
   const paintPh = k => setKids(phBox[k], phCur[k].length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px'}, ...phCur[k].map((m, i) => h('div', {style:'position:relative'}, h('img', {src:m.thumb, alt:(ex ? ex.name : '') + PH[k].name + (i + 1), style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'}), h('button', {class:'ic sm', type:'button', 'aria-label':'移除' + PH[k].label + '照片 ' + (i + 1), style:'position:absolute;top:-6px;right:-6px;background:var(--panel);border:1px solid var(--line);border-radius:50%', onclick:() => { phGone[k].push(phCur[k][i]); phCur[k].splice(i, 1); paintPh(k); }}, icon('x'))))) : null, phPk[k].el);
@@ -1184,7 +1185,7 @@ function openProductForm(id){
     multiWh() ? h('details', {class:'fold', 'aria-label':'各倉庫規則', open:!!(ex && ex.whRules && Object.keys(ex.whRules).length)}, h('summary', {text:'各倉庫的安全庫存與進貨批量（工廠、營業所分開設定）'}), h('div', {class:'fold-b'}, h('p', {class:'hint', style:'margin:0 0 8px', text:'沒填的欄位，沿用上面全公司的數字。'}), ...whActive().map(w => h('div', {style:'margin-bottom:10px'}, h('b', {text:w.name}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px'}, ...['safety', 'moq', 'lot'].map((k, i) => h('div', null, h('small', {text:['安全庫存', '最小進貨批量', '進貨批量'][i]}), whRuleIn[w.id + '|' + k]))))))) : null,
     h('details', {class:'fold', open:!!(ex && ex.bom && ex.bom.length)}, h('summary', {text:'產品組成 BOM（選填，組裝／拆解用）'}), h('div', {class:'fold-b'}, f.bomEd.el)),
     fld('備註', f.note),
-    h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'標籤與揀貨資訊'})), fld('標籤規格（印在產品標籤上的文字）', labelSpecIn), fld('架位（貨架位置）' + (multiWh() ? '：' + whName(WH_MAIN) : ''), shelfIn), ...Object.entries(shelfWh).map(([k, inp]) => fld(whName(k) + ' 架位', inp)),
+    h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'標籤與揀貨資訊'})), fld('標籤規格（印在產品標籤上的文字）', labelSpecIn), fld('架位（貨架位置）' + (multiWh() ? '：' + whName(WH_MAIN) : ''), h('div', {style:'display:flex;gap:8px;align-items:center'}, shelfIn, shelfScanBtn(shelfIn, WH_MAIN))), shelfDatalist('shelfDl_' + WH_MAIN, WH_MAIN), ...Object.entries(shelfWh).map(([k, inp]) => [fld(whName(k) + ' 架位', h('div', {style:'display:flex;gap:8px;align-items:center'}, inp, shelfScanBtn(inp, k))), shelfDatalist('shelfDl_' + k, k)]),
     h('div', {class:'f'}, h('label', {text:'產品照片（商品本身，最多 ' + PROD_PH_MAX + ' 張；揀貨時顯示）'}), phBox.photo),
     h('div', {class:'f'}, h('label', {text:'包裝照片（外箱、包裝袋、標籤，最多 ' + PROD_PH_MAX + ' 張；揀貨時和產品照片一起顯示）'}), phBox.pack),
     ex ? h('label', {class:'check'}, f.active, '啟用（取消勾選代表停用，不會出現在開單搜尋）') : null,
@@ -1200,7 +1201,7 @@ function openProductForm(id){
     if (dup) return toast('料號或條碼已被「' + dup.name + '」使用');
     const bm = f.bomEd.get(); if (bm.err) return toast(bm.err);
     const data = {sku, barcode, supplierId:f.supplier.value, bom:bm.bom, name, category:f.category.value.trim(), unit:f.unit.value.trim() || '個',
-      cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:Math.max(toNum(f.dimL.value), 0), dimW:Math.max(toNum(f.dimW.value), 0), dimH:Math.max(toNum(f.dimH.value), 0), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), family:familyIn.value.trim(), shelf:shelfIn.value.trim(), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = shelfWh[k].value.trim(); if (v) a[k] = v; return a; }, {})};
+      cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:Math.max(toNum(f.dimL.value), 0), dimW:Math.max(toNum(f.dimW.value), 0), dimH:Math.max(toNum(f.dimH.value), 0), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), family:familyIn.value.trim(), shelf:normShelf(shelfIn.value), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = normShelf(shelfWh[k].value); if (v) a[k] = v; return a; }, {})};
     saving = true; saveBtn.disabled = true;
     const ok = await run(async () => {
       const photoPatch = {};
@@ -1209,7 +1210,7 @@ function openProductForm(id){
           const fin = [...phCur[k], ...add].map(m => ({id:m.id, thumb:m.thumb, name:m.name || '', at:m.at || Date.now()}));
           photoPatch[P.list] = fin; photoPatch[P.lid] = fin[0] ? fin[0].id : ''; photoPatch[P.lth] = fin[0] ? fin[0].thumb : '';
           const gone = phGone[k].map(m => m.id).filter(Boolean); if (gone.length) deletePhotoDocs(gone); } }
-      if (ex){ await S.db.doc('products/' + id).update({...data, ...photoPatch, active:f.active.checked}); }
+      if (ex){ const slog = shelfFormLog(ex, data); await S.db.doc('products/' + id).update({...data, ...photoPatch, ...(slog ? {shelfLog:slog} : {}), active:f.active.checked}); }
       else {
         const ref = S.db.collection('products').doc();
         await ref.set({...data, ...photoPatch, active:true, createdBy:S.meId, createdAt:Date.now()});
@@ -6577,9 +6578,9 @@ function openKeys(){
    ② 全部清除（含商品、客戶、供應商、人員、設定），只留登入帳號和角色權限，讓系統回到空白。
    一定要先下載備份、輸入確認字、等倒數，才能按最後的按鈕。刪掉就拿不回來（只能用備份還原）。 */
 const WIPE_TX = ['orders', 'corders', 'porders', 'payments', 'notes', 'collects', 'cashbook', 'counts', 'countlines', 'returns', 'quotes', 'closings', 'locks', 'expdocs', 'moves', 'trips', 'fuellogs', 'maint', 'derrors', 'attdays', 'leaves', 'payroll', 'displans', 'lineorders', 'handovers'];
-const WIPE_MASTER = ['products', 'partners', 'prules', 'promos', 'vehicles', 'fuelcards', 'employees'];
+const WIPE_MASTER = ['products', 'partners', 'prules', 'promos', 'vehicles', 'fuelcards', 'employees', 'shelves'];
 const WIPE_SMALL = ['lineoutbox', 'picks', 'printjobs', 'printstations', 'timecheck'];
-const WIPE_NAME = {orders:'銷貨／進貨／調整單據', corders:'客戶訂單', porders:'採購單', payments:'收款付款', notes:'票據', collects:'代收單', cashbook:'零用金', counts:'盤點', countlines:'盤點明細', returns:'退貨處理', quotes:'報價單', closings:'庫存關帳', locks:'期間封存', expdocs:'費用單據', moves:'轉倉', trips:'出車', fuellogs:'加油紀錄', maint:'保養維修', derrors:'配送異常', attdays:'考勤打卡', leaves:'請假', payroll:'薪資', displans:'陳列方案', lineorders:'LINE 訂單', handovers:'現金票據簽收', products:'商品', partners:'客戶與供應商', prules:'價格規則', promos:'組合優惠與買送', vehicles:'車輛', fuelcards:'油卡', employees:'人員', lineoutbox:'LINE 待發訊息', picks:'揀貨紀錄', printjobs:'列印工作', printstations:'列印站', timecheck:'時間校對', photos:'照片', attphotos:'打卡照片', linephotos:'LINE 圖片', counters:'單據流水號'};
+const WIPE_NAME = {orders:'銷貨／進貨／調整單據', corders:'客戶訂單', porders:'採購單', payments:'收款付款', notes:'票據', collects:'代收單', cashbook:'零用金', counts:'盤點', countlines:'盤點明細', returns:'退貨處理', quotes:'報價單', closings:'庫存關帳', locks:'期間封存', expdocs:'費用單據', moves:'轉倉', trips:'出車', fuellogs:'加油紀錄', maint:'保養維修', derrors:'配送異常', attdays:'考勤打卡', leaves:'請假', payroll:'薪資', displans:'陳列方案', lineorders:'LINE 訂單', handovers:'現金票據簽收', products:'商品', partners:'客戶與供應商', prules:'價格規則', promos:'組合優惠與買送', vehicles:'車輛', fuelcards:'油卡', employees:'人員', shelves:'架位', lineoutbox:'LINE 待發訊息', picks:'揀貨紀錄', printjobs:'列印工作', printstations:'列印站', timecheck:'時間校對', photos:'照片', attphotos:'打卡照片', linephotos:'LINE 圖片', counters:'單據流水號'};
 const WIPE_PHRASE = {tx:'清除交易資料', all:'刪除全部資料'};
 function wipeListSmall(coll){
   return new Promise(res => { let un = null, done = false; const fin = ids => { if (done) return; done = true; try { if (un) un(); } catch (_) {} res(ids); }; try { un = S.db.collection(coll).onSnapshot(sn => fin(sn.docs.map(d => d.id)), () => fin([])); } catch (_) { fin([]); } setTimeout(() => fin([]), 6000); });
@@ -7280,16 +7281,711 @@ function openShelfEditor(){
   if (!S.isAdmin) return toast('只有管理員可以設定架位');
   const U = {q:'', wh:WH_MAIN, empty:false}, sh = sheet({title:'架位設定'}), box = h('div');
   const val = p => U.wh === WH_MAIN ? String(p.shelf || '') : String((p.shelves && p.shelves[U.wh]) || '');
-  const save = async (p, v) => { v = v.trim(); await run(async () => { await S.db.doc('products/' + p.id).update(U.wh === WH_MAIN ? {shelf:v} : {shelves:{...(p.shelves || {}), [U.wh]:v}}); return true; }); };
-  const fill = () => { const q = U.q.trim().toLowerCase(), list = activeProducts().sort(cmpSku).filter(p => (!q || (p.name + ' ' + p.sku).toLowerCase().includes(q)) && (!U.empty || !val(p))).slice(0, 150);
+  const save = async (p, v) => { v = v.trim(); if (v === String(val(p)).trim()) return; await run(async () => { await S.db.doc('products/' + p.id).update(shelfPatch(p, U.wh, v)); return true; }); };
+  const dlBox = h('span');
+  const fill = () => { setKids(dlBox, shelfDatalist('shelfDl_ed', U.wh)); const q = U.q.trim().toLowerCase(), list = activeProducts().sort(cmpSku).filter(p => (!q || (p.name + ' ' + p.sku).toLowerCase().includes(q)) && (!U.empty || !val(p))).slice(0, 150);
     setKids(box, list.length ? h('div', {class:'panel'}, list.map(p => h('div', {class:'row', style:'align-items:center'}, h('span', {style:'min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku + (prodPics(p).length || prodPacks(p).length ? '　有照片' : '')})),
-      h('input', {class:'in', value:val(p), placeholder:'例：A-03-2', 'aria-label':'架位 ' + p.sku, autocomplete:'off', style:'width:120px;height:38px;text-align:center', onfocus:e => e.target.select(), onchange:e => save(p, e.target.value)})))) : h('div', {class:'panel empty', text:'沒有符合的商品'})); };
+      h('input', {class:'in', value:val(p), placeholder:'例：A-03-2', 'aria-label':'架位 ' + p.sku, autocomplete:'off', list:'shelfDl_ed', style:'width:120px;height:38px;text-align:center', onfocus:e => e.target.select(), onchange:e => save(p, e.target.value)})))) : h('div', {class:'panel empty', text:'沒有符合的商品'})); };
   put(sh.bodyEl, h('p', {class:'note', text:'每個商品填一個貨架位置，揀貨時會依架位順序排列，並念給你聽。改完直接換下一格，會自動儲存。'}),
+    h('div', {class:'btns', style:'margin:0 0 8px'}, h('button', {class:'btn ghost sm', 'aria-label':'改用掃描調整', onclick:() => { sh.forceClose(); openShelfAdjust(); }}, '改用掃描調整（掃架位標籤＋商品條碼）'), h('button', {class:'btn ghost sm', 'aria-label':'前往架位管理', onclick:() => { sh.forceClose(); openShelfMgmt(); }}, '架位管理（建立架位、列印標籤）')), dlBox,
     multiWh() ? h('div', {class:'f'}, h('label', {text:'設定哪個倉庫的架位'}), (() => { const s2 = h('select', {class:'in', 'aria-label':'倉庫', onchange:e => { U.wh = e.target.value; fill(); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s2.value = U.wh; return s2; })()) : null,
     h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋品名或料號', autocomplete:'off', 'aria-label':'搜尋商品', oninput:e => { U.q = e.target.value; fill(); }})),
     h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'只看還沒填架位的', onchange:e => { U.empty = e.target.checked; fill(); }}), '只列出還沒填架位的商品'), h('div', {style:'height:6px'}), box);
   fill();
 }
+/* ================= 架位管理：架位資料、QR Code 標籤、掃描調整商品架位 =================
+   架位資料放在 shelves 集合（一個架位一份文件，文件代號＝倉庫代號＋架位代碼，同一個倉庫不會有兩個一樣的代碼）：
+     {code, wh, note, active, createdAt, createdBy}
+   商品放在哪個架位，仍然是商品資料裡的 shelf（主倉庫）、shelves[倉庫代號]（其他倉庫），揀貨、循環盤點照舊用它排順序。
+   每次調整架位，另外記在商品的 shelfLog（最近 20 筆：時間、誰、哪個倉庫、從哪裡到哪裡）。
+   架位標籤的 QR Code 內容：主倉庫是「LOC|架位代碼」，其他倉庫是「LOC|倉庫代號|架位代碼」（前面的 LOC| 用來和商品條碼分開）。 */
+const SHELF_MAXLEN = 40, SHELF_LOG_MAX = 20, SHELF_GEN_MAX = 2000;
+/* 架位代碼的「寫法」整理：全形轉半形、各種橫線換成 -、多餘空白拿掉。比對時再轉大寫（a-03 和 A-03 是同一個架位） */
+const normShelf = s => String(s == null ? '' : s).normalize('NFKC').replace(/[‐-―−﹘﹣－]/g, '-').replace(/\s+/g, ' ').trim();
+const shelfKey = s => normShelf(s).toUpperCase();
+const shelfId = (wh, code) => { const k = shelfKey(code); let e; try { e = encodeURIComponent(k); } catch (_) { e = k.replace(/[^\w-]/g, c => '%' + c.charCodeAt(0).toString(16)); } return (wh || WH_MAIN) + '__' + e; };
+function shelfCodeErr(code){
+  const c = normShelf(code);
+  if (!c) return '請輸入架位代碼';
+  if (c.length > SHELF_MAXLEN) return '架位代碼太長（最多 ' + SHELF_MAXLEN + ' 個字）';
+  if (/[|\u0000-\u001f]/.test(c)) return '架位代碼不能有「|」符號';
+  return '';
+}
+const shelfQR = s => 'LOC|' + ((s.wh || WH_MAIN) === WH_MAIN ? '' : s.wh + '|') + normShelf(s.code);
+/* 掃到的文字是不是架位標籤：LOC|A27-2、LOC|倉庫代號|A27-2。不是就回傳 null（商品條碼、單號都不是） */
+function parseShelfQR(t){
+  const x = String(t == null ? '' : t).trim();
+  if (!/^LOC\|/i.test(x)) return null;
+  const parts = x.split('|').slice(1);
+  const code = normShelf(parts.length > 1 ? parts.slice(1).join('|') : parts[0]), wh = parts.length > 1 ? (parts[0].trim() || WH_MAIN) : WH_MAIN;
+  return code ? {wh, code} : null;
+}
+const shelfDocs = wh => Object.values(S.shelves || {}).filter(s => !wh || (s.wh || WH_MAIN) === wh).sort((a, b) => shelfCmp(a.code, b.code));
+const shelfFind = (wh, code) => (S.shelves || {})[shelfId(wh, code)] || null;
+/* 商品在這個倉庫「明確填了」的架位（其他倉庫沒填時揀貨會沿用主倉庫的架位，這裡不算） */
+const shelfExplicit = (p, wid) => !p ? '' : normShelf(!wid || wid === WH_MAIN ? p.shelf : (p.shelves || {})[wid]);
+/* 每個架位上有哪些商品：Map(倉庫|大寫代碼 → {wh, code, list})。商品資料沒變就不重算 */
+let shelfUseCache = {src:null, map:null};
+function shelfUsage(){
+  if (shelfUseCache.src === S.products && shelfUseCache.map) return shelfUseCache.map;
+  const map = new Map();
+  for (const p of Object.values(S.products || {})){
+    const add = (wh, v) => { const c = normShelf(v); if (!c) return; const k = wh + '|' + shelfKey(c); let e = map.get(k); if (!e){ e = {wh, code:c, list:[]}; map.set(k, e); } e.list.push(p); };
+    add(WH_MAIN, p.shelf);
+    for (const [wid, v] of Object.entries(p.shelves || {})) if (wid !== WH_MAIN) add(wid, v);
+  }
+  shelfUseCache = {src:S.products, map};
+  return map;
+}
+const shelfProducts = (wh, code, all) => { const e = shelfUsage().get((wh || WH_MAIN) + '|' + shelfKey(code)); const l = e ? e.list : []; return (all ? l : l.filter(p => p.active !== false)).slice().sort(cmpSku); };
+/* 商品資料裡有填、但架位清單裡還沒建立的架位（只算啟用中的商品） */
+function shelfUnregistered(wh){
+  const out = [];
+  for (const [k, e] of shelfUsage()){
+    if (wh && e.wh !== wh) continue;
+    if (shelfFind(e.wh, e.code)) continue;
+    const n = e.list.filter(p => p.active !== false).length; if (!n) continue;
+    out.push({wh:e.wh, code:e.code, n});
+  }
+  return out.sort((a, b) => shelfCmp(a.code, b.code));
+}
+/* 改架位時要一起寫進商品的欄位：新架位＋異動紀錄（最近 20 筆，新的在前） */
+function shelfPatch(p, wid, to){
+  wid = wid || WH_MAIN; to = normShelf(to);
+  const from = shelfExplicit(p, wid), log = [{at:Date.now(), by:S.meId || null, name:myName(), wh:wid, from, to}, ...(Array.isArray(p.shelfLog) ? p.shelfLog : [])].slice(0, SHELF_LOG_MAX);
+  if (wid === WH_MAIN) return {shelf:to, shelfLog:log};
+  const sv = {...(p.shelves || {})}; if (to) sv[wid] = to; else delete sv[wid];
+  return {shelves:sv, shelfLog:log};
+}
+/* 商品資料表單存檔時，架位有變動就一起記進異動紀錄：回傳新的 shelfLog；沒有變動回傳 null */
+function shelfFormLog(p, data){
+  const ents = [], chk = (wid, to) => { const from = shelfExplicit(p, wid); to = normShelf(to); if (shelfKey(from) !== shelfKey(to)) ents.push({at:Date.now(), by:S.meId || null, name:myName(), wh:wid, from, to}); };
+  chk(WH_MAIN, data.shelf);
+  new Set([...Object.keys(data.shelves || {}), ...Object.keys(p.shelves || {})]).forEach(wid => { if (wid !== WH_MAIN) chk(wid, (data.shelves || {})[wid]); });
+  return ents.length ? [...ents, ...(Array.isArray(p.shelfLog) ? p.shelfLog : [])].slice(0, SHELF_LOG_MAX) : null;
+}
+const canShelf = () => S.canWrite && (S.isAdmin || can('stock'));
+/* 商品頁的「架位」那一列：顯示目前架位；有權限的人旁邊多一顆「調整」（沒有架位的商品也能從這裡開始設定） */
+function shelfRow(p){
+  const txt = shelfText(p), canAdj = canShelf() && p.active !== false;
+  if (!txt && !canAdj) return null;
+  const row = kv('架位', h('span', {style:'display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap'},
+    txt ? h('span', {text:txt}) : h('span', {style:'color:var(--ink3)', text:'（未設定）'}),
+    canAdj ? h('button', {class:'btn ghost sm', 'aria-label':'調整架位', onclick:() => openShelfAdjust({pid:p.id})}, '調整') : null));
+  row.style.alignItems = 'center';
+  return row;
+}
+/* 寫入商品或架位時的錯誤提示：沒有權限時說清楚原因 */
+async function shelfRun(fn, what){
+  try { return await fn(); }
+  catch (e) {
+    console.error(e);
+    const c = e && e.code;
+    toast(c === 'permission_denied' ? (what === 'shelf' ? '沒有權限修改架位資料，請用管理員或有庫存權限的帳號操作。' : '沒有權限修改商品的架位。目前只有管理員帳號可以改商品資料；要讓倉管帳號也能調整架位，請管理員依說明更新 Firestore 規則。') : errMsg(e));
+    if (/already been terminated/i.test(String((e && e.message) || ''))) offerReload();
+    return undefined;
+  }
+}
+
+/* ---- 批次產生架位：用格式一次展開 ----
+   大括號裡是範圍或清單，大括號外面的字原樣保留。例：
+     A{1-30}-{1-3}       → A1-1、A1-2、A1-3、A2-1 … A30-3（90 個）
+     {A-C}{01-10}-{1-4}  → A01-1 … C10-4（120 個，01 這樣開頭是 0 的範圍會補零）
+     A{001-120}          → A001 … A120
+     {A,B,E}-{1-5}       → A-1 … E-5 */
+function shelfGroup(inner){
+  const toks = inner.split(/[,，、;；]+/).map(x => x.trim()).filter(Boolean);
+  if (!toks.length) return {err:'「{ }」裡面是空的（例：{1-10}、{A-C}、{A,B,E}）'};
+  const out = [];
+  for (const tk of toks){
+    let m = tk.match(/^(\d+)\s*[-~]\s*(\d+)$/);
+    if (m){
+      const a = parseInt(m[1], 10), b = parseInt(m[2], 10), w = m[1].length > 1 && m[1][0] === '0' ? m[1].length : 0;
+      if (b < a) return {err:'範圍「' + tk + '」後面的數字比前面的小'};
+      if (b - a + 1 > SHELF_GEN_MAX) return {err:'範圍「' + tk + '」太大，一次最多 ' + SHELF_GEN_MAX + ' 個'};
+      for (let n = a; n <= b; n++) out.push(String(n).padStart(w, '0'));
+      continue;
+    }
+    m = tk.match(/^([A-Za-z])\s*[-~]\s*([A-Za-z])$/);
+    if (m){
+      const a = m[1].charCodeAt(0), b = m[2].charCodeAt(0);
+      if ((a < 97) !== (b < 97)) return {err:'字母範圍「' + tk + '」要同為大寫或同為小寫'};
+      if (b < a) return {err:'範圍「' + tk + '」後面的字母排在前面的前面'};
+      for (let c = a; c <= b; c++) out.push(String.fromCharCode(c));
+      continue;
+    }
+    out.push(tk);
+  }
+  return {list:out};
+}
+function shelfExpand(tpl){
+  const t = String(tpl == null ? '' : tpl).normalize('NFKC').replace(/[‐-―−﹘﹣]/g, '-').trim();
+  if (!t) return {err:'請輸入架位格式'};
+  const parts = []; let i = 0;
+  while (i < t.length){
+    const o = t.indexOf('{', i), c = t.indexOf('}', i);
+    if (c >= 0 && (o < 0 || c < o)) return {err:'格式裡的「}」前面少了「{」'};
+    if (o < 0){ parts.push([t.slice(i)]); break; }
+    if (o > i) parts.push([t.slice(i, o)]);
+    const e = t.indexOf('}', o + 1);
+    if (e < 0) return {err:'格式裡的「{」後面少了「}」'};
+    const inner = t.slice(o + 1, e);
+    if (inner.indexOf('{') >= 0) return {err:'「{ }」裡面不能再放「{」'};
+    const g = shelfGroup(inner); if (g.err) return g;
+    parts.push(g.list); i = e + 1;
+  }
+  let total = 1;
+  for (const p of parts){ total *= p.length; if (total > SHELF_GEN_MAX) return {err:'一次最多產生 ' + SHELF_GEN_MAX + ' 個架位，這個格式會產生更多，請分成幾次建立'}; }
+  let codes = ['']; for (const p of parts){ const nx = []; for (const a of codes) for (const b of p) nx.push(a + b); codes = nx; }
+  return shelfCodes(codes);
+}
+/* 一串代碼（格式展開的結果、貼上的清單）整理成可以建立的架位：每個都檢查，同樣的只留第一個 */
+function shelfCodes(list){
+  const seen = new Set(), codes = [];
+  for (const raw of list){
+    const c = normShelf(raw); if (!c) continue;
+    const er = shelfCodeErr(c); if (er) return {err:'「' + c.slice(0, 20) + (c.length > 20 ? '…' : '') + '」：' + er};
+    const k = shelfKey(c); if (seen.has(k)) continue; seen.add(k); codes.push(c);
+  }
+  if (!codes.length) return {err:'沒有可以建立的架位'};
+  if (codes.length > SHELF_GEN_MAX) return {err:'一次最多建立 ' + SHELF_GEN_MAX + ' 個架位，請分成幾次'};
+  return {codes};
+}
+
+/* ---- 監聽架位資料（開啟系統時載入一次，之後有人新增、改動會即時更新） ---- */
+function watchShelves(db){
+  db.collection('shelves').onSnapshot(snap => {
+    const m = {}; snap.docs.forEach(d => { m[d.id] = {...d.data(), id:d.id}; });
+    S.shelves = m; S.loaded.shelves = true; render('shelves');
+  }, e => { console.error(e); S.shelvesErr = e; S.loaded.shelves = true; render('shelves'); });
+}
+/* 商品資料、架位設定裡填架位用：輸入時列出架位清單的建議（datalist），旁邊的「掃描」可以直接掃貨架上的標籤 */
+const shelfDatalist = (id, wid) => h('datalist', {id}, ...shelfDocs(wid || WH_MAIN).filter(s => s.active !== false).map(s => h('option', {value:s.code}, s.note || '')));
+const shelfScanBtn = (inp, wid) => h('button', {class:'btn ghost sm', type:'button', 'aria-label':'掃描架位標籤', style:'flex:none', onclick:() => openCamera((c, close) => {
+  const q = parseShelfQR(c); if (!q) return {ok:false, msg:'這不是架位標籤（要掃貨架上的架位 QR Code）'};
+  if (q.wh !== (wid || WH_MAIN)) return {ok:false, msg:'這是「' + whName(q.wh) + '」的架位，這一欄是「' + whName(wid || WH_MAIN) + '」'};
+  inp.value = q.code; inp.dispatchEvent(new Event('change', {bubbles:true})); close(); toast('架位 ' + q.code);
+  return {ok:true, msg:q.code};
+})}, '掃描');
+
+/* 商品異動紀錄的一行：6/7 14:30　小王：A27-2 → B03-1 */
+const shelfLogTxt = x => fmtDT(x.at) + (x.name ? '　' + x.name : '') + '：' + (multiWh() && x.wh ? whName(x.wh) + ' ' : '') + (x.from || '（無）') + ' → ' + (x.to || '（移出）');
+
+
+/* ---- 架位標籤（QR Code）：沿用「產品標籤」的紙張規格和列印流程 ---- */
+const SLABEL_KEY = 'shelfLabelPrefs1', SLABEL_DEF = {preset:'r60x40', w:60, h:40, layout:'left', fs:1, skip:0, copies:1, showWh:true, showNote:true};
+const loadShelfLabelPrefs = () => { try { return {...SLABEL_DEF, ...JSON.parse(localStorage.getItem(SLABEL_KEY) || '{}')}; } catch (_) { return {...SLABEL_DEF}; } };
+const saveShelfLabelPrefs = c => { try { localStorage.setItem(SLABEL_KEY, JSON.stringify(c)); } catch (_) {} };
+/* 估算一段字有幾個字寬（中日韓字 1 個字寬；英文、數字比較窄），用來把架位代碼放到最大又不會被切掉 */
+const shelfUnits = str => { let u = 0; for (const ch of String(str)) u += /[⺀-鿿가-힯豈-﫿︰-﹏＀-￯]/.test(ch) ? 1.05 : ch === '-' ? 0.45 : /[A-Z]/.test(ch) ? 0.74 : /[0-9]/.test(ch) ? 0.64 : /[a-z]/.test(ch) ? 0.6 : 0.7; return u; };
+/* list：架位文件的陣列；cfg：標籤設定（紙張、版面、字體、張數…）；opt：{preview, standalone} */
+function shelfLabelHTML(list, cfg, opt){
+  opt = opt || {};
+  const sp = labelSpec(cfg), sheetMode = !!sp.cols, e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+  const w = sp.w, hh = sp.h, pad = Math.max(1, Math.min(2, hh * 0.05)), left = cfg.layout !== 'top', mult = [0.85, 1, 1.2][Math.min(Math.max(Number(cfg.fs) || 0, 0), 2)];
+  const q = left ? Math.min(hh - 2 * pad, Math.max(w * 0.42, 12)) : Math.min(w - 2 * pad, hh * 0.52);
+  const textH = left ? hh - 2 * pad : hh - 2 * pad - q - pad, textW = Math.max(left ? w - q - 3 * pad : w - 2 * pad, 8);
+  const sfs = Math.round(Math.min(Math.max(hh * 0.15, 5.5), 10) * 10) / 10, maxFs = Math.max(hh * 0.95 * mult, 8), multi = multiWh();
+  const one = s => {
+    const code = normShelf(s.code), note = cfg.showNote !== false ? String(s.note || '').trim() : '', wn = cfg.showWh !== false && multi ? whName(s.wh) : '';
+    const small = (wn ? 1 : 0) + (note ? 1 : 0), availH = textH - (small ? small * sfs * 0.3528 * 1.25 + 1 : 0);
+    let lines = [code], fs = Math.min(maxFs, textW / (shelfUnits(code) * 0.3528), availH / (0.3528 * 1.1));
+    if (fs < 14 && code.indexOf('-') > 0){   // 代碼很長：在橫線的地方折成兩行，字可以大一點
+      let best = null;
+      for (let i = code.indexOf('-'); i >= 0; i = code.indexOf('-', i + 1)){ const a = code.slice(0, i + 1), b = code.slice(i + 1); if (!b) continue; const u = Math.max(shelfUnits(a), shelfUnits(b)); if (!best || u < best.u) best = {a, b, u}; }
+      if (best){ const f2 = Math.min(maxFs, textW / (best.u * 0.3528), availH / (0.3528 * 1.1 * 2)); if (f2 > fs * 1.15){ lines = [best.a, best.b]; fs = f2; } }
+    }
+    fs = Math.round(Math.max(fs, 6) * 10) / 10;
+    return '<div class="lb' + (left ? '' : ' top') + '"><div class="q">' + qrSvg(shelfQR(s), Math.round(q * 100) / 100, 'M') + '</div><div class="t"><div class="tc">' + (wn ? '<div class="wn">' + e(wn) + '</div>' : '') + '<div class="cd" style="font-size:' + fs + 'pt">' + lines.map(e).join('<br>') + '</div>' + (note ? '<div class="nt">' + e(note) + '</div>' : '') + '</div></div></div>';
+  };
+  const copies = Math.max(1, Math.min(Math.round(Number(cfg.copies) || 1), 20)), flat = [];
+  list.forEach(s => { for (let i = 0; i < copies; i++) flat.push(s); });
+  const css = '*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.lb{position:relative;width:' + w + 'mm;height:' + hh + 'mm;overflow:hidden;background:#fff;page-break-inside:avoid;break-inside:avoid}' +
+    '.q{position:absolute;width:' + q + 'mm;height:' + q + 'mm;' + (left ? 'left:' + pad + 'mm;top:' + Math.round((hh - q) / 2 * 100) / 100 + 'mm' : 'left:' + Math.round((w - q) / 2 * 100) / 100 + 'mm;top:' + pad + 'mm') + '}.q svg{display:block;width:100%;height:100%}' +
+    '.t{position:absolute;display:table;table-layout:fixed;width:' + Math.round(textW * 100) / 100 + 'mm;height:' + Math.round(textH * 100) / 100 + 'mm;' + (left ? 'left:' + Math.round((pad * 2 + q) * 100) / 100 + 'mm;top:' + pad + 'mm' : 'left:' + pad + 'mm;top:' + Math.round((pad * 2 + q) * 100) / 100 + 'mm;text-align:center') + '}.tc{display:table-cell;vertical-align:middle;height:' + Math.round(textH * 100) / 100 + 'mm}' +
+    '.cd{font-weight:800;line-height:1.1;white-space:nowrap;overflow:hidden}.wn,.nt{font-weight:600;font-size:' + sfs + 'pt;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wn{margin-bottom:.4mm}.nt{margin-top:.4mm}';
+  let pages = '', pageCss;
+  if (sheetMode){
+    const gx = sp.gx || 0, gy = sp.gy || 0, lm = Math.round((210 - sp.cols * w - (sp.cols - 1) * gx) / 2 * 100) / 100, tm = Math.round((297 - sp.rows * hh - (sp.rows - 1) * gy) / 2 * 100) / 100, per = sp.cols * sp.rows;
+    const cells = [...new Array(Math.max(0, Number(cfg.skip) || 0)).fill(null), ...flat];
+    pageCss = '@page{size:210mm 297mm;margin:0}.pg{width:210mm;height:297mm;padding:' + tm + 'mm 0 0 ' + lm + 'mm;display:grid;grid-template-columns:repeat(' + sp.cols + ',' + w + 'mm);grid-auto-rows:' + hh + 'mm;column-gap:' + gx + 'mm;row-gap:' + gy + 'mm;align-content:start;justify-content:start;overflow:hidden;page-break-after:always;break-after:page}.pg:last-child{page-break-after:auto;break-after:auto}';
+    for (let i = 0; i < cells.length || i === 0; i += per) pages += '<div class="pg">' + cells.slice(i, i + per).map(s => s ? one(s) : '<div></div>').join('') + '</div>';
+  } else {
+    pageCss = '@page{size:' + w + 'mm ' + hh + 'mm;margin:0}.lb{page-break-after:always;break-after:page}.lb:last-child{page-break-after:auto;break-after:auto}';
+    pages = flat.map(one).join('');
+  }
+  const scr = opt.preview ? '@media screen{body{background:#e6e9ed;padding:8px;' + (sheetMode ? '' : 'zoom:' + Math.round(labelPreviewZoom(sp) * 1000) / 1000 + ';') + '}.lb{outline:.3mm dashed #999;margin:0 0 3mm}.pg{background:#fff;margin:0 auto 6mm;box-shadow:0 0 3px #888;zoom:.45}.pg .lb{outline:.2mm dashed #ccc;margin:0}}' : '@media screen{body{background:#dfe3e8}.lb{margin:0 auto 3mm}}';
+  return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>架位標籤</title><style>' + css + pageCss + scr + '@media print{.bar{display:none!important}}</style></head><body>' +
+    (opt.standalone ? '<div class="bar" style="position:fixed;right:8px;top:8px;z-index:9;font:14px sans-serif"><button onclick="window.print()">列印</button></div>' : '') + pages + '</body></html>';
+}
+const shelfQrEl = (s, mm) => { const d = h('div', {class:'shelf-qr', 'aria-label':'架位 QR Code ' + s.code, style:'background:#fff;padding:6px;border-radius:10px;display:inline-block;line-height:0;border:1px solid var(--line)'}); d.innerHTML = qrSvg(shelfQR(s), mm, 'M'); return d; };
+
+/* 列印架位標籤。pre：{ids:[先勾選的架位], wh:倉庫} */
+function openShelfLabelPrint(pre){
+  pre = pre || {};
+  if (!(S.isAdmin || can('stock') || can('print'))) return toast('你的角色沒有這項操作的權限');
+  const cfg = loadShelfLabelPrefs(), st = {sel:new Set((pre.ids || []).filter(id => (S.shelves || {})[id])), q:'', wh:pre.wh !== undefined ? pre.wh : '', off:false, max:120};
+  const sh = sheet({title:'列印架位標籤'}), listBox = h('div'), sumBox = h('div'), prevBox = h('div'), setBox = h('div');
+  const pool = () => { const q = st.q.trim().toLowerCase(); return shelfDocs(st.wh).filter(s => (st.off || s.active !== false) && (!q || (s.code + ' ' + (s.note || '')).toLowerCase().includes(q))); };
+  const chosen = () => shelfDocs('').filter(s => st.sel.has(s.id));
+  const upd = () => {
+    saveShelfLabelPrefs(cfg);
+    const it = chosen(), n = it.length * Math.max(1, Math.min(Math.round(Number(cfg.copies) || 1), 20)), sp = labelSpec(cfg);
+    setKids(sumBox, h('div', {class:'panel pad'}, kv('已選架位', it.length + ' 個'), kv('標籤張數', n + ' 張'), sp.cols ? kv('A4 貼紙頁數', Math.max(Math.ceil((n + (Number(cfg.skip) || 0)) / (sp.cols * sp.rows)), n ? 1 : 0) + ' 頁') : kv('規格', sp.w + '×' + sp.h + ' mm 捲筒')));
+    const pv = it.slice(0, 3);
+    setKids(prevBox, pv.length ? h('iframe', {title:'標籤預覽', style:'width:100%;height:' + (sp.cols ? 180 : Math.min(Math.max(sp.h * 3.6 * labelPreviewZoom(sp) * Math.min(pv.length, 2) + 30, 140), 340)) + 'px;border:1px solid var(--line);border-radius:10px;background:#fff', srcdoc:shelfLabelHTML(pv, {...cfg, copies:1}, {preview:true})}) : h('div', {class:'panel empty', text:'先在上面勾選架位，這裡會顯示標籤的樣子'}));
+    goBtn.disabled = !n; goBtn.textContent = n ? '列印標籤（' + n + ' 張）' : '列印標籤';
+  };
+  const fillList = () => {
+    const all = pool(), list = all.slice(0, st.max);
+    setKids(listBox, list.length ? h('div', {class:'panel', 'aria-label':'架位清單', style:'max-height:52vh;overflow-y:auto'}, list.map(s => { const on = st.sel.has(s.id), n = shelfProducts(s.wh, s.code).length;
+      return h('button', {class:'row', style:'text-align:left', 'aria-pressed':on, 'aria-label':'選取架位 ' + s.code + (multiWh() ? ' ' + whName(s.wh) : ''), onclick:() => { if (on) st.sel.delete(s.id); else st.sel.add(s.id); fillList(); upd(); }},
+        h('span', {style:'min-width:0'}, h('b', {text:(on ? '☑ ' : '☐ ') + s.code}), s.active === false ? h('span', {class:'pill', style:'margin-left:6px', text:'已停用'}) : null, h('br'), h('small', {text:(multiWh() ? whName(s.wh) + '　' : '') + (s.note || '') + (s.note ? '　' : '') + n + ' 項商品'}))); }),
+      all.length > list.length ? h('button', {class:'row', 'aria-label':'顯示更多架位', onclick:() => { st.max += 120; fillList(); }}, h('span', {text:'還有 ' + (all.length - list.length) + ' 個，點這裡顯示更多'})) : null) : h('div', {class:'panel empty', text:shelfDocs('').length ? '沒有符合的架位' : '還沒有建立架位，請先到「架位管理」新增或批次產生'}));
+  };
+  const sel = (opts, cur, on, aria) => { const s = h('select', {class:'in', 'aria-label':aria, onchange:e => on(e.target.value)}, ...opts.map(([v, t]) => h('option', {value:v, text:t}))); s.value = cur; return s; };
+  const paintSet = () => { const sp = labelSpec(cfg);
+    setKids(setBox, fld('標籤紙規格（大小）', sel(Object.entries(LABEL_PRESETS).map(([k, v]) => [k, v.name]), cfg.preset, v => { cfg.preset = v; paintSet(); upd(); }, '標籤規格')),
+      cfg.preset === 'custom' ? h('div', {class:'f2'}, fld('寬（mm）', h('input', {class:'in', type:'text', inputmode:'decimal', value:cfg.w, 'aria-label':'標籤寬', oninput:e => { cfg.w = toNum(e.target.value); upd(); }})), fld('高（mm）', h('input', {class:'in', type:'text', inputmode:'decimal', value:cfg.h, 'aria-label':'標籤高', oninput:e => { cfg.h = toNum(e.target.value); upd(); }}))) : null,
+      sp.cols ? fld('第一張從第幾格開始（貼紙用過一部分時）', h('input', {class:'in', type:'text', inputmode:'numeric', value:(Number(cfg.skip) || 0) + 1, 'aria-label':'起始格', oninput:e => { cfg.skip = Math.max(Math.round(toNum(e.target.value)) - 1, 0); upd(); }})) : null,
+      fld('每個架位印幾張', h('input', {class:'in', type:'text', inputmode:'numeric', value:cfg.copies, 'aria-label':'每個架位印幾張', style:'width:90px;text-align:center', onfocus:e => e.target.select(), oninput:e => { cfg.copies = Math.max(1, Math.min(Math.round(toNum(e.target.value)) || 1, 20)); upd(); }})),
+      h('div', {class:'f'}, h('label', {text:'版面'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [['left', 'QR 在左、文字在右'], ['top', 'QR 在上、文字在下']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cfg.layout === k, 'aria-label':'版面 ' + k, onclick:() => { cfg.layout = k; paintSet(); upd(); }}, t)))),
+      h('div', {class:'f'}, h('label', {text:'架位文字大小'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [[0, '小'], [1, '中'], [2, '大']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':Number(cfg.fs) === k, 'aria-label':'字體 ' + t, onclick:() => { cfg.fs = k; paintSet(); upd(); }}, t)))),
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showNote !== false, 'aria-label':'顯示架位備註', onchange:e => { cfg.showNote = e.target.checked; upd(); }}), '印出架位的備註（例：飲料區、二樓）'),
+      multiWh() ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showWh !== false, 'aria-label':'顯示倉庫名稱', onchange:e => { cfg.showWh = e.target.checked; upd(); }}), '印出倉庫名稱') : null);
+  };
+  const goBtn = h('button', {class:'btn grow', disabled:true, onclick:() => { const it = chosen(); if (!it.length) return toast('請先勾選架位'); saveShelfLabelPrefs(cfg); printNow(shelfLabelHTML(it, cfg, {}), '架位標籤.html', () => shelfLabelHTML(it, cfg, {standalone:true})); }}, '列印標籤');
+  put(sh.bodyEl, h('p', {class:'note', text:'每張標籤有架位的 QR Code 和架位代碼（大字）。貼在貨架上，之後用「商品架位調整」掃描它，就能把商品放到這個架位。'}),
+    multiWh() ? h('div', {class:'f'}, h('label', {text:'倉庫'}), sel([['', '全部倉庫'], ...whActive().map(w => [w.id, w.name])], st.wh, v => { st.wh = v; fillList(); }, '篩選倉庫')) : null,
+    h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋架位代碼或備註', autocomplete:'off', 'aria-label':'搜尋架位', oninput:e => { st.q = e.target.value; fillList(); }})),
+    h('div', {class:'btns', style:'margin:8px 0'}, h('button', {class:'btn ghost sm', 'aria-label':'全選目前列出的架位', onclick:() => { pool().forEach(s => st.sel.add(s.id)); fillList(); upd(); }}, '全選目前列出的'),
+      h('button', {class:'btn ghost sm', 'aria-label':'清除勾選', onclick:() => { st.sel.clear(); fillList(); upd(); }}, '清除'),
+      h('label', {class:'check', style:'margin:0 0 0 auto'}, h('input', {type:'checkbox', 'aria-label':'列出已停用的架位', onchange:e => { st.off = e.target.checked; fillList(); }}), '含已停用')),
+    listBox, h('div', {style:'height:10px'}), sumBox, h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'標籤格式'})), setBox, h('div', {class:'sec-h', style:'margin-top:8px'}, h('h2', {text:'預覽'})), prevBox,
+    h('p', {class:'hint', text:'第一次使用請先用 1～2 張試印，確認標籤紙的大小、位置和 QR Code 能不能掃。列印視窗的邊界請選「無」，縮放選「100%」，紙張大小要和標籤紙一樣（例如 60×40 mm）。'}));
+  sh.footEl.append(goBtn); fillList(); paintSet(); upd();
+  return sh;
+}
+
+/* ---- 逐筆寫入時的進度視窗（一次要建立很多架位時，每個架位是一次寫入，要等一下） ---- */
+function shelfProgress(title){
+  const msg = h('p', {text:'準備中…', 'aria-live':'polite'}), scrim = h('div', {class:'dlg-scrim'}, h('div', {class:'dlg', role:'alertdialog', 'aria-modal':'true', 'aria-label':title}, h('h3', {text:title}), msg));
+  document.body.append(scrim);
+  return {set:t => { msg.textContent = t; }, close:() => scrim.remove()};
+}
+/* 一次建立很多架位（已經有的略過）。回傳 {done, fail, skipped} */
+async function shelfCreateMany(wh, codes, note){
+  wh = wh || WH_MAIN;
+  const todo = codes.filter(c => !shelfFind(wh, c)), pg = shelfProgress('建立架位'), res = {done:0, fail:0, skipped:codes.length - todo.length};
+  try {
+    for (const c of todo){
+      try { await S.db.doc('shelves/' + shelfId(wh, c)).set({code:normShelf(c), wh, note:note || '', active:true, createdBy:S.meId || null, createdAt:Date.now()}); res.done++; }
+      catch (e) { console.error(e); res.fail++; if (res.fail >= 3){ res.err = e; break; } }
+      if ((res.done + res.fail) % 10 === 0) pg.set('已建立 ' + res.done + ' / ' + todo.length);
+    }
+  } finally { pg.close(); }
+  return res;
+}
+const shelfCreateMsg = r => r.err ? errMsg(r.err) : '已建立 ' + r.done + ' 個架位' + (r.skipped ? '，' + r.skipped + ' 個已經有了（略過）' : '') + (r.fail ? '，' + r.fail + ' 個失敗' : '');
+
+/* ---- 新增、編輯一個架位 ---- */
+function openShelfForm(id, pre){
+  const ex = id ? (S.shelves || {})[id] : null; if (id && !ex) return;
+  if (!canShelf()) return toast('你的角色沒有這項操作的權限');
+  pre = pre || {};
+  const sh = sheet({title:ex ? '編輯架位 ' + ex.code : '新增架位'});
+  const codeIn = h('input', {class:'in', value:ex ? ex.code : (pre.code || ''), placeholder:'例：A27-2、B-03-1', 'aria-label':'架位代碼', autocomplete:'off', autocapitalize:'characters', spellcheck:'false'});
+  const whSel = multiWh() ? (() => { const s = h('select', {class:'in', 'aria-label':'倉庫', disabled:!!ex}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s.value = ex ? ex.wh || WH_MAIN : (pre.wh || WH_MAIN); return s; })() : null;
+  const noteIn = h('input', {class:'in', value:ex ? ex.note || '' : '', placeholder:'例：飲料區、二樓、冷藏（選填）', 'aria-label':'架位備註', autocomplete:'off'});
+  const actIn = h('input', {type:'checkbox', checked:!ex || ex.active !== false, 'aria-label':'啟用這個架位'});
+  let saving = false;
+  const nProd = ex ? shelfProducts(ex.wh, ex.code, true).length : 0;
+  const saveBtn = h('button', {class:'btn grow', onclick:save}, ex ? '儲存' : '新增架位');
+  async function save(){
+    if (saving) return;
+    const code = normShelf(codeIn.value), er = shelfCodeErr(code); if (er) return toast(er);
+    const wh = whSel ? whSel.value : (ex ? ex.wh || WH_MAIN : WH_MAIN), note = noteIn.value.trim();
+    if (!ex){
+      if (shelfFind(wh, code)) return toast((multiWh() ? whName(wh) + '已經有' : '已經有') + '架位「' + (shelfFind(wh, code).code) + '」了');
+      saving = true; saveBtn.disabled = true;
+      const ok = await shelfRun(async () => { await S.db.doc('shelves/' + shelfId(wh, code)).set({code, wh, note, active:true, createdBy:S.meId || null, createdAt:Date.now()}); return true; }, 'shelf');
+      saving = false; saveBtn.disabled = false;
+      if (ok){ toast('已新增架位 ' + code); sh.forceClose(); }
+      return;
+    }
+    const keyChanged = shelfKey(code) !== shelfKey(ex.code);
+    if (keyChanged){
+      if (shelfFind(wh, code)) return toast('已經有架位「' + shelfFind(wh, code).code + '」了，不能改成一樣的代碼');
+      const prods = shelfProducts(ex.wh, ex.code, true);
+      if (prods.length && !await dialog({title:'把「' + ex.code + '」改名為「' + code + '」？', msg:'這個架位上的 ' + prods.length + ' 個商品（含已停用的），架位會一起改成「' + code + '」。已經貼在貨架上的舊標籤要重新列印。', ok:'改名'})) return;
+      saving = true; saveBtn.disabled = true;
+      const pg = shelfProgress('架位改名');
+      let n = 0, fail = null;
+      try {
+        await S.db.doc('shelves/' + shelfId(ex.wh, code)).set({...stripId(ex), code, note, active:actIn.checked});
+        for (const p0 of prods){
+          const p = S.products[p0.id] || p0;
+          try { await S.db.doc('products/' + p.id).update(shelfPatch(p, ex.wh || WH_MAIN, code)); n++; } catch (e) { fail = e; break; }
+          if (n % 10 === 0) pg.set('已更新商品 ' + n + ' / ' + prods.length);
+        }
+        if (!fail) await S.db.doc('shelves/' + ex.id).delete();
+      } catch (e) { fail = e; }
+      pg.close(); saving = false; saveBtn.disabled = false;
+      if (fail){ console.error(fail); toast((fail.code === 'permission_denied' ? '沒有權限修改商品的架位，' : '') + '改名中斷：已更新 ' + n + ' / ' + prods.length + ' 個商品，舊架位還在。請再試一次'); return; }
+      toast('已改名為 ' + code + (prods.length ? '，' + prods.length + ' 個商品一併更新' : '')); sh.forceClose(); return;
+    }
+    saving = true; saveBtn.disabled = true;
+    const ok = await shelfRun(async () => { await S.db.doc('shelves/' + ex.id).update({code, note, active:actIn.checked}); return true; }, 'shelf');
+    saving = false; saveBtn.disabled = false;
+    if (ok){ toast('已儲存'); sh.forceClose(); }
+  }
+  async function del(){
+    const prods = shelfProducts(ex.wh, ex.code, true);
+    if (prods.length) return toast('這個架位上還有 ' + prods.length + ' 個商品（含已停用的），請先把它們移到別的架位；不想再用的話，可以取消勾選「啟用」');
+    if (!await dialog({title:'刪除架位「' + ex.code + '」？', msg:'刪除後，貼在貨架上的標籤就掃不到了。', ok:'刪除', danger:true})) return;
+    const ok = await shelfRun(async () => { await S.db.doc('shelves/' + ex.id).delete(); return true; }, 'shelf');
+    if (ok){ toast('已刪除架位'); sh.forceClose(); }
+  }
+  put(sh.bodyEl,
+    ex ? h('div', {style:'text-align:center;margin-bottom:12px'}, shelfQrEl(ex, 40), h('div', {class:'hint', style:'margin-top:4px', text:'QR Code 內容：' + shelfQR(ex)})) : h('p', {class:'note', text:'架位代碼就是貨架上看得到的位置名稱，例如 A27-2。建立後可以列印 QR Code 標籤貼在貨架上。'}),
+    fld('架位代碼', codeIn), whSel ? fld('倉庫', whSel) : null, fld('備註', noteIn),
+    ex ? h('label', {class:'check'}, actIn, '啟用（取消勾選代表停用：不能再放商品，標籤掃了會提示已停用）') : null,
+    ex ? h('p', {class:'hint', text:'目前放在這個架位的商品：' + nProd + ' 項。改代碼時，這些商品的架位會一起更新。'}) : null,
+    ex ? h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn plain', 'aria-label':'刪除架位', onclick:del}, '刪除架位')) : null);
+  sh.footEl.append(...[ex ? h('button', {class:'btn ghost', 'aria-label':'列印這個架位的標籤', onclick:() => openShelfLabelPrint({ids:[ex.id], wh:ex.wh || WH_MAIN})}, '列印標籤') : null, saveBtn].filter(Boolean));
+  setTimeout(() => { try { codeIn.focus(); } catch (_) {} }, 80);
+  return sh;
+}
+const stripId = d => { const {id: _x, ...rest} = d; return rest; };
+
+/* ---- 批次產生架位 ---- */
+const SHELF_EXAMPLES = [['A{1-30}-{1-3}', 'A1-1 到 A30-3（A 區 30 排，每排 3 層）'], ['{A-C}{01-10}-{1-4}', 'A01-1 到 C10-4（3 區、每區 10 排、4 層）'], ['A{001-120}', 'A001 到 A120（流水號）'], ['{A,B,E}-{1-5}', 'A-1 到 E-5（指定哪幾區）']];
+function openShelfBatch(pre){
+  if (!canShelf()) return toast('你的角色沒有這項操作的權限');
+  pre = pre || {};
+  const U = {mode:'fmt', fmt:'', paste:'', wh:pre.wh || WH_MAIN}, sh = sheet({title:'批次產生架位'}), prevBox = h('div'), modeBox = h('div'), inBox = h('div');
+  const plan = () => {
+    const r = U.mode === 'fmt' ? (U.fmt.trim() ? shelfExpand(U.fmt) : null) : (U.paste.trim() ? shelfCodes(U.paste.split(/[\n\r\t,，、;；]+/)) : null);
+    if (!r) return null;
+    if (r.err) return {err:r.err};
+    const fresh = r.codes.filter(c => !shelfFind(U.wh, c));
+    return {codes:r.codes, fresh, skip:r.codes.length - fresh.length, over:docCount() + fresh.length > DOC_LIMIT};
+  };
+  const goBtn = h('button', {class:'btn grow', disabled:true, onclick:async () => {
+    const p = plan(); if (!p || p.err || !p.fresh.length) return;
+    goBtn.disabled = true;
+    const r = await shelfCreateMany(U.wh, p.codes, '');
+    toast(shelfCreateMsg(r));
+    if (!r.err) sh.forceClose(); else paint();
+  }}, '建立架位');
+  const paint = () => {
+    const p = plan();
+    setKids(prevBox, !p ? h('div', {class:'panel empty', text:U.mode === 'fmt' ? '輸入格式後，這裡會先列出會產生哪些架位' : '貼上架位代碼後，這裡會先列出會建立哪些架位'})
+      : p.err ? h('div', {class:'panel pad', style:'color:var(--zero)', 'aria-label':'格式錯誤', text:p.err})
+      : h('div', {class:'panel pad', 'aria-label':'預覽'}, h('b', {text:'會建立 ' + p.fresh.length + ' 個新架位' + (p.skip ? '（另有 ' + p.skip + ' 個已經有了，會略過）' : '')}),
+        h('div', {class:'hint', style:'margin-top:6px;word-break:break-all', text:p.fresh.length > 12 ? p.fresh.slice(0, 8).join('、') + ' … ' + p.fresh.slice(-3).join('、') : p.fresh.join('、')}),
+        p.over ? h('div', {class:'note bad', 'aria-label':'超過資料量上限', text:'建立後會超過資料量上限（' + DOC_LIMIT + ' 份文件），請減少數量，或先刪除不用的資料。'}) : null));
+    goBtn.disabled = !p || !!p.err || !p.fresh.length || !!p.over; goBtn.textContent = p && !p.err && p.fresh.length ? '建立 ' + p.fresh.length + ' 個架位' : '建立架位';
+  };
+  const paintIn = () => {
+    setKids(modeBox, h('div', {class:'chips', style:'padding-top:0'}, [['fmt', '用格式產生'], ['paste', '貼上架位清單']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.mode === k, 'aria-label':'方式 ' + t, onclick:() => { U.mode = k; paintIn(); paint(); }}, t))));
+    setKids(inBox, U.mode === 'fmt' ? [
+      fld('架位格式', h('input', {class:'in', value:U.fmt, placeholder:'例：A{1-30}-{1-3}', 'aria-label':'架位格式', autocomplete:'off', autocapitalize:'off', spellcheck:'false', oninput:e => { U.fmt = e.target.value; paint(); }})),
+      h('p', {class:'hint', style:'margin:0 0 6px', text:'大括號 { } 裡面放範圍（{1-30}、{A-C}）或清單（{A,B,E}），大括號以外的字原樣保留；數字範圍開頭是 0（{01-10}）會補零。點下面的例子可以直接帶入：'}),
+      h('div', {style:'display:flex;flex-direction:column;gap:6px;margin-bottom:8px'}, SHELF_EXAMPLES.map(([f, t]) => h('button', {class:'row', style:'text-align:left', 'aria-label':'範例 ' + f, onclick:() => { U.fmt = f; paintIn(); paint(); }}, h('span', null, h('b', {text:f}), h('br'), h('small', {text:t})))))
+    ] : [
+      fld('架位清單（一行一個，或用逗號隔開）', h('textarea', {class:'in', rows:6, placeholder:'A27-1\nA27-2\nA27-3', 'aria-label':'架位清單', style:'height:auto;padding:10px', oninput:e => { U.paste = e.target.value; paint(); }}, U.paste)),
+      h('p', {class:'hint', text:'可以從 Excel 直接複製一欄貼上。'})]);
+  };
+  put(sh.bodyEl, h('p', {class:'note', text:'一次建立很多架位，不用一個一個輸入。建立之後可以到「列印標籤」整批列印 QR Code。'}),
+    multiWh() ? fld('倉庫', (() => { const s = h('select', {class:'in', 'aria-label':'倉庫', onchange:e => { U.wh = e.target.value; paint(); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s.value = U.wh; return s; })()) : null,
+    modeBox, inBox, h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'預覽'})), prevBox);
+  sh.footEl.append(goBtn); paintIn(); paint();
+  return sh;
+}
+
+/* ---- 匯出架位清單 ---- */
+function dsShelves(){
+  const list = shelfDocs(''), rows = list.map(s => { const l = shelfProducts(s.wh, s.code); return [s.code, whName(s.wh), s.note || '', s.active === false ? '停用' : '啟用', l.length, l.map(p => p.sku).join('、')]; });
+  return {title:'架位清單', sub:(S.set.name || '') + '　共 ' + list.length + ' 個架位　' + today(), filename:'架位清單', sections:[{name:'架位', cols:[XC('架位', 'text', 14), XC('倉庫', 'text', 12), XC('備註', 'text', 24), XC('狀態', 'text', 8), XC('商品數', 'int', 8), XC('商品料號', 'text', 40)], rows}]};
+}
+
+/* ---- 一個架位的內容 ---- */
+function openShelfDetail(id){
+  return liveSheet({title:'架位'}, ['shelves', 'products', 'settings'], sh => {
+    const s = (S.shelves || {})[id]; if (!s) return false;
+    const list = shelfProducts(s.wh, s.code), wid = s.wh || WH_MAIN;
+    const qtySum = r3(list.reduce((a, p) => a + stockAt(p.id, wid), 0));
+    const body = h('div', null,
+      h('div', {class:'panel pad', style:'margin-bottom:14px;text-align:center'},
+        h('div', {class:'lg', style:'font-size:26px', text:s.code}), h('div', {class:'hint', text:(multiWh() ? whName(wid) + '　' : '') + (s.note || '')}),
+        s.active === false ? h('span', {class:'pill', text:'已停用'}) : null,
+        h('div', {style:'margin-top:10px'}, shelfQrEl(s, 38)), h('div', {class:'hint', style:'margin-top:4px', text:'QR Code 內容：' + shelfQR(s)})),
+      h('div', {class:'sec-h'}, h('h2', {text:'這個架位的商品（' + list.length + ' 項）'})),
+      list.length ? h('div', {class:'panel'}, list.slice(0, 200).map(p => h('button', {class:'row', 'aria-label':'商品 ' + p.sku, onclick:() => openProduct(p.id)}, h('span', {style:'min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('span', {class:'right'}, h('b', {text:num(stockAt(p.id, wid))}), h('small', {text:' ' + (p.unit || '')}))))) : h('div', {class:'panel empty', text:'目前沒有商品放在這個架位'}),
+      list.length ? h('p', {class:'hint', text:'庫存合計 ' + num(qtySum) + '（只算啟用中的商品）'}) : null);
+    const foot = [];
+    if (canShelf()){
+      foot.push(h('button', {class:'btn ghost', 'aria-label':'編輯架位', onclick:() => openShelfForm(id)}, '編輯'));
+      foot.push(h('button', {class:'btn ghost', 'aria-label':'列印這個架位的標籤', onclick:() => openShelfLabelPrint({ids:[id], wh:wid})}, '列印標籤'));
+      if (s.active !== false) foot.push(h('button', {class:'btn grow', 'aria-label':'用掃描整理這個架位', onclick:() => openShelfAdjust({shelfId:id})}, '掃描整理'));
+    }
+    return {title:'架位 ' + s.code, body, foot};
+  });
+}
+
+/* ---- 架位管理（清單）---- */
+function openShelfMgmt(opt){
+  opt = opt || {};
+  if (!canShelf()) return toast('你的角色沒有架位管理的權限');
+  const U = {wh:opt.wh || WH_MAIN, q:'', f:'all', max:100};
+  return liveSheet({title:'架位管理'}, ['shelves', 'products', 'settings'], sh => {
+    if (!multiWh()) U.wh = WH_MAIN;
+    const all = shelfDocs(U.wh), cnt = s => shelfProducts(s.wh, s.code).length;
+    const used = all.filter(s => s.active !== false && cnt(s) > 0).length, empty = all.filter(s => s.active !== false && !cnt(s)).length, off = all.filter(s => s.active === false).length, unreg = shelfUnregistered(U.wh);
+    const box = h('div');
+    const fill = () => {
+      const q = U.q.trim().toLowerCase();
+      const rows = all.filter(s => (U.f === 'all' ? true : U.f === 'used' ? s.active !== false && cnt(s) > 0 : U.f === 'empty' ? s.active !== false && !cnt(s) : s.active === false) && (!q || (s.code + ' ' + (s.note || '')).toLowerCase().includes(q)));
+      setKids(box, rows.length ? h('div', {class:'panel'}, rows.slice(0, U.max).map(s => h('button', {class:'row' + (s.active === false ? ' void' : ''), style:'align-items:center', 'aria-label':'架位 ' + s.code, onclick:() => openShelfDetail(s.id)},
+        h('span', {style:'min-width:0;text-align:left'}, h('b', {text:s.code}), s.active === false ? h('span', {class:'pill', style:'margin-left:6px', text:'已停用'}) : null, s.note ? [h('br'), h('small', {text:s.note})] : null),
+        h('span', {class:'right'}, h('b', {text:String(cnt(s))}), h('small', {text:' 項商品'})))),
+        rows.length > U.max ? h('button', {class:'row', 'aria-label':'顯示更多架位', onclick:() => { U.max += 100; fill(); }}, h('span', {text:'還有 ' + (rows.length - U.max) + ' 個，點這裡顯示更多'})) : null)
+        : h('div', {class:'panel empty'}, all.length ? '沒有符合的架位' : h('span', null, h('b', {text:'還沒有建立架位'}), h('br'), '點下方「＋ 新增架位」建立一個，或用「批次產生」一次建立很多。')));
+    };
+    const chip = (k, t, n) => h('button', {class:'chip', 'aria-pressed':U.f === k, 'aria-label':'篩選 ' + t, onclick:e => { U.f = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t + '（' + n + '）');
+    const body = h('div', null,
+      h('p', {class:'note', text:'先建立架位、列印 QR Code 標籤貼在貨架上，再用「商品架位調整」掃描標籤和商品條碼，就能把商品放到對的架位。揀貨、循環盤點會依架位順序排列。'}),
+      multiWh() ? h('div', {class:'f'}, h('label', {text:'倉庫'}), (() => { const s2 = h('select', {class:'in', 'aria-label':'倉庫', onchange:e => { U.wh = e.target.value; render('shelves'); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s2.value = U.wh; return s2; })()) : null,
+      h('div', {class:'pd-tiles'}, ...[['架位', all.length], ['已放商品', used], ['空的', empty], ['已停用', off]].map(([t, n]) => h('div', {class:'pd-tile'}, h('b', {text:t}), h('span', {text:String(n)})))),
+      unreg.length && canShelf() ? h('div', {class:'panel pad', 'aria-label':'尚未建立的架位', style:'margin-bottom:10px'}, h('b', {text:'商品資料裡用到 ' + unreg.length + ' 個架位，還沒建立在架位清單'}), h('div', {class:'hint', style:'margin:4px 0 8px;word-break:break-all', text:unreg.slice(0, 10).map(x => x.code).join('、') + (unreg.length > 10 ? '…' : '')}),
+        h('button', {class:'btn ghost sm', 'aria-label':'建立這些架位', onclick:async () => { const byWh = {}; unreg.forEach(x => { (byWh[x.wh] = byWh[x.wh] || []).push(x.code); }); let tot = {done:0, fail:0, skipped:0}; for (const [wh, codes] of Object.entries(byWh)){ const r = await shelfCreateMany(wh, codes, ''); tot.done += r.done; tot.fail += r.fail; tot.skipped += r.skipped; if (r.err){ tot.err = r.err; break; } } toast(shelfCreateMsg(tot)); } }, '全部建立')) : null,
+      h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋架位代碼或備註', value:U.q, autocomplete:'off', 'aria-label':'搜尋架位', oninput:e => { U.q = e.target.value; fill(); }})),
+      h('div', {class:'chips', style:'padding-top:6px'}, chip('all', '全部', all.length), chip('used', '有商品', used), chip('empty', '空的', empty), chip('off', '已停用', off)),
+      box,
+      h('div', {class:'btns', style:'margin-top:10px'}, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'批次產生架位', onclick:() => openShelfBatch({wh:U.wh})}, '批次產生') : null, canExport() ? h('button', {class:'btn ghost sm', 'aria-label':'匯出架位清單', onclick:() => openExport(dsShelves())}, icon('down'), '匯出架位清單') : null));
+    fill();
+    const foot = [];
+    if (canShelf()) foot.push(h('button', {class:'btn ghost', 'aria-label':'商品架位調整', onclick:() => openShelfAdjust({wh:U.wh})}, '掃描調整'));
+    if (S.isAdmin || can('stock') || can('print')) foot.push(h('button', {class:'btn ghost', 'aria-label':'列印架位標籤', onclick:() => openShelfLabelPrint({wh:multiWh() ? U.wh : ''})}, '列印標籤'));
+    if (canShelf()) foot.push(h('button', {class:'btn grow', 'aria-label':'新增架位', onclick:() => openShelfForm(null, {wh:U.wh})}, icon('plus'), '新增架位'));
+    return {body, foot};
+  });
+}
+
+
+/* ---- 商品架位調整：掃貨架上的架位標籤，再掃商品條碼，商品就放到這個架位 ----
+   兩種做法（上面的按鈕切換）：
+     上架：先掃架位，再一個一個掃商品（同一個架位連續放很多商品）
+     單品移位：先掃商品（看它現在放哪裡），再掃新架位
+   掃碼槍、手機相機、拍照、手動輸入都可以。每次調整都可以按「復原」，並記在商品的異動紀錄裡。 */
+const SADJ_KEY = 'shelfAdj1';
+const loadShelfAdj = () => { try { return {mode:'shelf', ...JSON.parse(localStorage.getItem(SADJ_KEY) || '{}')}; } catch (_) { return {mode:'shelf'}; } };
+const saveShelfAdj = c => { try { localStorage.setItem(SADJ_KEY, JSON.stringify(c)); } catch (_) {} };
+/* opt：{shelfId 先選好的架位, pid 先選好的商品（用單品移位）, wh 倉庫, mode} */
+function openShelfAdjust(opt){
+  opt = opt || {};
+  if (!canShelf()) return toast('你的角色沒有調整架位的權限');
+  const pref = loadShelfAdj();
+  const st = {mode:opt.pid ? 'prod' : (opt.shelfId ? 'shelf' : (opt.mode === 'prod' || opt.mode === 'shelf' ? opt.mode : (pref.mode === 'prod' ? 'prod' : 'shelf'))), wh:opt.wh || WH_MAIN, target:null, pending:null, peek:null, recent:[], max:60};
+  if (opt.shelfId && (S.shelves || {})[opt.shelfId]){ st.target = opt.shelfId; st.wh = S.shelves[opt.shelfId].wh || WH_MAIN; }
+  if (opt.pid && S.products[opt.pid]) st.pending = opt.pid;
+  const statusEl = h('div', {class:'stat', 'aria-live':'polite'}), mainBox = h('div'), recentBox = h('div'), pickBox = h('div', {class:'pick'}), modeBox = h('div'), hintEl = h('p', {class:'hint', style:'margin:6px 2px 0'});
+  const say = (t, cls) => { statusEl.textContent = t; statusEl.className = 'stat ' + (cls || ''); };
+  const whSel = multiWh() ? (() => { const s = h('select', {class:'in', 'aria-label':'倉庫', onchange:e => { st.wh = e.target.value; st.target = null; st.peek = null; paint(); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s.value = st.wh; return s; })() : null;
+  /* 寫入一個一個排隊，順序不會亂 */
+  let chain = Promise.resolve();
+  const enqueue = fn => { chain = chain.then(fn).catch(e => console.error(e)); return chain; };
+  const wantShelf = () => st.mode === 'shelf' ? !st.target : !!st.pending;
+  const findShelfTyped = code => { const c = normShelf(code); return c ? shelfFind(st.wh, c) : null; };
+  const resolve = q => { const qr = parseShelfQR(q); if (qr) return {qr, exact:true}; const s = findShelfTyped(q), p = findByCode(q); return {shelf:s, prod:p, exact:!!(s || p)}; };
+
+  /* 還沒寫完的調整（商品|倉庫 → 排隊要放到哪個架位）：掃碼槍連按兩次、相機連續讀到同一個條碼時，第二次要知道「已經排隊要放過去了」，才不會重複寫入、重複記錄 */
+  const queued = new Map(); let qn = 0;
+  const qcur = (p, wid) => { const q = queued.get(p.id + '|' + wid); return q ? q.to : shelfExplicit(p, wid); };
+  const qset = (p, wid, to) => { const k = p.id + '|' + wid, n = ++qn; queued.set(k, {to, n}); return () => { const q = queued.get(k); if (q && q.n === n) queued.delete(k); }; };
+
+  /* 把商品放到架位（to 空白＝移出架位） */
+  function move(p, wid, to){
+    const cur = qcur(p, wid);
+    if (shelfKey(cur) === shelfKey(to)){ beep(true); say(to ? p.name + ' 本來就在 ' + to : p.name + ' 本來就沒有架位', ''); return {ok:true, msg:to ? p.name + ' 已經在 ' + to : p.name + ' 沒有架位'}; }
+    const entry = {pid:p.id, sku:p.sku, name:p.name, wh:wid, from:cur, to, at:Date.now(), undone:false};
+    st.recent.unshift(entry); if (st.recent.length > 80) st.recent.length = 80;
+    const fin = qset(p, wid, to);
+    enqueue(async () => {
+      try {
+        const cp = S.products[p.id] || p;   // 用最新的商品資料，異動紀錄才不會漏
+        const ok = await shelfRun(async () => { await S.db.doc('products/' + p.id).update(shelfPatch(cp, wid, to)); return true; });
+        if (!ok){ const i = st.recent.indexOf(entry); if (i >= 0) st.recent.splice(i, 1); beep(false); say('沒有寫入成功：' + p.name + ' 還是' + (cur ? '在 ' + cur : '沒有架位'), 'bad'); }
+      } finally { fin(); }
+      paint();
+    });
+    beep(true); say(to ? '＋ ' + p.name + '　' + (cur ? cur + ' → ' : '放進 ') + to : '移出 ' + p.name + '（原本在 ' + cur + '）', 'ok'); paint();
+    return {ok:true, msg:p.name + (to ? '　→ ' + to : '　已移出')};
+  }
+  function undo(r){
+    if (r.undone) return;
+    r.undone = true; paint();
+    const cp0 = S.products[r.pid], fin = cp0 ? qset(cp0, r.wh, r.from) : () => {};
+    enqueue(async () => {
+      try {
+        const cp = S.products[r.pid]; if (!cp){ r.undone = false; toast('這個商品已經不存在了'); paint(); return; }
+        const ok = await shelfRun(async () => { await S.db.doc('products/' + r.pid).update(shelfPatch(cp, r.wh, r.from)); return true; });
+        if (!ok) r.undone = false; else say('已復原：' + r.name + (r.from ? ' 回到 ' + r.from : ' 回到沒有架位'), 'ok');
+      } finally { fin(); }
+      paint();
+    });
+  }
+  function onShelf(wh, code, fromQR){
+    wh = wh || WH_MAIN;
+    if (wh !== st.wh){
+      if (!whActive().some(w => w.id === wh)){ beep(false); say('這個架位屬於「' + whName(wh) + '」，那個倉庫已停用或不存在', 'bad'); return {ok:false, msg:'倉庫不存在'}; }
+      st.wh = wh; if (whSel) whSel.value = wh;
+    }
+    const s = shelfFind(wh, code);
+    if (!s){ beep(false); say('架位清單裡沒有「' + normShelf(code) + '」（還沒建立，或已經刪除）', 'bad'); return {ok:false, msg:'沒有這個架位：' + normShelf(code)}; }
+    if (s.active === false){ beep(false); say('架位「' + s.code + '」已停用，不能放商品', 'bad'); return {ok:false, msg:'架位已停用'}; }
+    const n = shelfProducts(s.wh, s.code).length;
+    if (st.mode === 'shelf'){ st.target = s.id; st.pending = null; st.peek = null; beep(true); say('架位 ' + s.code + '（現有 ' + n + ' 項商品），接著掃商品條碼', 'ok'); paint(); return {ok:true, msg:'架位 ' + s.code + '　現有 ' + n + ' 項'}; }
+    if (st.pending){
+      const p = S.products[st.pending]; st.pending = null; st.peek = s.id;
+      if (!p){ paint(); beep(false); say('這個商品已經不存在了', 'bad'); return {ok:false, msg:'商品不存在'}; }
+      return move(p, s.wh || WH_MAIN, s.code);
+    }
+    st.peek = s.id; beep(true); say('架位 ' + s.code + '：現有 ' + n + ' 項商品。要搬商品的話，先掃商品條碼', 'ok'); paint();
+    return {ok:true, msg:'架位 ' + s.code + '　現有 ' + n + ' 項'};
+  }
+  function onProduct(p){
+    if (st.mode === 'shelf'){
+      const s = st.target && (S.shelves || {})[st.target];
+      if (!s){ beep(false); say('請先掃描貨架上的架位標籤', 'bad'); return {ok:false, msg:'請先掃架位標籤'}; }
+      return move(p, s.wh || WH_MAIN, s.code);
+    }
+    const cur = shelfExplicit(p, st.wh);
+    st.pending = p.id; st.peek = null; beep(true); say(p.name + '：' + (cur ? '現在在 ' + cur : '還沒有架位') + '，請掃描新架位的標籤', 'ok'); paint();
+    return {ok:true, msg:p.name + '　現在' + (cur ? '在 ' + cur : '沒有架位') + '，請掃新架位'};
+  }
+  /* 掃到的文字（掃碼槍、相機、手動輸入都走這裡） */
+  function handle(raw){
+    const code = String(raw == null ? '' : raw).trim(); if (!code) return {ok:false, msg:''};
+    const r = resolve(code);
+    if (r.qr) return onShelf(r.qr.wh, r.qr.code, true);
+    if (wantShelf()){
+      if (r.shelf) return onShelf(r.shelf.wh, r.shelf.code, false);
+      if (r.prod && st.mode === 'prod') return onProduct(r.prod);
+      beep(false);
+      if (r.prod){ say('這是商品條碼。請先掃貨架上的架位標籤（或輸入架位代碼）', 'bad'); return {ok:false, msg:'請先掃架位標籤'}; }
+      say('找不到架位：' + code, 'bad'); return {ok:false, msg:'找不到架位：' + code};
+    }
+    if (r.prod) return onProduct(r.prod);
+    if (r.shelf) return onShelf(r.shelf.wh, r.shelf.code, false);
+    beep(false); say('找不到商品：' + code, 'bad'); return {ok:false, msg:'找不到商品：' + code};
+  }
+  /* 輸入文字時的選單：現在要的是架位就列架位，要的是商品就列商品 */
+  function suggest(q){
+    q = q.trim().toLowerCase(); if (!q) return [];
+    if (wantShelf()) return shelfDocs(st.wh).filter(s => s.active !== false && (s.code + ' ' + (s.note || '')).toLowerCase().includes(q)).slice(0, 8).map(s => ({title:s.code, sub:(s.note ? s.note + '　' : '') + shelfProducts(s.wh, s.code).length + ' 項商品', pick:() => onShelf(s.wh, s.code, false)}));
+    return activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 6).map(p => ({title:p.name, sub:p.sku + (shelfExplicit(p, st.wh) ? '　現在：' + shelfExplicit(p, st.wh) : '　還沒有架位'), pick:() => onProduct(p)}));
+  }
+  const clearIn = () => { scanIn.value = ''; paintPick(''); scanIn.focus(); };
+  function paintPick(q){
+    const hits = suggest(q || '');
+    setKids(pickBox, hits.map(x => h('button', {class:'row', 'aria-label':'選擇 ' + x.title, onclick:() => { x.pick(); clearIn(); }}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:x.title}), h('br'), h('small', {text:x.sub})), h('small', {text:'點選'}))));
+  }
+  const scanIn = h('input', {type:'text', autocomplete:'off', autocapitalize:'off', spellcheck:'false', 'aria-label':'掃描架位或商品', placeholder:'',
+    oninput:e => paintPick(e.target.value),
+    onkeydown:e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const q = scanIn.value.trim(); if (!q) return;
+      if (resolve(q).exact){ handle(q); clearIn(); return; }
+      const hits = suggest(q);
+      if (hits.length === 1){ hits[0].pick(); clearIn(); }
+      else if (hits.length > 1) say('找到 ' + hits.length + ' 筆，請從下方點選', '');
+      else { handle(q); clearIn(); }
+    }});
+  const photoIn = h('input', {type:'file', accept:'image/*', style:'display:none', 'aria-label':'拍照掃描',
+    onchange:async e => {
+      const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+      say('辨識中…', '');
+      try { const codes = await decodeImage(f); handle(codes[0]); }
+      catch (err) { console.error(err); beep(false); say('沒有讀到條碼，請靠近一點、對準並確保光線充足', 'bad'); }
+    }});
+  photoIn.setAttribute('capture', 'environment');
+
+  const shelfCard = (s, readOnly) => {
+    const list = shelfProducts(s.wh, s.code), wid = s.wh || WH_MAIN;
+    return h('div', {class:'panel pad', 'aria-label':(readOnly ? '架位內容 ' : '目前架位 ') + s.code, style:'margin-top:12px'},
+      h('div', {style:'display:flex;justify-content:space-between;align-items:flex-start;gap:8px'},
+        h('div', {style:'min-width:0'}, h('small', {class:'hint', text:readOnly ? '架位' : '正在整理的架位'}), h('div', {class:'lg', style:'font-size:28px;line-height:1.15', text:s.code}), h('small', {text:(multiWh() ? whName(wid) + '　' : '') + (s.note || '')})),
+        h('div', {style:'display:flex;flex-direction:column;gap:6px'},
+          !readOnly ? h('button', {class:'btn ghost sm', 'aria-label':'換一個架位', onclick:() => { st.target = null; st.peek = null; paint(); scanIn.focus(); }}, '換架位') : null,
+          S.isAdmin || can('stock') || can('print') ? h('button', {class:'btn ghost sm', 'aria-label':'列印這個架位標籤', onclick:() => openShelfLabelPrint({ids:[s.id], wh:wid})}, '印標籤') : null)),
+      h('div', {style:'margin-top:8px'}, h('b', {text:'現在放了 ' + list.length + ' 項商品'})),
+      list.length ? h('div', {class:'panel', style:'margin-top:6px'}, list.slice(0, st.max).map(p => h('div', {class:'row', style:'align-items:center'},
+        h('span', {style:'min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku + '　庫存 ' + num(stockAt(p.id, wid)) + ' ' + (p.unit || '')})),
+        !readOnly ? h('button', {class:'btn plain sm', 'aria-label':'移出 ' + p.sku, onclick:() => move(p, wid, '')}, '移出') : null))) : null,
+      list.length > st.max ? h('button', {class:'btn ghost sm', style:'margin-top:6px', 'aria-label':'顯示更多商品', onclick:() => { st.max += 60; paint(); }}, '顯示更多（還有 ' + (list.length - st.max) + ' 項）') : null);
+  };
+  function paintMain(){
+    const tgt = st.target ? (S.shelves || {})[st.target] : null;
+    if (st.target && !tgt) st.target = null;
+    const pk = st.peek ? (S.shelves || {})[st.peek] : null;
+    if (st.mode === 'shelf'){
+      setKids(mainBox, tgt ? shelfCard(tgt, false) : h('div', {class:'panel empty', style:'margin-top:12px', 'aria-label':'等待掃描架位'}, h('b', {text:'先掃描貨架上的架位標籤'}), '掃到架位後，再一個一個掃商品條碼，商品就會放進這個架位。也可以在上面輸入架位代碼。'));
+      return;
+    }
+    const p = st.pending ? S.products[st.pending] : null;
+    if (st.pending && !p) st.pending = null;
+    if (p){
+      const cur = shelfExplicit(p, st.wh), inh = !cur && st.wh !== WH_MAIN ? shelfOf(p, WH_MAIN) : '';
+      setKids(mainBox, h('div', {class:'panel pad', 'aria-label':'等著搬的商品 ' + p.sku, style:'margin-top:12px'}, h('small', {class:'hint', text:'要搬的商品'}), h('div', {class:'lg', text:p.name}), h('small', {text:p.sku + (p.barcode ? '　' + p.barcode : '')}),
+        h('div', {style:'margin-top:8px'}, h('b', {text:cur ? '現在的架位：' + cur : '現在還沒有架位' + (inh ? '（沿用主倉庫的 ' + inh + '）' : '')})),
+        h('p', {class:'note', style:'margin:8px 0 0', text:'請掃描要放進去的架位標籤，或在上面輸入架位代碼。'}),
+        h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn plain sm', 'aria-label':'取消這個商品', onclick:() => { st.pending = null; paint(); scanIn.focus(); }}, '不搬了'))));
+      return;
+    }
+    setKids(mainBox, pk ? [shelfCard(pk, true), h('p', {class:'hint', text:'要搬商品，請先掃商品條碼。'})] : h('div', {class:'panel empty', style:'margin-top:12px', 'aria-label':'等待掃描商品'}, h('b', {text:'先掃描商品條碼'}), '看它現在放在哪個架位，再掃新架位的標籤就搬過去。也可以輸入料號或品名。'));
+  }
+  function paintRecent(){
+    const live1 = st.recent.filter(x => !x.undone).length;
+    setKids(recentBox, st.recent.length ? [h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'這次調整的商品（' + live1 + '）'})),
+      h('div', {class:'panel', 'aria-label':'調整紀錄'}, st.recent.slice(0, 30).map(r => h('div', {class:'row' + (r.undone ? ' void' : ''), style:'align-items:center'},
+        h('span', {style:'min-width:0'}, h('b', {text:r.name}), h('br'), h('small', {text:r.sku + '　' + (r.from || '（沒有架位）') + ' → ' + (r.to || '（移出）') + (multiWh() ? '　' + whName(r.wh) : '')})),
+        h('button', {class:'btn plain sm', disabled:r.undone, 'aria-label':'復原 ' + r.sku, onclick:() => undo(r)}, r.undone ? '已復原' : '復原'))))] : null);
+  }
+  function paintModes(){
+    setKids(modeBox, h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 0 6px'}, [['shelf', '上架', '先掃架位，再掃商品'], ['prod', '單品移位', '先掃商品，再掃新架位']].map(([k, t, sub]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'方式 ' + t, style:'display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 6px;border-radius:14px;text-align:center', onclick:() => {
+      if (st.mode === k) return;
+      st.mode = k; st.target = null; st.pending = null; st.peek = null; saveShelfAdj({mode:k}); say('', ''); paint(); scanIn.focus();
+    }}, h('b', {text:t, style:'font-size:15px'}), h('small', {text:sub, style:'color:inherit;opacity:.8;font-size:12px'})))));
+    hintEl.textContent = st.mode === 'shelf' ? '貨架上的架位標籤掃一下，再一個一個掃商品條碼（或輸入料號），商品就放到這個架位。換下一個架位時，直接掃它的標籤。' : '先掃商品條碼（或輸入料號），看它現在放哪裡，再掃新架位的標籤，商品就搬過去。';
+  }
+  function paint(){
+    scanIn.placeholder = wantShelf() ? '掃描架位標籤，或輸入架位代碼' : (st.mode === 'shelf' ? '掃描商品條碼，或輸入料號／品名' : '掃描商品條碼，或輸入料號／品名');
+    paintModes(); paintMain(); paintRecent();
+    if (document.activeElement === scanIn) paintPick(scanIn.value);
+  }
+  const sh = sheet({title:'商品架位調整', onclose:() => { live.delete(entry); }});
+  const entry = {deps:['shelves', 'products', 'settings'], run:() => paint()};
+  live.add(entry);
+  put(sh.bodyEl,
+    whSel ? h('div', {class:'f', style:'margin-bottom:8px'}, h('label', {text:'調整哪個倉庫的架位'}), whSel) : null,
+    modeBox,
+    h('div', {class:'scanbox'}, icon('search'), scanIn), statusEl, pickBox,
+    h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap'},
+      h('button', {class:'btn ghost sm', 'aria-label':'相機掃描', onclick:() => openCamera(handle)}, '相機掃描'),
+      h('button', {class:'btn ghost sm', 'aria-label':'拍照掃描', onclick:() => photoIn.click()}, '拍照掃描'), photoIn,
+      h('span', {style:'flex:1'}), S.isAdmin || can('stock') ? h('button', {class:'btn plain sm', 'aria-label':'開啟架位管理', onclick:() => openShelfMgmt({wh:st.wh})}, '架位管理') : null),
+    hintEl, mainBox, recentBox);
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'完成', onclick:() => sh.forceClose()}, '完成'));
+  paint();
+  setTimeout(() => { try { scanIn.focus(); } catch (_) {} }, 50);
+  return {sh, handle, state:st};
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shelfForTest:{normShelf, shelfKey, shelfId, shelfCodeErr, shelfQR, parseShelfQR, shelfDocs, shelfFind, shelfExplicit, shelfUsage, shelfProducts, shelfUnregistered, shelfPatch, shelfGroup, shelfExpand, shelfCodes, shelfUnits, shelfLabelHTML, loadShelfLabelPrefs, dsShelves, openShelfMgmt, openShelfDetail, openShelfForm, openShelfBatch, openShelfLabelPrint, openShelfAdjust, qrSvg, qrEncode, menuFlat:() => menuFlat(), canShelf:() => canShelf(), shelfFormLog, buildBackup:() => buildBackup(), restoreBackup:(...x) => restoreBackup(...x), wipePlan:sc => wipePlan(sc), openProduct:id => openProduct(id), openShelfEditor:() => openShelfEditor(), openBackup:() => openBackup()}}); } catch (_) {}
+
 /* ---- 語音 ---- */
 const PV_KEY = 'pickVoice1';
 const loadPV = () => { let o = {}; try { o = JSON.parse(localStorage.getItem(PV_KEY) || '{}'); } catch (_) {} return {on:false, rate:1, mode:'full', auto:true, cmd:false, ...o}; };
@@ -10072,11 +10768,11 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bg';
+const APP_VERSION = '2026.10.11-bh';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
-  ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '循環盤點', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位設定', '產品標籤列印', '庫存關帳作業']],
+  ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '循環盤點', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位管理', '商品架位調整', '架位設定', '產品標籤列印', '庫存關帳作業']],
   ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
   ['收款與帳務', 'wallet', ['現金票據簽收', '應收帳款報表', '應收帳款清單回傳表', '應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
   ['票據與現金', 'lock', ['支票代收作業', '保管管理', '其他收支作業']],
@@ -10101,7 +10797,7 @@ function menuGroups(){
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
-    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
+    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('價格策略匯入匯出', S.isAdmin, openPriceIO, '價格規則、組合優惠與買送：匯出成 Excel／CSV，改好再匯入批次更新'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
     ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
@@ -11543,7 +12239,7 @@ function openPriceImport(kind){
 }
 
 /* ---- 備份與還原 ---- */
-const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers', 'promos'];
+const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers', 'promos', 'shelves'];
 const BK_SET = () => ({main:S.setRaw || {}, invoice:S.invCfg || {}, slipform:S.slipCfg || {}, slipform_south:S.slipCfgS || {}, roles:S.roles || {}});
 const bkEvery = () => { const v = S.bk && S.bk.every; return v === undefined || v === null ? 7 : Number(v); };
 function bkDue(){
@@ -11635,7 +12331,7 @@ function openBackup(){
     const missing = BK_COLS.reduce((a, c) => a + Object.keys((b.data && b.data[c]) || {}).filter(id => !S[c][id]).length, 0);
     const all = BK_COLS.reduce((a, c) => a + Object.keys((b.data && b.data[c]) || {}).length, 0);
     setKids(plan, h('div', {class:'panel pad'},
-      kv('備份時間', fmtDT(b.at)), kv('內容', BK_COLS.filter(c => cnt[c]).map(c => ({products:'商品', partners:'往來', orders:'單據', payments:'收付款', notes:'票據', counts:'盤點', countlines:'盤點紀錄', corders:'訂單', porders:'採購單', prules:'價格規則', vehicles:'車輛', fuellogs:'加油紀錄', maint:'保養', cashbook:'零用金', quotes:'報價單', closings:'關帳', collects:'代收單', fuelcards:'儲值卡'})[c] + ' ' + cnt[c]).join('、') || '（空）'),
+      kv('備份時間', fmtDT(b.at)), kv('內容', BK_COLS.filter(c => cnt[c]).map(c => (({products:'商品', partners:'往來', orders:'單據', payments:'收付款', notes:'票據', counts:'盤點', countlines:'盤點紀錄', corders:'訂單', porders:'採購單', prules:'價格規則', vehicles:'車輛', fuellogs:'加油紀錄', maint:'保養', cashbook:'零用金', quotes:'報價單', closings:'關帳', collects:'代收單', fuelcards:'儲值卡'})[c] || WIPE_NAME[c] || c) + ' ' + cnt[c]).join('、') || '（空）'),
       kv('資料庫中缺少的', missing + ' 筆'), kv('備份檔共有', all + ' 筆')),
       h('div', {class:'chips'}, [['missing', '只補回缺少的資料'], ['overwrite', '全部寫回（覆蓋同一筆）']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':mode === k, onclick:e => { mode = k; [...e.target.parentElement.children].forEach(x => x.setAttribute('aria-pressed', String(x === e.target))); }}, t))));
     goBtn.disabled = false;
@@ -12415,7 +13111,7 @@ async function init(){
     const m = {}; snap.docs.forEach(d => { m[d.id] = {...d.data(), id:d.id}; });
     S[key] = m; S.loaded[key] = true; recompute(); render(key); if (key === 'vehicles'){ seedTripVehicles(); seedTripBeds(); }
   }, bad);
-  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); watch('promos', 'promos'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); watch('alerts', 'alerts'); watch('handovers', 'handovers'); setTimeout(registerMe, 2500);
+  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); watch('promos', 'promos'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); watch('alerts', 'alerts'); watch('handovers', 'handovers'); watchShelves(db); setTimeout(registerMe, 2500);
   db.doc('settings/roles').onSnapshot(snap => { S.roles = snap.exists ? snap.data() : {}; S.loaded.roles = true; render('roles'); }, () => { S.loaded.roles = true; render('roles'); });
   db.doc('settings/backup').onSnapshot(snap => { S.bk = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/slipform_south').onSnapshot(snap => { S.slipCfgS = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
