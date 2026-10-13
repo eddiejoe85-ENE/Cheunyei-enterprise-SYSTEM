@@ -1,0 +1,92 @@
+// 【全新、還沒有其他規則的資料庫】可以整份直接貼上取代。
+// 如果你的 Firestore 原本已經有別的應用程式在用，請改用 firestore.rules，把裡面的段落合併進去。
+// 2026.10.02-b：加嚴版（薪資只有管理員、人員資料只有管理員能改、打卡照片唯讀帳號不能看、價格規則與庫存關帳只有管理員能寫）。
+// 2026.10.11-bh：新增選用的 inv_products 區段（讓可編輯以上的人只能改商品的架位欄位；不需要就刪掉那一段）。
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function invLevel() {
+      return get(/databases/$(database)/documents/inv_users/$(request.auth.uid)).data.level;
+    }
+    function invHasUser() {
+      return request.auth != null && exists(/databases/$(database)/documents/inv_users/$(request.auth.uid));
+    }
+    function invIsAdmin() { return invHasUser() && invLevel() == 'admin'; }
+    function invCanEdit() { return invHasUser() && (invLevel() == 'admin' || invLevel() == 'edit'); }
+
+    // 登入帳號與層級：只有管理員能列出全部、能修改；自己可以讀自己的
+    match /inv_users/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || invIsAdmin());
+      allow list: if invIsAdmin();
+      allow write: if invIsAdmin();
+    }
+
+    // 成員名單：只有管理員能「列出」全部成員；其他人只能用單據上的代號查名字，看不到完整名單
+    match /inv_members/{uid} {
+      allow get: if invHasUser();
+      allow list: if invIsAdmin();
+      allow create, update: if invHasUser() && (request.auth.uid == uid || invIsAdmin());
+      allow delete: if invIsAdmin();
+    }
+
+    // 薪資彙總（底薪、獎金、扣款）：只有管理員能讀、能寫
+    match /inv_payroll/{id} {
+      allow read, write: if invIsAdmin();
+    }
+
+    // 人員資料：有開通的人可以讀（登錄、打卡、顯示姓名要用）；只有管理員能新增、修改、刪除（含重設打卡密碼）
+    match /inv_employees/{id} {
+      allow read: if invHasUser();
+      allow write: if invIsAdmin();
+    }
+
+    // 上下班打卡照片：唯讀帳號（view）不能看；可編輯（edit）以上才能讀寫
+    match /inv_attphotos/{id} {
+      allow read, write: if invCanEdit();
+    }
+
+    // 臉部辨識打卡的臉部特徵（一串數字，不是照片）：可編輯（edit）以上才能讀（打卡的裝置要拿來比對）；只有管理員能新增、修改、刪除
+    match /inv_faces/{id} {
+      allow read: if invCanEdit();
+      allow write: if invIsAdmin();
+    }
+
+    // 其他 inv_ 開頭的集合：有開通的人可讀；
+    // 商品、系統設定（含成員角色）、期間封存、價格規則、庫存關帳只有管理員能寫；其餘由可編輯者以上寫入；唯讀帳號完全不能寫
+    // LINE 要發出去的訊息佇列：可編輯以上的人（審核通過時）能新增；只有管理者能讀、改、刪（裡面有客人的訂單內容）
+    match /inv_lineoutbox/{id} {
+      allow create: if invCanEdit();
+      allow read, update, delete: if invIsAdmin();
+    }
+
+    // 系統提醒（備份失敗、LINE 額度、費用提醒…）：由雲端函式建立；只有管理者能看、能標示「已處理」
+    match /inv_alerts/{id} {
+      allow read, update: if invIsAdmin();
+      allow create, delete: if false;
+    }
+    // 雲端自動備份的狀態：只有雲端函式能寫，管理者能讀
+    match /inv_sys/{id} {
+      allow read: if invIsAdmin();
+      allow write: if false;
+    }
+
+    // 【2026.10.11-bh 新增，選用】商品資料原本只有管理員能改。這一段只多開一個例外：
+    // 可編輯（edit）以上的人，可以只改商品的「架位」欄位（shelf、shelves、shelfLog），其他欄位（名稱、價格、進價…）仍然只有管理員能改。
+    // 倉管用「商品架位調整」（掃架位標籤＋商品條碼）整理架位時需要這一段。
+    // 不想讓管理員以外的人調整架位，把這一段刪掉就好（管理員不受影響）。
+    match /inv_products/{id} {
+      allow update: if invCanEdit()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shelf', 'shelves', 'shelfLog']);
+    }
+
+    match /{invColl}/{invId} {
+      allow read: if invColl.matches('inv_.*')
+                  && !(invColl in ['inv_users', 'inv_members', 'inv_payroll', 'inv_employees', 'inv_attphotos', 'inv_faces', 'inv_lineoutbox', 'inv_alerts', 'inv_sys'])
+                  && invHasUser();
+      allow write: if invColl.matches('inv_.*')
+                   && !(invColl in ['inv_users', 'inv_members', 'inv_payroll', 'inv_employees', 'inv_attphotos', 'inv_faces', 'inv_lineoutbox', 'inv_alerts', 'inv_sys'])
+                   && ((invColl in ['inv_products', 'inv_settings', 'inv_locks', 'inv_prules', 'inv_closings']) ? invIsAdmin() : invCanEdit());
+    }
+  }
+}
