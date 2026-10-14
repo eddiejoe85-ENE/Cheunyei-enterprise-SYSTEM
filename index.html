@@ -1568,11 +1568,11 @@ function openOrder(type, pre){
       const sel = e => e.target.select();
       let priceIn = null;
       if (ln.gift){
-        const sub0 = h('b'), warn0 = h('small', {class:'hint'}), qwarn0 = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), rule0 = h('small', {class:'hint', style:'color:var(--brand)', text:'贈品：' + ln.promoName}), ref0 = {ln, p, sub:sub0, warn:warn0, qwarn:qwarn0, rule:rule0, priceIn:null}, qty0 = h('input', {class:'in', readOnly:true, value:ln.qty, 'aria-label':'贈品數量', style:'background:transparent'});
+        const sub0 = h('b'), warn0 = h('small', {class:'hint'}), qwarn0 = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), rule0 = h('small', {class:'hint', style:'color:var(--brand)', text:'贈品：' + ln.promoName}), short0 = type === 'sale' ? h('div') : null, ref0 = {ln, p, sub:sub0, warn:warn0, short:short0, qwarn:qwarn0, rule:rule0, priceIn:null}, qty0 = h('input', {class:'in', readOnly:true, value:ln.qty, 'aria-label':'贈品數量', style:'background:transparent'});
         ref0.qtyIn = qty0; refs.push(ref0);
-        return h('div', {class:'ln', 'data-gift':ln.promoId, style:'background:var(--soft,#f1f6f4)'}, h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name + '（贈品）'}), h('small', {text:p.sku + '　' + (p.unit || '')})), h('button', {class:'btn plain sm', 'aria-label':'不送 ' + ln.promoName, onclick:() => { st.giftOff.add(ln.promoId); st.lines = st.lines.filter(x => x !== ln); paintLines(); }}, '不送')), h('div', {class:'ln-g'}, h('div', null, h('label', {text:'贈送數量'}), qty0), h('div', null, h('label', {text:'單價'}), h('b', {text:money(0)})), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub0)), rule0, warn0, qwarn0);
+        return h('div', {class:'ln', 'data-gift':ln.promoId, style:'background:var(--soft,#f1f6f4)'}, h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name + '（贈品）'}), h('small', {text:p.sku + '　' + (p.unit || '')})), h('button', {class:'btn plain sm', 'aria-label':'不送 ' + ln.promoName, onclick:() => { st.giftOff.add(ln.promoId); st.lines = st.lines.filter(x => x !== ln); paintLines(); }}, '不送')), h('div', {class:'ln-g'}, h('div', null, h('label', {text:'贈送數量'}), qty0), h('div', null, h('label', {text:'單價'}), h('b', {text:money(0)})), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub0)), rule0, warn0, short0, qwarn0);
       }
-      const ref = {ln, p, sub, warn, qwarn, qtier, rule, priceIn:null};
+      const short = type === 'sale' ? h('div') : null, ref = {ln, p, sub, warn, short, qwarn, qtier, rule, priceIn:null};
       refs.push(ref);
       const qtyIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:isAdj ? ln.counted : ln.qty, placeholder:isAdj ? '實盤數量' : '數量', 'aria-label':isAdj ? '實盤數量' : '數量', 'data-enter':'search',
         onfocus:sel, oninput:e => { if (isAdj){ ln.counted = e.target.value; if (ref.cartonRefresh) ref.cartonRefresh(); } else { ln.qty = e.target.value; auto(ln); syncPrice(ref); famRefresh(ln); } calc(); }});
@@ -1603,7 +1603,7 @@ function openOrder(type, pre){
           h('div', null, h('label', {text:isAdj ? '實盤數量' : '數量'}), qtyIn),
           priceIn ? h('div', null, h('label', {text:'單價'}), priceIn) : null,
           h('div', {class:'ln-s'}, h('small', {text:isAdj ? '差異' : '小計'}), sub)),
-        ref.cartonEl || null, rule, warn, qwarn, qtier);
+        ref.cartonEl || null, rule, warn, short, qwarn, qtier);
     }));
     calc();
     if (histP) histP.paint();
@@ -1631,6 +1631,7 @@ function openOrder(type, pre){
           const pid = r.ln.pid, all = stockOf(pid), commit = S.d.commit[pid] || 0, inc = S.d.incoming[pid] || 0, after = r3(stock - q), safe = Number(r.p.safety) || 0;
           r.warn.textContent = (bad ? '⚠ 庫存不足，現有 ' : '現有庫存 ') + num(stock) + (multiWh() ? '（本倉）／全倉 ' + num(all) : '') + '　客戶訂單預留 ' + num(commit) + '　採購在途 ' + num(inc) + '　出貨後剩 ' + num(after) + (!bad && safe > 0 && after < safe ? '　⚠ 低於安全庫存 ' + num(safe) : '');
           r.warn.className = bad ? 'warn' : (safe > 0 && after < safe ? 'soon' : 'hint');
+          if (r.short) setKids(r.short, bad && q > 0 ? shortRow({pid, need:q, have:() => stockEff(pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''}) : null);
         }
         if (type === 'purchase' && !st.srcPO) setQwarn(r, q); else if (r.qwarn) setKids(r.qwarn);
         paintTier(r);
@@ -1669,7 +1670,9 @@ function openOrder(type, pre){
     freightBox,
     see('cash') ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.freightCash, 'aria-label':'運費由零用金支付', onchange:e => { st.freightCash = e.target.checked; }}), '運費由零用金支付（同步記入零用金帳簿的「運費」）') : null) : null;
   const printChk = (!editO && (type === 'sale' || type === 'sale_return')) ? h('input', {type:'checkbox', checked:!!loadPrint().auto, onchange:e => { const pp = loadPrint(); pp.auto = e.target.checked; savePrint(pp); }}) : null;
-  const sh = sheet({title:editO ? '修改' + T.label + ' ' + editO.no : T.label, guard:() => st.lines.length ? dialog({title:editO ? '放棄修改？' : '放棄這張單據？', msg:editO ? '這次的修改不會保存。' : '已輸入的內容不會保存。', ok:'放棄', danger:true}) : true});
+  const liveS = type === 'sale' ? {deps:['orders', 'porders', 'corders', 'products'], run:() => calc()} : null;
+  const sh = sheet({title:editO ? '修改' + T.label + ' ' + editO.no : T.label, guard:() => st.lines.length ? dialog({title:editO ? '放棄修改？' : '放棄這張單據？', msg:editO ? '這次的修改不會保存。' : '已輸入的內容不會保存。', ok:'放棄', danger:true}) : true, onclose:() => { if (liveS) live.delete(liveS); }});
+  if (liveS) live.add(liveS);
   const dateIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'日期', onchange:e => { st.date = e.target.value || today(); if (!st.delivTouched || st.deliv < st.date) st.deliv = st.date; repriceAll(); paintBill(); paintShip(); }});
   const billInfo = h('small', {class:'hint'});
   const paintBill = () => { const pt = S.partners[st.partnerId]; billInfo.textContent = T.money === 1 && T.partner ? '所屬帳期：' + cycleLabel(billMonth(st.date, cutoffOf(pt)), cutoffOf(pt)) : ''; };
@@ -1730,8 +1733,13 @@ function openOrder(type, pre){
     if (!lines.length) return toast('實盤數量與帳面相同，沒有需要調整的項目');
     if (!isAdj && !S.set.allowNeg){
       for (const l of lines){
-        const after = stockEff(l.pid) + T.sign * l.qty;
-        if (after < 0) return toast('「' + l.name + '」庫存不足（現有 ' + num(stockEff(l.pid)) + '）');
+        const have = stockEff(l.pid), after = r3(have + T.sign * l.qty);
+        if (after < 0){
+          if (type !== 'sale' || !(can('purchase') || can('stock'))) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
+          if (await dialog({title:'「' + l.name + '」庫存不足', msg:'現有 ' + num(have) + '，這張要出 ' + num(l.qty) + '，差 ' + num(r3(-after)) + '。要用採購、拆解補貨或直接組裝補足嗎？', ok:'處理缺貨', cancel:'回去修改'}))
+            openShortage({pid:l.pid, need:l.qty, have:() => stockEff(l.pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''});
+          return;
+        }
       }
     }
     const sum = isAdj ? 0 : lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0);
@@ -3384,10 +3392,11 @@ function openDocEditor(kind, pre){
   }
   const gotOf = pid => ed ? r3((S.d.fill[ed.id] || {})[pid] || 0) : 0;      // 這張訂單這個商品已經出（收）了多少
   const ownRem = pid => ed ? Math.max(r3((((ed.lines || []).find(l => l.pid === pid)) || {qty:0}).qty - gotOf(pid)), 0) : 0;   // 這張訂單自己還沒出的量（不算「被其他訂單預留」）
+  const othOf = pid => r3(Math.max((S.d.commit[pid] || 0) - ownRem(pid), 0));   // 其他訂單預留的量（修改時，扣掉這張訂單自己）
   const st = ed ? {date:ed.date, wh:ed.wh || defaultWh(), expected:ed.expected || ed.date, partnerId:ed.partnerId || '', note:ed.note || '', lines:(ed.lines || []).map(l => {
       const p = S.products[l.pid], list = Number(l.listPrice) || (p ? Number(p.price) : 0) || 0;
       return {pid:l.pid, qty:l.qty, price:l.price, manual:true, list, disc:Number(l.listPrice) > 0 ? (Number(l.disc) || 100) : discPct(list, l.price), fb:p ? null : {id:l.pid, name:l.name || '（已刪除的商品）', sku:l.sku || '', unit:l.unit || '', price:Number(l.price) || 0, cost:Number(l.cost) || 0, safety:0}}; })}
-    : {date:today(), wh:pre.wh || defaultWh(), expected:kind === 'co' ? today() : addDays(today(), 7), partnerId:pre.partnerId || '', note:'', lines:[]};
+    : {date:today(), wh:pre.wh || defaultWh(), expected:kind === 'co' ? today() : addDays(today(), pre.partnerId ? leadOf(pre.partnerId).max : 7), partnerId:pre.partnerId || '', note:pre.note || '', lines:[]};
   const sig = () => JSON.stringify([st.partnerId, st.date, st.expected, st.wh, st.note.trim(), st.lines.map(l => [l.pid, toNum(l.qty), toNum(l.price)])]);
   let sig0 = '';
   const refs = [];
@@ -3471,8 +3480,8 @@ function openDocEditor(kind, pre){
   function paintLines(){
     refs.length = 0;
     setKids(linesBox, st.lines.map((ln, i) => {
-      const p = S.products[ln.pid] || ln.fb, sub = h('b'), hint = h('small', {class:'hint'}), qwarn = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'});
-      const promo = h('small', {class:'hint', style:'color:var(--brand);display:block', 'aria-label':'組合優惠說明'}), ref = {ln, p, sub, hint, qwarn, qtier, promo, priceIn:null};
+      const p = S.products[ln.pid] || ln.fb, sub = h('b'), hint = h('small', {class:'hint'}), short = kind === 'co' ? h('div') : null, qwarn = h('div', {class:'soon', style:'font-size:13px;margin-top:2px'}), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'});
+      const promo = h('small', {class:'hint', style:'color:var(--brand);display:block', 'aria-label':'組合優惠說明'}), ref = {ln, p, sub, hint, short, qwarn, qtier, promo, priceIn:null};
       refs.push(ref);
       const sel = e => e.target.select();
       const showDisc = kind === 'co'; let listIn = null, discIn = null;
@@ -3487,7 +3496,7 @@ function openDocEditor(kind, pre){
           h('span', {style:'display:flex;gap:6px;align-items:center'}, kind === 'co' && S.products[ln.pid] ? infoBtn(ln.pid, {partnerId:st.partnerId, onPick:pr => { ln.price = pr; ln.manual = true; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', disabled:gotOf(ln.pid) > 0.0004, title:gotOf(ln.pid) > 0.0004 ? '已' + D.act + '，不能移除' : '', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshD(gone); paintLines(); }}, icon('x')))),
         (() => { const qtyDiv = h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', onfocus:sel, oninput:e => { ln.qty = e.target.value; if (!ln.manual){ ln.price = docAuto(p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); ref.priceIn.value = ln.price; if (discIn) discIn.value = zheIn(ln); } famRefreshD(ln); calc(); }}));
           return showDisc ? [h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'定價'}), listIn), h('div', null, h('label', {text:'折數（0.9＝9折）'}), discIn)), h('div', {class:'ln-g', style:'margin-top:6px'}, h('div', null, h('label', {text:'單價（定價 × 折數）'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub))]
-            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, qwarn, qtier, promo);
+            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, short, qwarn, qtier, promo);
     }));
     calc(); histD.paint();
   }
@@ -3498,12 +3507,13 @@ function openDocEditor(kind, pre){
       const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price); total += amt;
       r.sub.textContent = money(amt);
       const pid = r.ln.pid;
-      const oth = r3(Math.max((S.d.commit[pid] || 0) - ownRem(pid), 0)), inc = r3(Math.max((S.d.incoming[pid] || 0) - ownRem(pid), 0));   // 修改時，扣掉這張訂單自己
+      const oth = othOf(pid), inc = r3(Math.max((S.d.incoming[pid] || 0) - ownRem(pid), 0)), remQ = r3(q - gotOf(pid)), lack = kind === 'co' && remQ > SHORT_EPS && r3(stockOf(pid) - oth) < remQ - SHORT_EPS;   // 修改時，扣掉這張訂單自己；已經出貨的不算
       r.hint.textContent = (kind === 'co'
-        ? '庫存 ' + num(stockOf(pid)) + '　已被其他訂單預留 ' + num(oth) + (stockOf(pid) - oth < q ? '　可能缺貨' : '')
+        ? '庫存 ' + num(stockOf(pid)) + '　已被其他訂單預留 ' + num(oth) + (lack ? '　可能缺貨' : '')
         : '庫存 ' + num(stockOf(pid)) + '　採購在途 ' + num(inc) + (r.p.safety > 0 ? '　安全庫存 ' + num(r.p.safety) : '') + (buyRule(r.p) ? '　' + buyRule(r.p) : ''))
         + (gotOf(pid) > 0.0004 ? '　已' + D.act + ' ' + num(gotOf(pid)) + '（數量不能低於這個）' : '');
       if (kind === 'po') setQwarn(r, q);
+      if (r.short) setKids(r.short, lack ? shortRow({pid, need:remQ, have:() => r3(stockOf(pid) - othOf(pid)), wid:() => st.wh, label:'客戶訂單', haveLabel:'可用庫存（扣掉其他訂單預留）', ref:ed ? ed.no : ''}) : null);
       paintTierD(r);
     }
     totEl.textContent = (kind === 'po' && !buyOn()) ? '共 ' + refs.length + ' 項' : '合計 ' + money(mInt(total)) + (S.set.taxMode === 'none' ? '' : '（未稅）');
@@ -3550,7 +3560,9 @@ function openDocEditor(kind, pre){
     saving = false; saveBtn.disabled = false;
     if (doc){ toast('已建立 ' + doc.no); sh.forceClose(); }
   }}, ed ? '儲存修改' : ('建立' + D.label));
-  const sh = sheet({title:ed ? '修改' + D.label + ' ' + ed.no : '新增' + D.label, guard:() => ed ? (sig() !== sig0 ? dialog({title:'放棄這次的修改？', msg:'這次的修改不會保存。', ok:'放棄', danger:true}) : true) : (st.lines.length ? dialog({title:'放棄這張' + D.label + '？', msg:'已輸入的內容不會保存。', ok:'放棄', danger:true}) : true)});
+  const liveE = kind === 'co' ? {deps:['orders', 'porders', 'corders', 'products'], run:() => calc()} : null;
+  const sh = sheet({title:ed ? '修改' + D.label + ' ' + ed.no : '新增' + D.label, guard:() => ed ? (sig() !== sig0 ? dialog({title:'放棄這次的修改？', msg:'這次的修改不會保存。', ok:'放棄', danger:true}) : true) : (st.lines.length ? dialog({title:'放棄這張' + D.label + '？', msg:'已輸入的內容不會保存。', ok:'放棄', danger:true}) : true), onclose:() => { if (liveE) live.delete(liveE); }});
+  if (liveE) live.add(liveE);
   fillPartners();
   put(sh.bodyEl,
     h('div', {class:'f'}, h('label', {text:PLABEL[D.partner]}),
@@ -3612,7 +3624,8 @@ function openDocDetail(kind, id){
       h('div', {class:'panel', style:'margin-bottom:14px'}, [...pr.lines.map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
         h('span', null, h('b', {text:l.name}), h('br'),
           h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '') + (l.promo && l.promo.name ? '　組合優惠「' + l.promo.name + '」' + (Number(l.promo.base) > 0 ? '（原價 ' + money(l.promo.base) + '）' : '') : '')}),
-          kind === 'co' && pr.active && l.rem > 0 ? [h('br'), h('small', {class:stockOf(l.pid) < l.rem ? 'overdue' : '', text:stockOf(l.pid) < l.rem ? '庫存 ' + num(stockOf(l.pid)) + '，缺 ' + num(r3(l.rem - stockOf(l.pid))) : '庫存足夠（' + num(stockOf(l.pid)) + '）'})] : null),
+          kind === 'co' && pr.active && l.rem > 0 ? [h('br'), h('small', {class:stockOf(l.pid) < l.rem ? 'overdue' : '', text:stockOf(l.pid) < l.rem ? '庫存 ' + num(stockOf(l.pid)) + '，缺 ' + num(r3(l.rem - stockOf(l.pid))) : '庫存足夠（' + num(stockOf(l.pid)) + '）'}),
+            stockOf(l.pid) < l.rem && S.products[l.pid] && (can('purchase') || can('stock')) ? [' ', h('button', {class:'btn ghost sm', type:'button', 'aria-label':'處理缺貨 ' + l.sku, onclick:() => openShortage({pid:l.pid, need:l.rem, have:() => stockOf(l.pid), wid:docWh(d), label:'客戶訂單', haveLabel:'目前庫存', ref:d.no})}, '處理缺貨')] : null] : null),
         h('b', {text:(kind === 'po' && !buyOn()) ? '' : money(amtOf(l.qty, l.price))}))),
         (kind === 'po' && !buyOn()) ? null : h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('b', {text:'合計'}), h('b', {text:money(d.total)}))]),
       more.length ? h('div', {class:'btns', style:'margin-bottom:14px'}, more) : null,
@@ -10275,7 +10288,7 @@ function openBomOp(kind, pre){
   const isAsm = kind === 'assembly', T = TYPES[kind];
   const prods = () => activeProducts().filter(hasBom).sort(cmpSku);
   if (!prods().length) return toast('還沒有商品設定 BOM。請先到商品編輯，在「產品組成（BOM）」加入組件。');
-  const st = {pid:pre.pid && hasBom(S.products[pre.pid]) ? pre.pid : prods()[0].id, qty:'1', wh:defaultWh(), date:today(), note:'', upd:false, act:{}};
+  const st = {pid:pre.pid && hasBom(S.products[pre.pid]) ? pre.pid : prods()[0].id, qty:Number(pre.qty) > 0 ? String(pre.qty) : '1', wh:pre.wh && myWhs().some(w => w.id === pre.wh) ? pre.wh : defaultWh(), date:today(), note:pre.note || '', upd:false, act:{}};
   let saving = false;
   const listBox = h('div'), sumBox = h('div');
   const P = () => S.products[st.pid], N = () => toNum(st.qty);
@@ -10308,14 +10321,14 @@ function openBomOp(kind, pre){
   const btn = h('button', {class:'btn grow', onclick:save}, isAsm ? '確認組成' : '確認拆解');
   const sh = sheet({title:T.label});
   put(sh.bodyEl,
-    h('div', {class:'chips', style:'padding-top:0'}, [['assembly', '組成作業'], ['disassembly', '拆解作業']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':kind === k, onclick:() => { if (k !== kind){ sh.forceClose(); openBomOp(k, {pid:st.pid}); } }}, t))),
+    h('div', {class:'chips', style:'padding-top:0'}, [['assembly', '組成作業'], ['disassembly', '拆解作業']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':kind === k, onclick:() => { if (k !== kind){ sh.forceClose(); openBomOp(k, {pid:st.pid, wh:st.wh, note:st.note}); } }}, t))),
     h('p', {class:'note', text:isAsm ? '依 BOM 扣掉組件庫存，增加成品庫存。' : '依 BOM 扣掉成品庫存，把組件加回庫存。'}),
     fld('成品（已設定 BOM）', prodSel),
     h('div', {class:'f2'}, fld(isAsm ? '組成數量' : '拆解數量', qtyIn), fld('日期', h('input', {class:'in', type:'date', value:st.date, onchange:e => { st.date = e.target.value || today(); }}))),
     multiWh() ? fld('倉庫', whPicker(() => st.wh, v => { st.wh = v; paint(); }, '倉庫')) : null,
     h('div', {class:'sec-h'}, h('h2', {text:isAsm ? '使用的組件' : '拆出的組件'})), listBox, sumBox,
     isAsm && see('cost') ? h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'同步更新成品進價', onchange:e => { st.upd = e.target.checked; }}), '完成後把成品進價更新為這次的單位成本') : null,
-    fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', oninput:e => { st.note = e.target.value; }})));
+    fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', value:st.note, oninput:e => { st.note = e.target.value; }})));
   sh.footEl.append(btn);
   paint();
 
@@ -10344,6 +10357,137 @@ function openBomOp(kind, pre){
     if (doc){ toast('已建立 ' + doc.no); sh.forceClose(); }
   }
 }
+
+/* ================= 缺貨處理：開銷貨單、客戶訂單時，商品庫存不夠 → 提示「採購」「拆解補貨」「直接組裝」 =================
+   shortagePlan(pid, gap, wid)：算出這個缺口（gap）可以怎麼補（只算，不寫任何資料）
+   shortRow(o)：單據裡每一項商品下面的「⚠ 缺貨」提示列（庫存夠就回傳 null）
+   openShortage(o)：按「處理缺貨」開出的畫面，列出採購、拆解補貨、直接組裝，每一種都帶好商品、數量、倉庫、備註
+   o = {pid, need（這張單要的數量）, have（函式：目前可用的庫存）, wid（倉庫，或回傳倉庫的函式）, label（單據名稱）, haveLabel, ref（單號）} */
+const SHORT_EPS = 0.0004;
+const shortWid = o => (typeof o.wid === 'function' ? o.wid() : o.wid) || WH_MAIN;
+/* 各商品「採購在途」的明細（每張未收完的採購單一列）。S.d 每次重算都是新物件，拿它當快取的依據 */
+function incIndex(){
+  if (incIndex.d === S.d && incIndex.m) return incIndex.m;
+  const m = {};
+  for (const d of openPOs()){
+    const sum = {};
+    for (const l of docProgress('po', d).lines) if (l.rem > SHORT_EPS) sum[l.pid] = r3((sum[l.pid] || 0) + l.rem);
+    for (const [pid, rem] of Object.entries(sum)) (m[pid] = m[pid] || []).push({id:d.id, no:d.no, expected:d.expected || '', partnerId:d.partnerId, wh:docWh(d), rem});
+  }
+  incIndex.d = S.d; incIndex.m = m; return m;
+}
+function shortagePlan(pid, gap, wid){
+  const p = S.products[pid]; if (!p) return null;
+  gap = r3(gap); wid = wid || WH_MAIN;
+  const neg = !!S.set.allowNeg, bom = bomOf(p), canAsm = bom.length > 0 && p.active !== false;
+  const build = bom.length ? bomBuildable(p, wid) : 0, asmQty = canAsm ? (neg ? gap : Math.min(gap, build)) : 0;
+  /* 組裝：每個組件要幾個、庫存幾個、缺幾個（缺的組件可以另外採購） */
+  const comps = bom.map(c => {
+    const cp = S.products[c.pid], per = Number(c.qty), stock = stockAt(c.pid, wid), need = r3(per * gap), lack = Math.max(r3(need - stock), 0), chk = lack > 0 ? qtyRuleCheck(cp, lack) : null;
+    return {pid:cp.id, name:cp.name, sku:cp.sku, unit:cp.unit || '', per, stock, need, lack, buyable:cp.procSrc !== 'make' && cp.active !== false, buyQty:chk ? chk.suggest : lack, sup:supplierOf(cp) || defaultSupplierId()};
+  });
+  /* 拆解：哪些成品（大包裝、組合商品）含有這個商品，拆幾個可以補到缺口；成品庫存不夠拆時，能拆幾個算幾個 */
+  const dis = disOptions(pid, gap, wid).filter(op => op.F.active !== false).map(op => {
+    const useN = neg ? op.n : Math.min(op.n, Math.floor(op.fstock + 1e-9));
+    return {...op, useN, useYield:r3(useN * op.per), full:useN >= op.n};
+  }).sort((a, b) => (b.full ? 1 : 0) - (a.full ? 1 : 0));
+  /* 採購：已經在途的採購單、扣掉在途後還要再訂多少（依最小採購量、批量調整） */
+  const incRows = (incIndex()[pid] || []).filter(r => !multiWh() || r.wh === wid).sort((a, b) => (a.expected || '9999-99-99').localeCompare(b.expected || '9999-99-99') || String(a.no).localeCompare(String(b.no)));
+  const inc = r3(incRows.reduce((a, r) => a + r.rem, 0)), buyNeed = inc > SHORT_EPS && inc < gap - SHORT_EPS ? r3(gap - inc) : gap, chk = qtyRuleCheck(p, buyNeed);
+  /* 倉庫調撥：有多個倉庫時，別的倉庫還有庫存 → 可以調過來（不是自己負責的倉庫，只列出來當提示） */
+  const mine = new Set(myWhs().map(w => w.id));
+  const xfer = multiWh() ? whActive().filter(w => w.id !== wid && stockAt(pid, w.id) > SHORT_EPS).map(w => { const stock = stockAt(pid, w.id); return {wid:w.id, name:w.name, stock, qty:r3(Math.min(gap, stock)), mine:mine.has(w.id)}; }).sort((a, b) => b.stock - a.stock) : [];
+  return {p, gap, wid, self:p.procSrc === 'make', bom:comps, canAsm, build, asmQty, dis, inc, incRows, sup:supplierOf(p) || defaultSupplierId(), buyNeed, buyQty:chk ? chk.suggest : buyNeed, rule:buyRule(p), xfer};
+}
+/* 提示列上寫的「可以用」：採購（自行生產的商品不採購）、拆解補貨（有成品可拆）、直接組裝（組件夠組至少一個）、倉庫調撥（別的倉庫有庫存） */
+const shortWays = pl => [!pl.self ? '採購' : null, pl.dis.some(op => op.useN > 0) ? '拆解補貨' : null, pl.canAsm && pl.build > 0 ? '直接組裝' : null, pl.xfer.some(x => x.mine) ? '倉庫調撥' : null].filter(Boolean);
+function shortRow(o){
+  const p = S.products[o.pid]; if (!p) return null;
+  const gap = r3(o.need - o.have()); if (!(gap > SHORT_EPS)) return null;
+  const pl = shortagePlan(o.pid, gap, shortWid(o)), ways = shortWays(pl), act = can('purchase') || can('stock');
+  const tail = (pl.inc > SHORT_EPS ? '採購在途 ' + num(pl.inc) + (pl.inc >= gap - SHORT_EPS ? '（夠補）' : '（不夠補）') : '') + (act ? '' : '　請通知採購或作業人員補貨');
+  return h('div', {class:'note warn', 'aria-label':'缺貨提示 ' + p.sku, style:'margin:6px 0 0;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap'},
+    h('span', {style:'min-width:0;flex:1 1 170px'}, h('b', {text:'⚠ 缺貨：還差 ' + num(gap) + ' ' + (p.unit || '')}),
+      h('small', {style:'display:block;margin-top:2px', text:(ways.length ? '可以用：' + ways.join('、') : '沒有現成的補貨方式（自行生產的商品，也沒有可組裝或拆解的來源）') + (tail ? '　' + tail : '')})),
+    act ? h('button', {class:'btn sm', type:'button', 'aria-label':'處理缺貨 ' + p.sku, onclick:() => openShortage(o)}, '處理缺貨') : null);
+}
+function openShortage(o){
+  if (!S.products[o.pid]) return toast('找不到這個商品');
+  liveSheet({title:'處理缺貨'}, ['orders', 'porders', 'corders', 'products', 'partners', 'settings', 'displans'], sh => {
+    const p = S.products[o.pid]; if (!p) return false;
+    const wid = shortWid(o), have = o.have(), gap = r3(o.need - have), unit = p.unit || '', done = !(gap > SHORT_EPS), pl = done ? null : shortagePlan(o.pid, gap, wid);
+    const memo = '缺貨補貨（' + o.label + (o.ref ? ' ' + o.ref : '') + '）', mayBuy = can('purchase'), mayOp = can('stock');
+    const sec = t => h('div', {class:'sec-h'}, h('h2', {text:t}));
+    const card = (aria, ...kids) => h('div', {class:'panel pad', 'aria-label':aria, style:'margin-bottom:12px'}, ...kids);
+    const wide = 'margin-top:8px;width:100%';
+    const head = h('div', {class:'panel pad', 'aria-label':'缺貨情形', style:'margin-bottom:12px'},
+      h('b', {style:'font-size:17px', text:p.name}), h('br'), h('small', {text:p.sku + (unit ? '　單位：' + unit : '')}),
+      kv('這張' + o.label + '要', num(o.need) + ' ' + unit), kv(o.haveLabel || '目前庫存', num(have) + ' ' + unit),
+      kv('還差', h('b', {class:done ? 'stat ok' : 'overdue', text:done ? '0' : num(gap) + ' ' + unit})),
+      multiWh() ? kv('倉庫', whName(wid)) : null,
+      pl && pl.xfer.length ? kv('其他倉庫還有', pl.xfer.map(x => x.name + ' ' + num(x.stock)).join('、') + ' ' + unit) : null);
+    /* ---- 採購 ---- */
+    const buySec = () => {
+      if (pl.self) return pl.canAsm || pl.dis.some(op => op.useN > 0) ? null : h('div', {class:'note', 'aria-label':'自行生產', text:'這個商品的採購來源是「自行生產」，不走採購，也沒有可以組裝或拆解的來源，請通知生產人員補貨。'});
+      const sup = S.partners[pl.sup], enough = pl.inc >= gap - SHORT_EPS;
+      return [sec('採購'),
+        pl.incRows.length ? h('div', {class:'panel', 'aria-label':'採購在途', style:'margin-bottom:8px'}, pl.incRows.map(r => h('button', {class:'row', type:'button', 'aria-label':'採購單 ' + r.no, onclick:() => openDocDetail('po', r.id)},
+          h('span', {style:'text-align:left;min-width:0'}, h('b', {text:r.no}), h('br'), h('small', {text:((S.partners[r.partnerId] || {}).name || '') + '　' + (r.expected ? '預計 ' + mdw(r.expected) + ' 到' : '沒有預計到貨日')})), h('b', {text:'在途 ' + num(r.rem) + ' ' + unit})))) : null,
+        card('採購補貨',
+          pl.incRows.length ? h('div', {class:'note ' + (enough ? 'good' : 'warn'), 'aria-label':'採購在途說明', style:'margin:0 0 8px', text:enough ? '採購在途 ' + num(pl.inc) + ' ' + unit + '，夠補這次的缺口，等到貨就好；要馬上出貨的話，可以改用下面的拆解或組裝。' : '採購在途 ' + num(pl.inc) + ' ' + unit + '，還不夠，還差 ' + num(pl.buyNeed) + ' ' + unit + '。'}) : null,
+          kv(enough ? '再訂一批' : '建議採購', num(pl.buyQty) + ' ' + unit), kv('供應商', sup ? sup.name : '（沒有設定，建立採購單時再選）'),
+          pl.rule ? h('small', {class:'hint', text:'進貨規則：' + pl.rule + (pl.buyQty !== pl.buyNeed ? '（已把 ' + num(pl.buyNeed) + ' 調整成 ' + num(pl.buyQty) + '）' : '')}) : null,
+          mayBuy ? h('button', {class:'btn', style:wide, type:'button', 'aria-label':'建立採購單 ' + p.sku, onclick:() => openDocEditor('po', {pid:p.id, qty:pl.buyQty, partnerId:pl.sup, wh:wid, note:memo})}, '建立採購單')
+            : h('div', {class:'note', style:'margin:8px 0 0', text:'你的角色沒有採購的權限，請通知採購人員。'}))];
+    };
+    /* ---- 倉庫調撥 ---- */
+    const xferSec = () => {
+      if (!pl.xfer.length) return null;
+      return [sec('倉庫調撥'),
+        card('調撥方式', h('small', {class:'hint', text:'別的倉庫還有庫存，可以調到「' + whName(wid) + '」：'}),
+          h('div', {class:'panel', 'aria-label':'可調撥的倉庫', style:'margin:8px 0 0'}, pl.xfer.map(x => h('div', {class:'mv', style:'grid-template-columns:1fr auto;gap:8px'},
+            h('span', {style:'min-width:0'}, h('b', {text:x.name}), h('br'), h('small', {text:'庫存 ' + num(x.stock) + ' ' + unit + (x.stock < gap - SHORT_EPS ? '，只夠補一部分' : '')})),
+            x.mine && mayOp ? h('button', {class:'btn sm', type:'button', 'aria-label':'調撥 ' + x.name, onclick:() => openTransfer({from:x.wid, to:wid, pid:p.id, qty:x.qty, note:memo})}, '調 ' + num(x.qty) + ' ' + unit + ' 過來')
+              : h('small', {class:'hint', text:x.mine ? '沒有調撥的權限' : '不是你負責的倉庫'})))))];
+    };
+    /* ---- 拆解補貨 ---- */
+    const feas = pl ? pl.dis.filter(op => op.useN > 0) : [], infeas = pl ? pl.dis.filter(op => !(op.useN > 0)) : [];
+    const disSec = () => {
+      if (!feas.length && !infeas.length) return null;
+      return [sec('拆解補貨'),
+        ...feas.map(op => { const F = op.F, fu = F.unit || '', left = Math.max(r3(gap - op.useYield), 0), shelf = shelfOf(F, wid);
+          return card('拆解方式 ' + F.sku,
+            h('b', {text:'拆 ' + num(op.useN) + ' ' + fu + '「' + F.name + '」'}), h('br'),
+            h('span', {text:'→ 得到 ' + num(op.useYield) + ' ' + unit + '「' + p.name + '」' + (left > SHORT_EPS ? '（還差 ' + num(left) + '，要靠其他方式補）' : (op.useYield > gap + SHORT_EPS ? '（比缺口多 ' + num(r3(op.useYield - gap)) + '，留在庫存）' : ''))}),
+            h('small', {class:'hint', text:'成品庫存 ' + num(op.fstock) + ' ' + fu + (shelf ? '　架位 ' + shelf : '') + '；1 ' + fu + ' 拆出 ' + num(op.per) + ' ' + unit}),
+            op.plan && op.plan.hint ? h('small', {class:'hint', text:'提示：' + op.plan.hint}) : null,
+            mayOp ? h('button', {class:'btn', style:wide, type:'button', 'aria-label':'拆解 ' + F.sku, onclick:() => openBomOp('disassembly', {pid:F.id, qty:op.useN, wh:wid, note:memo})}, '拆解補貨') : null); }),
+        infeas.length ? h('small', {class:'hint', 'aria-label':'無法拆解的成品', style:'margin:-4px 0 12px', text:'另外還有 ' + infeas.length + ' 種成品含有這個商品，但目前沒有庫存可以拆：' + infeas.slice(0, 5).map(op => op.F.name).join('、') + (infeas.length > 5 ? '…' : '')}) : null,
+        !mayOp && feas.length ? h('div', {class:'note', text:'你的角色沒有拆解的權限，請通知作業人員處理。'}) : null];
+    };
+    /* ---- 直接組裝 ---- */
+    const asmSec = () => {
+      if (!pl.canAsm) return null;
+      const short = pl.build < gap - SHORT_EPS;
+      return [sec('直接組裝'),
+        card('組裝方式',
+          h('b', {text:pl.asmQty > 0 ? '用組件組出 ' + num(pl.asmQty) + ' ' + unit + '「' + p.name + '」' : '組件不夠，現在一個都組不出來'}),
+          h('small', {class:'hint', text:'補這次缺的 ' + num(gap) + ' ' + unit + '，需要這些組件（庫存是' + (multiWh() ? whName(wid) : '目前') + '的）：'}),
+          h('div', {class:'panel', 'aria-label':'組件', style:'margin:8px 0'}, pl.bom.map(c => h('div', {class:'mv', style:'grid-template-columns:1fr auto;gap:8px'},
+            h('span', {style:'min-width:0'}, h('b', {text:c.name}), h('br'), h('small', {class:c.lack > SHORT_EPS ? 'overdue' : '', text:c.sku + '　需 ' + num(c.need) + ' ' + c.unit + '　庫存 ' + num(c.stock) + (c.lack > SHORT_EPS ? '　缺 ' + num(c.lack) : '　✓')})),
+            c.lack > SHORT_EPS && c.buyable && mayBuy ? h('button', {class:'btn ghost sm', type:'button', 'aria-label':'採購組件 ' + c.sku, onclick:() => openDocEditor('po', {pid:c.pid, qty:c.buyQty, partnerId:c.sup, wh:wid, note:'組裝缺料（' + p.name + '，' + o.label + (o.ref ? ' ' + o.ref : '') + '）'})}, '採購') : null))),
+          short ? h('small', {class:'hint', 'aria-label':'組裝說明', text:S.set.allowNeg ? '目前的組件只夠組 ' + num(pl.build) + ' ' + unit + '，其餘的組件不夠，組裝後那些組件的庫存會變成負數。' : '目前的組件最多只能組 ' + num(pl.build) + ' ' + unit + '，其餘 ' + num(r3(gap - pl.asmQty)) + ' ' + unit + ' 要先採購缺的組件，或用其他方式補。'}) : h('small', {class:'hint', 'aria-label':'組裝說明', text:'目前的組件夠，可以一次組完。'}),
+          mayOp ? h('button', {class:'btn', style:wide, type:'button', disabled:!(pl.asmQty > 0), 'aria-label':'組裝 ' + p.sku, onclick:() => openBomOp('assembly', {pid:p.id, qty:pl.asmQty, wh:wid, note:memo})}, '直接組裝' + (pl.asmQty > 0 ? ' ' + num(pl.asmQty) + ' ' + unit : ''))
+            : h('div', {class:'note', style:'margin:8px 0 0', text:'你的角色沒有組裝的權限，請通知作業人員處理。'}))];
+    };
+    const body = h('div', null, head,
+      done ? h('div', {class:'note good', 'aria-label':'缺貨已補足', text:'✓ 庫存已經夠了，可以回到單據繼續。'}) : [
+        h('p', {class:'hint', style:'margin:0 0 10px', text:'下面的方式擇一，或搭配使用（例如先拆解補一部分，其餘再採購）。做完回到這裡，缺口會自動更新。'}),
+        buySec(), disSec(), asmSec(), xferSec()]);
+    return {body, foot:[h('button', {class:'btn grow', type:'button', 'aria-label':'回到單據', onclick:() => sh.forceClose()}, done ? '回到單據繼續' : '先不處理，回到單據')]};
+  });
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -11092,7 +11236,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bk';
+const APP_VERSION = '2026.10.11-bm';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -12843,7 +12987,9 @@ function openTransfer(pre){
   pre = pre || {};
   if (!multiWh()) return toast('目前只有一個倉庫。到「系統設定」新增倉庫後才能調撥。');
   const mine = myWhs(); if (!mine.length) return toast('你沒有可操作的倉庫');
-  const st = {from:mine[0].id, to:(whActive().find(w => w.id !== mine[0].id) || {}).id || '', note:'', lines:[]};
+  const st = {from:mine[0].id, to:(whActive().find(w => w.id !== mine[0].id) || {}).id || '', note:pre.note || '', lines:[]};
+  if (pre.from && mine.some(w => w.id === pre.from)) st.from = pre.from;
+  if (pre.to && pre.to !== st.from && whActive().some(w => w.id === pre.to)) st.to = pre.to; else if (st.to === st.from) st.to = (whActive().find(w => w.id !== st.from) || {}).id || '';
   const linesBox = h('div'), pickBox = h('div', {class:'pick'}), totEl = h('div', {class:'tot'});
   const refs = [];
   let saving = false;
@@ -12903,7 +13049,7 @@ function openTransfer(pre){
   }}, '確認調撥');
   const sh = sheet({title:'倉庫調撥', guard:() => st.lines.length ? dialog({title:'放棄這張調撥單？', ok:'放棄', danger:true}) : true});
   put(sh.bodyEl, h('div', {class:'f2'}, h('div', {class:'f'}, h('label', {text:'調出倉庫'}), fromSel), h('div', {class:'f'}, h('label', {text:'調入倉庫'}), toSel)),
-    h('label', {class:'search'}, icon('search'), searchIn), pickBox, linesBox, fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', oninput:e => { st.note = e.target.value; }})));
+    h('label', {class:'search'}, icon('search'), searchIn), pickBox, linesBox, fld('備註', h('input', {class:'in', placeholder:'選填', style:'margin-top:8px', value:st.note, oninput:e => { st.note = e.target.value; }})));
   sh.footEl.append(totEl, saveBtn);
   paintLines();
   if (pre.pid) addLine(pre.pid, pre.qty);
@@ -13281,9 +13427,56 @@ function dsStatement(pid){
     sections:[{name:'對帳單', cols:[XC('日期', 'text', 12), XC('單號', 'text', 20), XC('摘要', 'text', 20), XC('帳期', 'text', 10), XC('增加', 'money', 12), XC('減少', 'money', 12), XC('餘額', 'money', 12)], rows}]};
 }
 
-const COLS = {sku:['料號', 'sku', '編號'], barcode:['條碼', 'barcode', 'ean', 'upc'], name:['品名', 'name', '名稱', '商品名稱'], category:['分類', 'category'], unit:['單位', 'unit'], cartonQty:['每箱入數', '外箱入數', '箱入數', '入數', 'carton', 'cartonqty'],
-  cost:['進價', '成本', 'cost'], price:['售價', 'price'], safety:['安全庫存', 'safety'], shelf:['架位', '貨架', '儲位', 'shelf', 'location'], labelSpec:['標籤規格', '標籤', 'label'], family:['系列', '系列名稱', 'family'], opening:['期初庫存', '庫存', 'opening', 'stock'],
-  supplier:['供應商', '進貨廠商', '廠商', 'supplier'], moq:['最小採購量', '最小進貨量', '進貨最小數量', 'moq'], lot:['進貨批量', '採購批量', '批量', 'lot'], volume:['材積', '材積（才）', '才數', 'volume'], procSrc:['採購來源', '來源'], status:['狀態', '停用']};
+/* ---- 產品匯入的欄位名稱：每個欄位可以有好幾種寫法（第一個是標準名稱，錯誤提醒都用它）。
+   比對時全形半形、大小寫、空白、底線、前後的 * ： 和括號備註（例如「安全庫存（件）」）都不影響。
+   檔案裡看不懂的欄位，預覽會列出來，也可以自己選要對應到哪一欄 ---- */
+const COLS = {
+  sku:['料號', 'sku', '編號', '產品編號', '商品編號', '貨號', '品號', '產品代號', '商品代號', '產品料號', '商品料號', '品項編號', 'itemno', 'itemcode', 'productcode', 'partno'],
+  barcode:['條碼', 'barcode', 'ean', 'upc', '國際條碼', '商品條碼', '產品條碼', 'ean13', 'jan'],
+  name:['品名', 'name', '名稱', '商品名稱', '產品名稱', '品項名稱', '產品品名', '商品品名', 'productname', 'itemname'],
+  category:['分類', 'category', '類別', '商品分類', '產品分類', '商品類別', '產品類別', '大類'],
+  unit:['單位', 'unit', '基本單位', '計量單位', '庫存單位'],
+  cartonQty:['每箱入數', '外箱入數', '箱入數', '入數', 'carton', 'cartonqty', '每箱數量', '每箱個數', '裝箱數', '箱入', '外箱數量'],
+  cost:['進價', '成本', 'cost', '成本價', '進貨價', '採購價', '進貨成本', '標準成本'],
+  price:['售價', 'price', '零售價', '銷售價', '定價', '標準售價', '建議售價'],
+  safety:['安全庫存', 'safety', '安全存量', '安全庫存量', '安全量', '安全庫存數', '安全庫存數量', '安全存量數', '最低庫存', '最低存量', '最低庫存量', '最低安全庫存', 'safetystock', 'minstock'],
+  shelf:['架位', '貨架', '儲位', 'shelf', 'location', '貨位', '庫位', '儲位編號', '貨架位置', '架位代碼'],
+  labelSpec:['標籤規格', '標籤', 'label'],
+  family:['系列', '系列名稱', 'family', '產品系列', '商品系列'],
+  opening:['期初庫存', '庫存', 'opening', 'stock', '期初數量', '期初量', '期初存量', '現有庫存', '庫存量', '庫存數量', '初始庫存'],
+  supplier:['供應商', '進貨廠商', '廠商', 'supplier', '主要供應商', '供應商名稱', '進貨商', '廠商名稱', 'vendor'],
+  moq:['最小採購量', '最小進貨量', '進貨最小數量', 'moq', '最低採購量', '最低進貨量', '最小訂購量', '最低訂購量'],
+  lot:['進貨批量', '採購批量', '批量', 'lot', '進貨倍數', '採購倍數', '訂購倍數'],
+  volume:['材積', '材積（才）', '才數', 'volume', '單位材積'],
+  procSrc:['採購來源', '來源', '進貨來源', '補貨來源', '採購方式'],
+  status:['狀態', '停用', '啟用狀態', '使用狀態', '是否啟用', '商品狀態', '產品狀態']};
+/* 每個欄位在畫面上的名稱（欄位對應的下拉選單用）；「目前庫存（參考）」是匯出才有的參考欄，匯入時不用，也不算看不懂 */
+const PROD_FIELD = {sku:'料號', barcode:'條碼', name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', opening:'期初庫存', supplier:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積（才）', procSrc:'採購來源', status:'狀態'};
+const PROD_IGNORE = ['目前庫存'];
+const pcNorm = t => String(t == null ? '' : t).normalize('NFKC').toLowerCase().replace(/[\s_\-.]/g, '').replace(/^[*＊※#]+/, '').replace(/[*＊※:：]+$/, '');
+const pcBare = t => pcNorm(t).replace(/[(\[{【〔「][^)\]}】〕」]*[)\]}】〕」]/g, '');
+/* 數字：全形數字、千分位逗號、前後空白、$ 和「元」都可以；加了單位（48箱）、負數、亂填都算不是數字 */
+const pcNum = v => { const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,\s$元]/g, ''); return /^(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null; };
+/* 分隔符號：第一列裡 Tab、分號比逗號多就用 Tab、分號（Excel 的「Unicode 文字」是 Tab 分隔） */
+const prodSep = t => { const first = (String(t == null ? '' : t).slice(0, 4000).replace(/^﻿/, '').split(/\r\n|\r|\n/).find(l => l.trim() !== '')) || '', n = ch => first.split(ch).length - 1, c = n(','), tab = n('\t'), semi = n(';'); return tab > 0 && tab >= c && tab >= semi ? '\t' : (semi > c ? ';' : ','); };
+/* 檔案第一列的每一欄 → 對應到哪個欄位。回傳 [{i, header, key（空字串＝不匯入）, how（auto 自動認得／manual 自己選的）}]
+   override：{欄位序號: 欄位 key 或 ''}，自己選的優先；選了別欄已經在用的欄位，別欄就變成不匯入 */
+function matchProdCols(head, override){
+  const raw = head.map(x => String(x == null ? '' : x).trim()), full = raw.map(pcNorm), bare = raw.map(x => pcBare(x) || pcNorm(x));
+  const cols = raw.map((header, i) => ({i, header, key:'', how:''})), used = new Set();
+  const pass = arr => { for (const k in COLS){ if (cols.some(c => c.key === k)) continue; for (const a of COLS[k]){ const an = pcNorm(a), i = arr.findIndex((x, j) => x === an && !used.has(j)); if (i >= 0){ cols[i].key = k; cols[i].how = 'auto'; used.add(i); break; } } } };
+  pass(full); pass(bare);
+  for (const [i, key] of Object.entries(override || {})){ const c = cols[Number(i)]; if (!c) continue; if (key) cols.forEach(x => { if (x.key === key){ x.key = ''; x.how = ''; } }); c.key = PROD_FIELD[key] ? key : ''; c.how = 'manual'; }
+  return cols;
+}
+/* 預覽「會更新的商品」：欄位名稱＋（原本→新的），一眼看出安全庫存等數字會變成多少 */
+const PROD_KEY_LABEL = {name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態'};
+const prodChangeText = it => Object.keys(it.data).map(k => {
+  const lb = PROD_KEY_LABEL[k] || k; if (['name', 'supplierId', 'procSrc', 'active'].includes(k)) return lb;
+  const f = x => PROD_NUM.includes(k) ? num(Number(x) || 0) : (x == null || x === '' ? '空' : String(x));
+  return lb + '（' + f(it.old && it.old[k]) + '→' + f(it.data[k]) + '）';
+}).join('、');
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
 function parseCSV(t, sep){
   sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
@@ -13303,13 +13496,14 @@ const piSup = t => { t = String(t || '').trim(); if (!t) return ''; const sup = 
 const piSrc = t => { t = String(t || '').replace(/[\s　]/g, ''); if (!t) return ''; if (/生產|自製|自行|make/i.test(t)) return 'make'; if (/採購|進貨|buy/i.test(t)) return 'buy'; return null; };
 const piActive = t => { t = String(t || '').replace(/[\s　]/g, ''); if (!t) return ''; if (/停用|停售|下架|否|^n$|no|false|0/i.test(t)) return false; if (/啟用|使用|上架|是|^y$|yes|true|1/i.test(t)) return true; return null; };
 const PROD_NUM = ['cost', 'price', 'safety', 'moq', 'lot', 'volume', 'cartonQty'];
-function planImport(text, mode){
+function planImport(text, mode, override){
   mode = mode || 'upsert';
-  const rows = parseCSV(text);
+  const rows = parseCSV(text, prodSep(text));
   if (rows.length < 2) return {error:'檔案沒有資料列'};
-  const head = rows[0].map(x => String(x).trim().toLowerCase()), idx = {};
-  for (const k in COLS) idx[k] = head.findIndex(x => COLS[k].map(y => y.toLowerCase()).includes(x));
-  if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」'};
+  const cols = matchProdCols(rows[0], override), idx = {};
+  for (const k in COLS) idx[k] = cols.findIndex(c => c.key === k);
+  const unknown = cols.filter(c => c.header && !c.key && c.how !== 'manual' && !PROD_IGNORE.includes(pcBare(c.header)));
+  if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」', cols, unknown};
   const bySku = new Map(Object.values(S.products).map(p => [String(p.sku).toLowerCase(), p]));
   const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0;
   rows.slice(1).forEach((r, n) => {
@@ -13321,7 +13515,7 @@ function planImport(text, mode){
     const data = {}, warn = [];
     for (const k of ['category', 'unit', 'shelf', 'labelSpec', 'family']){ const v = g(k); if (v) data[k] = v; }
     if (bc && bc !== sku) data.barcode = bc;
-    for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const t = v.replace(/[,，\s$＄元]/g, ''), x = /^\d+(\.\d+)?$/.test(t) ? Number(t) : null; if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字，已略過'); } }
+    for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const x = pcNum(v); if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字（只填數字，不要加單位），已略過'); } }
     if (data.cartonQty > 0 && data.cartonQty <= 1){ warn.push(COLS.cartonQty[0] + '「' + g('cartonQty') + '」要大於 1（沒有外箱請留空或填 0），已略過'); delete data.cartonQty; }
     const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
     const ps = piSrc(g('procSrc')); if (ps === null) warn.push('採購來源「' + g('procSrc') + '」看不懂（請寫國內採購或自行生產），已略過'); else if (ps) data.procSrc = ps;
@@ -13333,13 +13527,17 @@ function planImport(text, mode){
       const patch = {}; if (name !== ex.name) patch.name = name;
       for (const [k, v] of Object.entries(data)){ const cur = ex[k]; if (typeof v === 'number' ? Number(cur || 0) !== v : (k === 'active' ? (ex.active !== false) !== v : (k === 'procSrc' ? (ex.procSrc === 'make' ? 'make' : 'buy') !== v : String(cur == null ? '' : cur) !== String(v)))) patch[k] = v; }
       if (!Object.keys(patch).length){ nSame++; return; }
-      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch}); nUp++;
+      if (patch.safety !== undefined && ex.whRules){
+        const own = Object.entries(ex.whRules).filter(([, r]) => r && r.safety !== undefined && r.safety !== '' && r.safety !== null && Number(r.safety) !== patch.safety);
+        if (own.length){ nWarn++; issues.push('第 ' + line + ' 列「' + sku + '」：安全庫存已改成全公司的 ' + num(patch.safety) + '，但 ' + own.map(([w, r]) => whName(w) + ' 另外設定了 ' + num(r.safety)).join('、') + '，那些倉庫仍照自己的設定'); }
+      }
+      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]]))}); nUp++;
     } else {
       if (data.cartonQty === 0) delete data.cartonQty;
-      items.push({line, action:'new', sku, name, data:{sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, opening:Math.max(toNum(g('opening')), 0)}); nNew++;
+      items.push({line, action:'new', sku, name, data:{sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, opening:Math.max(pcNum(g('opening')) || 0, 0)}); nNew++;
     }
   });
-  return {items, skipped, issues, nNew, nUp, nSame, nWarn};
+  return {items, skipped, issues, nNew, nUp, nSame, nWarn, cols, unknown};
 }
 const dsProductMaster = () => {
   const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '';
@@ -13369,19 +13567,38 @@ function openDataHub(){
 }
 function openImport(){
   const sh = sheet({title:'產品基本資料匯入／匯出'});
-  const st = {mode:'upsert', text:null, plan:null}, info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
+  const st = {mode:'upsert', text:null, plan:null, err:'', map:{}, mapOpen:undefined}, info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
+  /* 欄位對應：檔案裡每一欄要匯入成哪個欄位。認得的先選好，看不懂的是「不匯入」，每一欄都可以自己改 */
+  const mapPanel = pl => {
+    const cols = (pl.cols || []).filter(c => c.header); if (!cols.length) return null;
+    const unk = pl.unknown || [], nUse = cols.filter(c => c.key).length;
+    const row = c => {
+      const sel = h('select', {class:'in', style:'height:40px;min-width:0;width:100%', 'aria-label':'欄位對應 ' + c.header, value:c.key || '', onchange:e => { st.map[c.i] = e.target.value; paint(); }},
+        h('option', {value:'', text:'（不匯入）'}),
+        Object.entries(PROD_FIELD).map(([k, label]) => { const o = cols.find(x => x.key === k && x.i !== c.i); return h('option', {value:k, text:label + (o ? '（現在是「' + o.header + '」）' : '')}); }));
+      return h('div', {'aria-label':'欄位 ' + c.header, style:'display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:8px;align-items:center;margin:6px 0'},
+        h('span', {class:unk.includes(c) ? 'overdue' : '', style:'overflow-wrap:anywhere;font-size:14px', text:c.header}), sel);
+    };
+    return h('details', {class:'fold', 'aria-label':'欄位對應', open:st.mapOpen === undefined ? (unk.length > 0 || !!pl.error) : st.mapOpen, ontoggle:e => { st.mapOpen = e.target.open; }},
+      h('summary', {text:'欄位對應：' + nUse + ' 欄會匯入' + (unk.length ? '，' + unk.length + ' 欄看不懂（不會匯入）' : '')}),
+      h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block;margin-bottom:6px', text:'左邊是檔案裡的欄位名稱，右邊選要匯入成哪個欄位；選「（不匯入）」就會略過那一欄。'}), cols.map(row)));
+  };
   const paint = () => {
-    if (st.text == null){ setKids(info); goBtn.disabled = true; return; }
-    const pl = st.plan = planImport(st.text, st.mode);
-    if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error})); goBtn.disabled = true; return; }
+    if (st.text == null){ setKids(info, st.err ? h('div', {class:'note bad', text:st.err}) : null); goBtn.disabled = true; return; }
+    const pl = st.plan = planImport(st.text, st.mode, st.map);
+    if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error + (pl.cols ? '。請在下面的「欄位對應」選好哪一欄是料號、哪一欄是品名。' : '')}), mapPanel(pl)); goBtn.disabled = true; return; }
     const over = docCount() + pl.nNew + (pl.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
+    const renamed = pl.cols.filter(c => c.key && pcNorm(c.header) !== pcNorm(PROD_FIELD[c.key]));
     setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+      pl.unknown.length ? h('div', {class:'note warn', 'aria-label':'看不懂的欄位'}, h('b', {text:'有 ' + pl.unknown.length + ' 個欄位看不懂，不會匯入：'}), '「' + pl.unknown.map(c => c.header).join('」「') + '」。要匯入的話，請在下面的「欄位對應」選它要對應到哪一欄。') : null,
+      renamed.length ? h('small', {class:'hint', style:'display:block;margin:8px 0', 'aria-label':'欄位名稱對應', text:'欄位名稱不同，已對應：' + renamed.map(c => '「' + c.header + '」→' + PROD_FIELD[c.key]).join('、')}) : null,
+      mapPanel(pl),
       over ? h('div', {class:'note bad', text:'匯入後會超過資料量上限（' + DOC_LIMIT + '）。'}) : null,
-      pl.nUp ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的商品（前 5 項）'}), h('ul', null, pl.items.filter(i => i.action === 'update').slice(0, 5).map(i => h('li', null, h('small', {text:i.sku + ' ' + i.name + '：' + Object.keys(i.data).map(k => ({name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態'}[k] || k)).join('、')}))))) : null,
+      pl.nUp ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的商品（前 5 項）'}), h('ul', null, pl.items.filter(i => i.action === 'update').slice(0, 5).map(i => h('li', null, h('small', {text:i.sku + ' ' + i.name + '：' + prodChangeText(i)}))))) : null,
       (pl.issues.length || pl.skipped.length) ? h('div', {style:'margin-top:8px'}, h('b', {text:'注意事項'}), h('ul', null, [...pl.issues, ...pl.skipped].slice(0, 8).map(t => h('li', null, h('small', {text:t}))), pl.issues.length + pl.skipped.length > 8 ? h('li', null, h('small', {text:'…還有 ' + (pl.issues.length + pl.skipped.length - 8) + ' 項'})) : null)) : null);
     goBtn.disabled = !(pl.nNew + pl.nUp) || over;
   };
-  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { st.text = decodeCsv(rd.result); paint(); }; rd.readAsArrayBuffer(f); }});
+  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const r = shelfImportDecode(rd.result); st.text = r.error ? null : r.text; st.err = r.error || ''; st.map = {}; st.mapOpen = undefined; paint(); }; rd.onerror = () => { st.text = null; st.err = '讀不到這個檔案，請重新選擇'; paint(); }; rd.readAsArrayBuffer(f); }});
   const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['upsert', '新增，並更新已存在的（依料號）'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'匯入方式 ' + t, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   goBtn.addEventListener('click', async () => {
     const pl = st.plan; if (!pl || !(pl.nNew + pl.nUp)) return;
@@ -13418,7 +13635,7 @@ function openImport(){
     h('p', {class:'note', text:'CSV 第一列是欄位名稱。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD, ...TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : r[k]))]))}, icon('down'), '下載範本')),
     fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
   sh.footEl.append(goBtn);
 }
 
