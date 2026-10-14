@@ -465,7 +465,8 @@ const ICONS = {
   cart:'<path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8H18a1 1 0 0 0 1-.8L20.5 8H6"/><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/>',
   more:'<circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>',
   truck:'<rect x="2" y="8" width="12" height="9"/><path d="M14 11h4l4 3.5V17h-8z"/><circle cx="6.5" cy="18.5" r="1.6"/><circle cx="17" cy="18.5" r="1.6"/>',
-  down:'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'
+  down:'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  up:'<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>'
 };
 
 /* ================= 狀態 ================= */
@@ -5570,16 +5571,52 @@ const LABEL_PRESETS = {
   s4x10:{name:'A4 貼紙　4×10＝40 張（48.5×25.4）', w:48.5, h:25.4, cols:4, rows:10, gx:0, gy:0}, s5x13:{name:'A4 貼紙　5×13＝65 張（38.1×21.2）', w:38.1, h:21.2, cols:5, rows:13, gx:2.5, gy:0},
   s2x5:{name:'A4 貼紙　2×5＝10 張（99.1×57）', w:99.1, h:57, cols:2, rows:5, gx:2.5, gy:0}, custom:{name:'自訂尺寸（捲筒）', w:60, h:40}
 };
-const LABEL_KEY = 'labelPrefs1', LABEL_DEF = {preset:'r60x40', w:60, h:40, showCode:true, showPrice:false, layout:'left', fs:1, skip:0, showSpec:true};
+const LABEL_KEY = 'labelPrefs1', LABEL_DEF = {preset:'r60x40', w:60, h:40, showCode:true, showPrice:false, layout:'left', fs:1, qs:1, skip:0, showSpec:true};
 const loadLabelPrefs = () => { try { return {...LABEL_DEF, ...JSON.parse(localStorage.getItem(LABEL_KEY) || '{}')}; } catch (_) { return {...LABEL_DEF}; } };
 const saveLabelPrefs = c => { try { localStorage.setItem(LABEL_KEY, JSON.stringify(c)); } catch (_) {} };
 function labelSpec(cfg){ const pr = LABEL_PRESETS[cfg.preset] || LABEL_PRESETS.r60x40; return pr.cols ? pr : {...pr, w:cfg.preset === 'custom' ? Math.max(Number(cfg.w) || 60, 15) : pr.w, h:cfg.preset === 'custom' ? Math.max(Number(cfg.h) || 40, 10) : pr.h}; }
 const labelPreviewZoom = sp => sp.cols ? 1 : Math.min(1, 320 / (sp.w * 3.7795));
+/* 標籤上 QR Code 的邊長（mm）。lv：0 小、1 中、2 大（產品標籤、架位標籤共用）。
+   中＝一直以來的大小（舊的標籤設定沒有這個選項，等於選「中」，印出來完全一樣）；
+   小＝約 7 成（但不會小於 10 mm，太小不好掃）；
+   大＝盡量放大，但要留下足夠印字的空間：QR 在左 → 文字區至少留 3 成寬；QR 在上 → 文字區至少留 2 成多高，
+   而且要放得下要印的那幾行字（need：產品標籤＝名稱 1 行＋規格／編號／售價；架位標籤＝12pt 的架位代碼＋倉庫／備註）。
+   標籤太小、放不下更大的 QR 時，大和中會一樣。 */
+const labelPad = h => Math.max(1, Math.min(2, h * 0.05));
+const labelQrLv = v => { const n = (typeof v === 'number' || typeof v === 'string') && v !== '' ? Number(v) : NaN; return n === 0 || n === 2 ? n : 1; };   // 沒選、壞掉的值都當作「中」
+function labelQrSize(w, h, left, lv, need){
+  const pad = labelPad(h), mid = left ? Math.min(h - 2 * pad, Math.max(w * 0.42, 12)) : Math.min(w - 2 * pad, h * 0.52);
+  lv = labelQrLv(lv);
+  if (lv === 0) return Math.min(mid, Math.round(Math.max(mid * 0.7, 10) * 100) / 100);
+  if (lv === 2) return Math.max(mid, Math.floor((left ? Math.min(h - 2 * pad, w - 3 * pad - Math.max(w * 0.3, 10)) : Math.min(w - 2 * pad, h - 3 * pad - Math.max(h * 0.22, 7, Number(need) || 0))) * 100 + 1e-6) / 100);
+  return mid;
+}
+/* 產品標籤的字體大小（pt）：名稱 nfs、其他行 cfs。標籤高度超過 7 公分時，字體上限放寬到 34 pt */
+const labelFonts = (hh, cfg) => { const mult = [0.85, 1, 1.2][Math.min(Math.max(Number(cfg.fs), 0), 2)], nfs = Math.round(Math.min(Math.max(hh * 0.24 * mult, 6), hh > 70 ? 34 : 22) * 10) / 10; return {nfs, cfs:Math.round(Math.max(nfs - 1, 5.5) * 10) / 10}; };
+const labelSmallFs = hh => Math.round(Math.min(Math.max(hh * 0.15, 5.5), 10) * 10) / 10;   // 架位標籤：倉庫、備註的字體（pt）
+/* 「QR 在上」時，文字區至少要留多高（mm），QR 放大時不能把文字擠到印不下（只看設定，不看商品資料，預覽和列印才會一致） */
+const labelNeedProd = (cfg, hh) => { const {nfs, cfs} = labelFonts(hh, cfg), lm = f => f * 0.3528 * 1.15, n = (cfg.showSpec !== false ? 1 : 0) + (cfg.showCode ? 1 : 0) + (cfg.showPrice ? 1 : 0); return lm(nfs) + n * (lm(cfs) + 0.5); };
+const labelNeedShelf = (cfg, hh) => { const small = (cfg.showWh !== false && multiWh() ? 1 : 0) + (cfg.showNote !== false ? 1 : 0); return 12 * 0.3528 * 1.1 + (small ? small * labelSmallFs(hh) * 0.3528 * 1.25 + 1 : 0); };
+/* 標籤設定裡的「QR Code 大小」：小／中／大三顆按鈕，每顆寫出在目前的標籤紙、版面下大約幾 mm。
+   選了之後存在 cfg.qs（0／1／2）並呼叫 onPick；換標籤紙、版面、字體或輸入自訂尺寸後，呼叫 refresh() 更新 mm 數字。
+   needOf(cfg, 標籤高)：「QR 在上」時文字區要留的高度（labelNeedProd／labelNeedShelf） */
+function labelQrField(cfg, onPick, needOf){
+  const names = ['小', '中', '大'], HINT = '越大越容易掃，但旁邊的文字空間會變小；標籤紙很小時選「小」或「中」，並先試印看看。';
+  const hint = h('small', {class:'hint', style:'display:block;margin-top:4px', text:HINT});
+  const btns = names.map((t, k) => h('button', {class:'chip', type:'button', 'aria-label':'QR Code 大小 ' + t, onclick:() => { cfg.qs = k; refresh(); onPick(); }}));
+  const refresh = () => {
+    const sp = labelSpec(cfg), left = cfg.layout !== 'top', need = needOf ? needOf(cfg, sp.h) : 0, sz = [0, 1, 2].map(k => labelQrSize(sp.w, sp.h, left, k, need));
+    btns.forEach((b, k) => { b.textContent = names[k] + '（' + Math.round(sz[k]) + ' mm）'; b.setAttribute('aria-pressed', String(labelQrLv(cfg.qs) === k)); });
+    hint.textContent = HINT + (sz[2] - sz[1] < 0.5 ? '　目前這個規格放不下更大的 QR Code，「大」和「中」一樣大' + (left ? '。' : '；想放大的話，可以改成「QR 在左、文字在右」、少印幾行字，或換大一點的標籤紙。') : '');
+  };
+  refresh();
+  return {el:h('div', {class:'f'}, h('label', {text:'QR Code 大小'}), h('div', {class:'chips', style:'padding:6px 0 0'}, btns), hint), refresh};
+}
 function labelHTML(items, cfg, opt){
   opt = opt || {}; const sp = labelSpec(cfg), sheet = !!sp.cols, e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
-  const w = sp.w, h = sp.h, pad = Math.max(1, Math.min(2, h * 0.05)), left = cfg.layout !== 'top', mult = [0.85, 1, 1.2][Math.min(Math.max(Number(cfg.fs), 0), 2)];
-  const q = left ? Math.min(h - 2 * pad, Math.max(w * 0.42, 12)) : Math.min(w - 2 * pad, h * 0.52);
-  const nfs = Math.round(Math.min(Math.max(h * 0.24 * mult, 6), h > 70 ? 34 : 22) * 10) / 10, cfs = Math.round(Math.max(nfs - 1, 5.5) * 10) / 10;   // 標籤高度超過 7 公分時，字體上限放寬到 34 pt
+  const w = sp.w, h = sp.h, pad = labelPad(h), left = cfg.layout !== 'top';
+  const {nfs, cfs} = labelFonts(h, cfg);   // 標籤高度超過 7 公分時，字體上限放寬到 34 pt
+  const q = labelQrSize(w, h, left, cfg.qs, labelNeedProd(cfg, h));
   const textH = left ? h - 2 * pad : h - 2 * pad - q - pad, textW = Math.max(left ? w - q - 3 * pad : w - 2 * pad, 8), lm = f => f * 0.3528 * 1.15;
   const one = p => { const sku = String(p.sku || ''), spec = cfg.showSpec !== false ? String(p.labelSpec || '').trim() : '', cpl = Math.max(Math.floor(textW / (cfs * 0.3528 * 0.62)), 4), cl = cfg.showCode ? Math.min(Math.ceil(sku.length / cpl), 2) : 0, sl = spec ? Math.min(Math.max(Math.ceil(spec.length * cfs * 0.3528 * 1.02 / textW), 1), 2) : 0, gaps = ((cfg.showCode ? 1 : 0) + (cfg.showPrice ? 1 : 0) + (spec ? 1 : 0)) * 0.5;
     const nl = Math.max(1, Math.floor((textH - gaps - cl * lm(cfs) - sl * lm(cfs) - (cfg.showPrice ? lm(cfs) : 0)) / lm(nfs)));
@@ -5610,10 +5647,11 @@ function openLabelPrint(pre){
   const cfg = loadLabelPrefs(), st = {sel:{}, q:''};
   for (const id of pre.pids || []) if (S.products[id]) st.sel[id] = 1;
   const sh = sheet({title:'列印產品標籤'}), listBox = h('div'), sumBox = h('div'), prevBox = h('div'), setBox = h('div');
+  let qrF = null;
   const prods = () => activeProducts().sort(cmpSku);
   const items = () => Object.entries(st.sel).map(([id, qty]) => ({p:S.products[id], qty:Math.max(Math.round(Number(qty) || 0), 0)})).filter(x => x.p && x.qty > 0);
   const total = () => items().reduce((a, x) => a + x.qty, 0);
-  const upd = () => { saveLabelPrefs(cfg); const it = items(), n = total(), sp = labelSpec(cfg);
+  const upd = () => { if (qrF) qrF.refresh(); saveLabelPrefs(cfg); const it = items(), n = total(), sp = labelSpec(cfg);
     setKids(sumBox, h('div', {class:'panel pad'}, kv('已選商品', it.length + ' 項'), kv('標籤張數', n + ' 張'), sp.cols ? kv('A4 貼紙頁數', Math.max(Math.ceil((n + (Number(cfg.skip) || 0)) / (sp.cols * sp.rows)), n ? 1 : 0) + ' 頁') : kv('規格', sp.w + '×' + sp.h + ' mm 捲筒')));
     const pv = it.slice(0, 4).map(x => ({p:x.p, qty:1})); setKids(prevBox, pv.length ? h('iframe', {title:'標籤預覽', style:'width:100%;height:' + (sp.cols ? 180 : Math.min(Math.max(sp.h * 3.6 * labelPreviewZoom(sp) * Math.min(pv.length, 2) + 30, 140), 340)) + 'px;border:1px solid var(--line);border-radius:10px;background:#fff', srcdoc:labelHTML(pv, cfg, {preview:true})}) : h('div', {class:'panel empty', text:'先在上面選商品，這裡會顯示標籤的樣子'}));
     goBtn.disabled = !n; goBtn.textContent = n ? '列印標籤（' + n + ' 張）' : '列印標籤'; };
@@ -5630,6 +5668,7 @@ function openLabelPrint(pre){
       cfg.preset === 'custom' ? h('div', {class:'f2'}, fld('寬（mm）', h('input', {class:'in', type:'text', inputmode:'decimal', value:cfg.w, 'aria-label':'標籤寬', oninput:e => { cfg.w = toNum(e.target.value); upd(); }})), fld('高（mm）', h('input', {class:'in', type:'text', inputmode:'decimal', value:cfg.h, 'aria-label':'標籤高', oninput:e => { cfg.h = toNum(e.target.value); upd(); }}))) : null,
       sp.cols ? fld('第一張從第幾格開始（貼紙用過一部分時）', h('input', {class:'in', type:'text', inputmode:'numeric', value:(Number(cfg.skip) || 0) + 1, 'aria-label':'起始格', oninput:e => { cfg.skip = Math.max(Math.round(toNum(e.target.value)) - 1, 0); upd(); }})) : null,
       h('div', {class:'f'}, h('label', {text:'版面'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [['left', 'QR 在左、文字在右'], ['top', 'QR 在上、文字在下']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cfg.layout === k, 'aria-label':'版面 ' + k, onclick:() => { cfg.layout = k; paintSet(); upd(); }}, t)))),
+      (qrF = labelQrField(cfg, upd, labelNeedProd)).el,
       h('div', {class:'f'}, h('label', {text:'字體大小'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [[0, '小'], [1, '中'], [2, '大']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':Number(cfg.fs) === k, 'aria-label':'字體 ' + t, onclick:() => { cfg.fs = k; paintSet(); upd(); }}, t)))),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showSpec !== false, 'aria-label':'顯示標籤規格文字', onchange:e => { cfg.showSpec = e.target.checked; upd(); }}), '印出商品資料裡的「標籤規格」（沒填的商品就不印這一行）'),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showCode, 'aria-label':'顯示產品編號文字', onchange:e => { cfg.showCode = e.target.checked; upd(); }}), '同時印出產品編號文字（QR Code 內容就是產品編號）'),
@@ -7566,7 +7605,7 @@ const shelfLogTxt = x => fmtDT(x.at) + (x.name ? '　' + x.name : '') + '：' + 
 
 
 /* ---- 架位標籤（QR Code）：沿用「產品標籤」的紙張規格和列印流程 ---- */
-const SLABEL_KEY = 'shelfLabelPrefs1', SLABEL_DEF = {preset:'r60x40', w:60, h:40, layout:'left', fs:1, skip:0, copies:1, showWh:true, showNote:true};
+const SLABEL_KEY = 'shelfLabelPrefs1', SLABEL_DEF = {preset:'r60x40', w:60, h:40, layout:'left', fs:1, qs:1, skip:0, copies:1, showWh:true, showNote:true};
 const loadShelfLabelPrefs = () => { try { return {...SLABEL_DEF, ...JSON.parse(localStorage.getItem(SLABEL_KEY) || '{}')}; } catch (_) { return {...SLABEL_DEF}; } };
 const saveShelfLabelPrefs = c => { try { localStorage.setItem(SLABEL_KEY, JSON.stringify(c)); } catch (_) {} };
 /* 估算一段字有幾個字寬（中日韓字 1 個字寬；英文、數字比較窄），用來把架位代碼放到最大又不會被切掉 */
@@ -7575,10 +7614,10 @@ const shelfUnits = str => { let u = 0; for (const ch of String(str)) u += /[⺀-
 function shelfLabelHTML(list, cfg, opt){
   opt = opt || {};
   const sp = labelSpec(cfg), sheetMode = !!sp.cols, e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
-  const w = sp.w, hh = sp.h, pad = Math.max(1, Math.min(2, hh * 0.05)), left = cfg.layout !== 'top', mult = [0.85, 1, 1.2][Math.min(Math.max(Number(cfg.fs) || 0, 0), 2)];
-  const q = left ? Math.min(hh - 2 * pad, Math.max(w * 0.42, 12)) : Math.min(w - 2 * pad, hh * 0.52);
+  const w = sp.w, hh = sp.h, pad = labelPad(hh), left = cfg.layout !== 'top', mult = [0.85, 1, 1.2][Math.min(Math.max(Number(cfg.fs) || 0, 0), 2)];
+  const q = labelQrSize(w, hh, left, cfg.qs, labelNeedShelf(cfg, hh));
   const textH = left ? hh - 2 * pad : hh - 2 * pad - q - pad, textW = Math.max(left ? w - q - 3 * pad : w - 2 * pad, 8);
-  const sfs = Math.round(Math.min(Math.max(hh * 0.15, 5.5), 10) * 10) / 10, maxFs = Math.max(hh * 0.95 * mult, 8), multi = multiWh();
+  const sfs = labelSmallFs(hh), maxFs = Math.max(hh * 0.95 * mult, 8), multi = multiWh();
   const one = s => {
     const code = normShelf(s.code), note = cfg.showNote !== false ? String(s.note || '').trim() : '', wn = cfg.showWh !== false && multi ? whName(s.wh) : '';
     const small = (wn ? 1 : 0) + (note ? 1 : 0), availH = textH - (small ? small * sfs * 0.3528 * 1.25 + 1 : 0);
@@ -7620,9 +7659,11 @@ function openShelfLabelPrint(pre){
   if (!(S.isAdmin || can('stock') || can('print'))) return toast('你的角色沒有這項操作的權限');
   const cfg = loadShelfLabelPrefs(), st = {sel:new Set((pre.ids || []).filter(id => (S.shelves || {})[id])), q:'', wh:pre.wh !== undefined ? pre.wh : '', off:false, max:120};
   const sh = sheet({title:'列印架位標籤'}), listBox = h('div'), sumBox = h('div'), prevBox = h('div'), setBox = h('div');
+  let qrF = null;
   const pool = () => { const q = st.q.trim().toLowerCase(); return shelfDocs(st.wh).filter(s => (st.off || s.active !== false) && (!q || (s.code + ' ' + (s.note || '')).toLowerCase().includes(q))); };
   const chosen = () => shelfDocs('').filter(s => st.sel.has(s.id));
   const upd = () => {
+    if (qrF) qrF.refresh();
     saveShelfLabelPrefs(cfg);
     const it = chosen(), n = it.length * Math.max(1, Math.min(Math.round(Number(cfg.copies) || 1), 20)), sp = labelSpec(cfg);
     setKids(sumBox, h('div', {class:'panel pad'}, kv('已選架位', it.length + ' 個'), kv('標籤張數', n + ' 張'), sp.cols ? kv('A4 貼紙頁數', Math.max(Math.ceil((n + (Number(cfg.skip) || 0)) / (sp.cols * sp.rows)), n ? 1 : 0) + ' 頁') : kv('規格', sp.w + '×' + sp.h + ' mm 捲筒')));
@@ -7644,6 +7685,7 @@ function openShelfLabelPrint(pre){
       sp.cols ? fld('第一張從第幾格開始（貼紙用過一部分時）', h('input', {class:'in', type:'text', inputmode:'numeric', value:(Number(cfg.skip) || 0) + 1, 'aria-label':'起始格', oninput:e => { cfg.skip = Math.max(Math.round(toNum(e.target.value)) - 1, 0); upd(); }})) : null,
       fld('每個架位印幾張', h('input', {class:'in', type:'text', inputmode:'numeric', value:cfg.copies, 'aria-label':'每個架位印幾張', style:'width:90px;text-align:center', onfocus:e => e.target.select(), oninput:e => { cfg.copies = Math.max(1, Math.min(Math.round(toNum(e.target.value)) || 1, 20)); upd(); }})),
       h('div', {class:'f'}, h('label', {text:'版面'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [['left', 'QR 在左、文字在右'], ['top', 'QR 在上、文字在下']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cfg.layout === k, 'aria-label':'版面 ' + k, onclick:() => { cfg.layout = k; paintSet(); upd(); }}, t)))),
+      (qrF = labelQrField(cfg, upd, labelNeedShelf)).el,
       h('div', {class:'f'}, h('label', {text:'架位文字大小'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [[0, '小'], [1, '中'], [2, '大']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':Number(cfg.fs) === k, 'aria-label':'字體 ' + t, onclick:() => { cfg.fs = k; paintSet(); upd(); }}, t)))),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showNote !== false, 'aria-label':'顯示架位備註', onchange:e => { cfg.showNote = e.target.checked; upd(); }}), '印出架位的備註（例：飲料區、二樓）'),
       multiWh() ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showWh !== false, 'aria-label':'顯示倉庫名稱', onchange:e => { cfg.showWh = e.target.checked; upd(); }}), '印出倉庫名稱') : null);
@@ -7804,6 +7846,195 @@ function dsShelves(){
   return {title:'架位清單', sub:(S.set.name || '') + '　共 ' + list.length + ' 個架位　' + today(), filename:'架位清單', sections:[{name:'架位', cols:[XC('架位', 'text', 14), XC('倉庫', 'text', 12), XC('備註', 'text', 24), XC('狀態', 'text', 8), XC('商品數', 'int', 8), XC('商品料號', 'text', 40)], rows}]};
 }
 
+/* ---- 匯入架位清單：用 CSV 一次建立、更新很多架位 ----
+   欄位和「匯出架位清單」一樣：架位（必填）、倉庫、備註、狀態，所以匯出後在 Excel 改好，可以直接再匯入。
+   匯出檔裡的「商品數」「商品料號」只是給人看的參考，匯入時忽略（商品放在哪個架位不會被改）。
+   檔案裡空白的欄位不會清掉原本的資料；架位代碼已經有了（大小寫、全形半形視為相同）就更新備註和狀態，沒有就新增。
+   只有一欄的清單（一行一個架位代碼，沒有欄位名稱）也可以匯入。Excel 存成「Unicode 文字」（UTF-16、用 Tab 隔開）也讀得進來。 */
+const SHELF_IMPORT_MAX = 5000;
+const SHELF_COLS = {code:['架位', '架位代碼', '架位編號', '代碼', '貨架', '儲位', '位置', 'shelf', 'code', 'location', 'loc'], wh:['倉庫', '倉庫名稱', '倉別', 'warehouse', 'wh'], note:['備註', '備注', '說明', 'note', 'memo', 'remark'], status:['狀態', '啟用', 'status', 'active']};
+const SHELF_COLS_REF = ['商品數', '商品數量', '商品料號'];
+/* 欄位名稱的比對：全形轉半形、拿掉空白、括號裡的說明（例：架位（必填））和星號，不分大小寫 */
+const shelfHeadNorm = x => String(x == null ? '' : x).normalize('NFKC').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s*＊]/g, '').toLowerCase();
+const shelfWhNorm = x => String(x == null ? '' : x).normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+/* 儲存格內容：前後空白拿掉；匯出時為了防止 Excel 把「-1」「=A」當公式，會在前面加一個 '，這裡還原 */
+const shelfCell = v => { let t = String(v == null ? '' : v).trim(); if (/^'[=+\-@\t\r]/.test(t)) t = t.slice(1); return t; };
+/* 檔案的「倉庫」欄對到哪個倉庫：只有一個倉庫時整欄忽略；空白用預設倉庫；寫的是倉庫名稱或代碼 */
+function shelfImportWh(cell, defWh){
+  if (!multiWh()) return {id:WH_MAIN};
+  const t = shelfWhNorm(cell); if (!t) return {id:defWh || WH_MAIN};
+  const w = whList().find(x => shelfWhNorm(x.id) === t) || whList().find(x => shelfWhNorm(x.name) === t);
+  if (!w) return {err:'倉庫「' + String(cell).trim() + '」不存在'};
+  if (w.active === false) return {err:'倉庫「' + w.name + '」已停用'};
+  return {id:w.id};
+}
+/* 檔案內容 → 文字。Excel 檔（.xlsx／.xls）讀不了，直接說明怎麼存成 CSV */
+function shelfImportDecode(buf){
+  const u = new Uint8Array(buf);
+  if (!u.length) return {error:'檔案是空的，沒有資料列'};
+  if ((u[0] === 0x50 && u[1] === 0x4b && u[2] === 0x03 && u[3] === 0x04) || (u[0] === 0xd0 && u[1] === 0xcf && u[2] === 0x11 && u[3] === 0xe0)) return {error:'這是 Excel 檔（.xlsx／.xls），系統讀不了。請在 Excel 選「檔案 → 另存新檔」，存檔類型選「CSV UTF-8（逗號分隔）」，再選擇存好的 .csv 檔。'};
+  try {
+    if (u[0] === 0xff && u[1] === 0xfe) return {text:new TextDecoder('utf-16le').decode(u.subarray(2))};
+    if (u[0] === 0xfe && u[1] === 0xff) return {text:new TextDecoder('utf-16be').decode(u.subarray(2))};
+  } catch (_) {}
+  return {text:decodeCsv(buf)};
+}
+/* 把檔案內容整理成要做的事（不寫入）。
+   mode：'upsert' 新增並更新已存在的（預設）、'add' 只新增；defWh：檔案沒寫倉庫時用哪個倉庫。
+   回傳 {error} 或 {items, skipped, issues, ignored, nNew, nUp, nSame, nWarn, whCount}；
+   items 的每一項：{line, action:'new'|'update', id, wh, code, data}，update 的 data 只有真的有變的欄位 */
+function planShelfImport(text, mode, defWh){
+  mode = mode === 'add' ? 'add' : 'upsert';
+  const t0 = String(text == null ? '' : text).replace(/^﻿/, ''), first = t0.split(/\r\n|\r|\n/, 1)[0] || '';
+  const sep = first.includes('\t') && (first.match(/\t/g) || []).length >= (first.match(/,/g) || []).length ? '\t' : ',';
+  const rows = parseCSV(t0, sep);
+  if (!rows.length) return {error:'檔案是空的，沒有資料列'};
+  const head = rows[0].map(shelfHeadNorm), idx = {};
+  for (const k in SHELF_COLS) idx[k] = head.findIndex(x => x && SHELF_COLS[k].includes(x));
+  let hasHead = idx.code >= 0, body = rows.slice(1);
+  if (!hasHead){
+    /* 沒有欄位名稱：整份檔案只有一欄，就當成一行一個架位代碼 */
+    const other = [...SHELF_COLS.wh, ...SHELF_COLS.note, ...SHELF_COLS.status, ...SHELF_COLS_REF].map(shelfHeadNorm);
+    if (rows.every(r => r.length === 1) && !other.includes(head[0])){ idx.code = 0; idx.wh = idx.note = idx.status = -1; body = rows; }
+    else return {error:'找不到欄位「架位」。第一列要是欄位名稱（架位、倉庫、備註、狀態），可先下載範本。'};
+  } else if (!body.length) return {error:'檔案沒有資料列（第一列是欄位名稱，下面要有架位）'};
+  if (body.length > SHELF_IMPORT_MAX) return {error:'一次最多匯入 ' + SHELF_IMPORT_MAX + ' 個架位，這個檔案有 ' + body.length + ' 列，請分成幾個檔案'};
+  const used = new Set(Object.values(idx).filter(i => i >= 0)), refs = SHELF_COLS_REF.map(shelfHeadNorm);
+  const ignored = hasHead ? rows[0].map((x, i) => ({x:String(x == null ? '' : x).trim(), i})).filter(o => o.x && !used.has(o.i) && !refs.includes(shelfHeadNorm(o.x))).map(o => o.x) : [];
+  const seen = new Set(), items = [], skipped = [], issues = [], whCount = {};
+  let nNew = 0, nUp = 0, nSame = 0, nWarn = 0;
+  body.forEach((r, n) => {
+    const line = n + (hasHead ? 2 : 1), g = k => idx[k] >= 0 ? shelfCell(r[idx[k]]) : '';
+    const code = normShelf(g('code'));
+    if (!code){ skipped.push('第 ' + line + ' 列：沒有填架位代碼'); return; }
+    const lbl = '第 ' + line + ' 列「' + (code.length > 20 ? code.slice(0, 20) + '…' : code) + '」';
+    const er = shelfCodeErr(code); if (er){ skipped.push(lbl + '：' + er); return; }
+    const wr = shelfImportWh(g('wh'), defWh); if (wr.err){ skipped.push(lbl + '：' + wr.err); return; }
+    const wh = wr.id, key = wh + '|' + shelfKey(code);
+    if (seen.has(key)){ skipped.push(lbl + '：在檔案裡重複了（以第一次出現的為準）'); return; }
+    seen.add(key);
+    const note = g('note'), st = idx.status >= 0 ? piActive(g('status')) : '';
+    if (st === null){ nWarn++; issues.push(lbl + '：狀態「' + g('status') + '」看不懂（請寫啟用或停用），已略過這一欄'); }
+    const ex = shelfFind(wh, code);
+    if (ex){
+      if (mode === 'add'){ skipped.push(lbl + '：已存在，略過'); return; }
+      const patch = {};
+      if (note && note !== String(ex.note || '')) patch.note = note;
+      if ((st === true || st === false) && (ex.active !== false) !== st) patch.active = st;
+      if (!Object.keys(patch).length){ nSame++; return; }
+      items.push({line, action:'update', id:ex.id, wh, code:ex.code, data:patch}); nUp++;
+    } else {
+      items.push({line, action:'new', id:shelfId(wh, code), wh, code, data:{code, wh, note, active:st !== false}}); nNew++; whCount[wh] = (whCount[wh] || 0) + 1;
+    }
+  });
+  return {items, skipped, issues, ignored, nNew, nUp, nSame, nWarn, whCount, hasHead};
+}
+/* 照計畫逐筆寫入：5 個一組同時寫；資料庫喊太頻繁（resource_exhausted）等一下再試一次；寫入前再確認一次，被別人先建好、先刪掉的就略過；
+   連續失敗 3 個、或沒有權限就停下來。回傳 {newN, upN, skipped, fail, left, err} */
+async function shelfImportApply(items){
+  const pg = shelfProgress('匯入架位清單'), res = {newN:0, upN:0, skipped:0, fail:0, left:0, err:null};
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const write = it => it.action === 'update' ? S.db.doc('shelves/' + it.id).update(it.data) : S.db.doc('shelves/' + it.id).set({...it.data, createdBy:S.meId || null, createdAt:Date.now()});
+  const send = async it => { try { await write(it); } catch (e) { if (e && e.code === 'resource_exhausted'){ await wait(1200); await write(it); } else throw e; } };
+  let at = 0;
+  try {
+    while (at < items.length){
+      const chunk = items.slice(at, at + 5); at += chunk.length;
+      const rs = await Promise.all(chunk.map(async it => {
+        const ex = (S.shelves || {})[it.id];
+        if (it.action === 'update' ? !ex : ex) return {it, st:'skip'};
+        try { await send(it); return {it, st:'ok'}; } catch (e) { console.error(e); return {it, st:'fail', e}; }
+      }));
+      for (const x of rs){
+        if (x.st === 'ok'){ if (x.it.action === 'update') res.upN++; else res.newN++; }
+        else if (x.st === 'skip') res.skipped++;
+        else { res.fail++; if (!res.err) res.err = x.e; }
+      }
+      pg.set('已處理 ' + at + ' / ' + items.length);
+      if (res.fail >= 3 || (res.err && res.err.code === 'permission_denied')) break;
+    }
+  } finally { pg.close(); }
+  res.left = items.length - at;
+  if (res.err && /already been terminated/i.test(String(res.err.message || ''))) offerReload();
+  return res;
+}
+const shelfImportMsg = r => {
+  const base = '新增 ' + r.newN + '、更新 ' + r.upN + ' 個架位';
+  if (!r.fail) return '已匯入：' + base + (r.skipped ? '（另有 ' + r.skipped + ' 個在匯入時已被別人改動，略過）' : '');
+  const why = r.err && r.err.code === 'permission_denied' ? '沒有權限修改架位資料，請用管理員或有庫存權限的帳號操作。' : errMsg(r.err);
+  return '匯入中斷：' + base + '，失敗 ' + r.fail + ' 個' + (r.left ? '，還有 ' + r.left + ' 個沒處理' : '') + '。' + why;
+};
+/* opt：{wh 預設倉庫} */
+function openShelfImport(opt){
+  if (!canShelf()) return toast('你的角色沒有這項操作的權限');
+  opt = opt || {};
+  const act = whActive().map(w => w.id);
+  const st = {mode:'upsert', wh:multiWh() ? (act.includes(opt.wh) ? opt.wh : act[0]) : WH_MAIN, text:null, err:'', plan:null, busy:false};
+  /* 架位資料有變動（別人也在建、或剛寫入的結果傳回來）時，預覽跟著重算；正在寫入的時候不重算 */
+  const entry = {deps:['shelves'], run:() => { if (!st.busy) paint(); }};
+  const sh = sheet({title:'匯入架位清單', onclose:() => live.delete(entry)}), info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
+  live.add(entry);
+  const DESC = {note:v => '備註改為「' + (v.length > 12 ? v.slice(0, 12) + '…' : v) + '」', active:v => v ? '改為啟用' : '改為停用'};
+  const paint = () => {
+    if (st.err){ st.plan = null; setKids(info, h('div', {class:'note bad', 'aria-label':'檔案錯誤', text:st.err})); goBtn.disabled = true; return; }
+    if (st.text == null){ st.plan = null; setKids(info); goBtn.disabled = true; return; }
+    const pl = planShelfImport(st.text, st.mode, st.wh);
+    if (pl.error){ st.plan = null; setKids(info, h('div', {class:'note bad', 'aria-label':'檔案錯誤', text:pl.error})); goBtn.disabled = true; return; }
+    st.plan = pl;
+    const over = docCount() + pl.nNew > DOC_LIMIT, news = pl.items.filter(i => i.action === 'new').map(i => i.code), ups = pl.items.filter(i => i.action === 'update'), msgs = [...pl.issues, ...pl.skipped];
+    setKids(info,
+      h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增架位', pl.nNew + ' 個'), kv('更新既有架位', pl.nUp + ' 個'), kv('沒有變動', pl.nSame + ' 個'), kv('略過', pl.skipped.length + ' 列'), pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+      news.length ? h('div', {class:'hint', style:'margin-top:8px;word-break:break-all', 'aria-label':'會新增的架位'}, '會新增：' + (news.length > 12 ? news.slice(0, 8).join('、') + ' … ' + news.slice(-3).join('、') : news.join('、'))) : null,
+      multiWh() && pl.nNew ? h('div', {class:'hint', style:'margin-top:4px'}, '新增到：' + Object.entries(pl.whCount).sort((a, b) => whList().findIndex(x => x.id === a[0]) - whList().findIndex(x => x.id === b[0])).map(([w, n]) => whName(w) + ' ' + n + ' 個').join('、')) : null,
+      ups.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的架位（前 5 個）'}), h('ul', null, ups.slice(0, 5).map(i => h('li', null, h('small', {text:i.code + '：' + Object.keys(i.data).map(k => DESC[k](i.data[k])).join('、')}))))) : null,
+      !(pl.nNew + pl.nUp) ? h('div', {class:'hint', style:'margin-top:8px'}, '沒有需要新增或更新的架位。') : null,
+      over ? h('div', {class:'note bad', 'aria-label':'超過資料量上限', text:'匯入後會超過資料量上限（' + DOC_LIMIT + ' 份文件），請減少數量，或先刪除不用的資料。'}) : null,
+      msgs.length ? h('div', {style:'margin-top:8px'}, h('b', {text:'注意事項'}), h('ul', null, msgs.slice(0, 8).map(t => h('li', null, h('small', {text:t}))), msgs.length > 8 ? h('li', null, h('small', {text:'…還有 ' + (msgs.length - 8) + ' 項'})) : null)) : null,
+      pl.ignored.length ? h('div', {class:'hint', style:'margin-top:8px', 'aria-label':'忽略的欄位'}, '不認得的欄位會忽略：' + pl.ignored.join('、') + '（認得的欄位：架位、倉庫、備註、狀態）') : null);
+    goBtn.disabled = !(pl.nNew + pl.nUp) || over;
+  };
+  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt,text/plain', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => { const r = shelfImportDecode(rd.result); st.text = r.error ? null : r.text; st.err = r.error || ''; paint(); };
+    rd.onerror = () => { st.text = null; st.err = '讀不到這個檔案，請重新選擇'; paint(); };
+    rd.readAsArrayBuffer(f);
+  }});
+  const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['upsert', '新增，並更新已存在的（依架位代碼）'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'匯入方式 ' + t, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
+  const whSel = multiWh() ? (() => { const s = h('select', {class:'in', 'aria-label':'預設倉庫', onchange:e => { st.wh = e.target.value; paint(); }}, ...whActive().map(w => h('option', {value:w.id, text:w.name}))); s.value = st.wh; return s; })() : null;
+  const tpl = () => {
+    const w0 = multiWh() ? whName(st.wh) : '';
+    return saveFile('架位清單匯入範本.csv', csvText(multiWh()
+      ? [['架位', '倉庫', '備註', '狀態'], ['A01-1', w0, '飲料區', '啟用'], ['A01-2', w0, '飲料區', '啟用'], ['B02-1', w0, '冷藏', '啟用']]
+      : [['架位', '備註', '狀態'], ['A01-1', '飲料區', '啟用'], ['A01-2', '飲料區', '啟用'], ['B02-1', '冷藏', '啟用']]));
+  };
+  goBtn.addEventListener('click', async () => {
+    const pl = st.plan; if (!pl || !(pl.nNew + pl.nUp)) return;
+    if (pl.nUp){
+      const offN = pl.items.filter(i => i.action === 'update' && i.data.active === false && shelfProducts(i.wh, i.code).length).length;
+      if (!await dialog({title:'更新 ' + pl.nUp + ' 個既有架位？', msg:'只會改檔案裡有填的「備註」和「狀態」，空白的欄位不會清掉原本的資料；架位代碼、商品放在哪個架位都不會變。' + (offN ? '其中 ' + offN + ' 個要停用的架位上還有商品：停用後不能再放新商品，貼在貨架上的標籤掃了會提示已停用。' : ''), ok:'開始匯入'})) return;
+    }
+    goBtn.disabled = true; st.busy = true;
+    const r = await shelfImportApply(pl.items);
+    st.busy = false;
+    toast(shelfImportMsg(r));
+    if (r.fail) paint(); else sh.forceClose();
+  });
+  put(sh.bodyEl,
+    h('p', {class:'note', text:'一次建立或更新很多架位：把架位清單放在 Excel，存成 CSV（UTF-8）後選擇檔案，先看預覽，確認再匯入。欄位和「匯出架位清單」一樣，所以也可以先匯出、在 Excel 改好備註或狀態，再匯入回來。'}),
+    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載架位匯入範本', onclick:tpl}, icon('down'), '下載範本')),
+    whSel ? fld('預設倉庫（檔案沒有「倉庫」欄，或那一格空白時使用）', whSel) : null,
+    fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的架位'}), modeChips), info,
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'},
+      h('small', {class:'hint', style:'display:block', text:'第一列是欄位名稱：架位（必填）、倉庫、備註、狀態。只有一欄的清單（一行一個架位代碼，不用欄位名稱）也可以匯入。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'架位代碼最多 ' + SHELF_MAXLEN + ' 個字，不能有「|」；全形半形、大小寫視為同一個（A-03 和 a-03 是同一個架位）。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'倉庫寫倉庫名稱或代碼，空白就用上面選的預設倉庫；只有一個倉庫時，這一欄不用填，填了也會忽略。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'狀態寫「啟用」或「停用」，新架位空白就是啟用。檔案裡空白的備註、狀態，不會清掉已存在架位原本的內容。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變；要調整商品的架位，請用「商品架位調整」或匯入商品資料的「架位」欄。一次最多 ' + SHELF_IMPORT_MAX + ' 列。'}))));
+  sh.footEl.append(goBtn);
+  return sh;
+}
+
 /* ---- 一個架位的內容 ---- */
 function openShelfDetail(id){
   return liveSheet({title:'架位'}, ['shelves', 'products', 'settings'], sh => {
@@ -7845,7 +8076,7 @@ function openShelfMgmt(opt){
         h('span', {style:'min-width:0;text-align:left'}, h('b', {text:s.code}), s.active === false ? h('span', {class:'pill', style:'margin-left:6px', text:'已停用'}) : null, s.note ? [h('br'), h('small', {text:s.note})] : null),
         h('span', {class:'right'}, h('b', {text:String(cnt(s))}), h('small', {text:' 項商品'})))),
         rows.length > U.max ? h('button', {class:'row', 'aria-label':'顯示更多架位', onclick:() => { U.max += 100; fill(); }}, h('span', {text:'還有 ' + (rows.length - U.max) + ' 個，點這裡顯示更多'})) : null)
-        : h('div', {class:'panel empty'}, all.length ? '沒有符合的架位' : h('span', null, h('b', {text:'還沒有建立架位'}), h('br'), '點下方「＋ 新增架位」建立一個，或用「批次產生」一次建立很多。')));
+        : h('div', {class:'panel empty'}, all.length ? '沒有符合的架位' : h('span', null, h('b', {text:'還沒有建立架位'}), h('br'), '點下方「＋ 新增架位」建立一個，或用「批次產生」、「匯入架位清單」一次建立很多。')));
     };
     const chip = (k, t, n) => h('button', {class:'chip', 'aria-pressed':U.f === k, 'aria-label':'篩選 ' + t, onclick:e => { U.f = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t + '（' + n + '）');
     const body = h('div', null,
@@ -7857,7 +8088,7 @@ function openShelfMgmt(opt){
       h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋架位代碼或備註', value:U.q, autocomplete:'off', 'aria-label':'搜尋架位', oninput:e => { U.q = e.target.value; fill(); }})),
       h('div', {class:'chips', style:'padding-top:6px'}, chip('all', '全部', all.length), chip('used', '有商品', used), chip('empty', '空的', empty), chip('off', '已停用', off)),
       box,
-      h('div', {class:'btns', style:'margin-top:10px'}, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'批次產生架位', onclick:() => openShelfBatch({wh:U.wh})}, '批次產生') : null, canExport() ? h('button', {class:'btn ghost sm', 'aria-label':'匯出架位清單', onclick:() => openExport(dsShelves())}, icon('down'), '匯出架位清單') : null));
+      h('div', {class:'btns', style:'margin-top:10px'}, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'批次產生架位', onclick:() => openShelfBatch({wh:U.wh})}, '批次產生') : null, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'匯入架位清單', onclick:() => openShelfImport({wh:U.wh})}, icon('up'), '匯入架位清單') : null, canExport() ? h('button', {class:'btn ghost sm', 'aria-label':'匯出架位清單', onclick:() => openExport(dsShelves())}, icon('down'), '匯出架位清單') : null));
     fill();
     const foot = [];
     if (canShelf()) foot.push(h('button', {class:'btn ghost', 'aria-label':'商品架位調整', onclick:() => openShelfAdjust({wh:U.wh})}, '掃描調整'));
@@ -8077,7 +8308,7 @@ function openShelfAdjust(opt){
   setTimeout(() => { try { scanIn.focus(); } catch (_) {} }, 50);
   return {sh, handle, state:st};
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shelfForTest:{normShelf, shelfKey, shelfId, shelfCodeErr, shelfQR, parseShelfQR, shelfDocs, shelfFind, shelfExplicit, shelfUsage, shelfProducts, shelfUnregistered, shelfPatch, shelfGroup, shelfExpand, shelfCodes, shelfUnits, shelfLabelHTML, loadShelfLabelPrefs, dsShelves, openShelfMgmt, openShelfDetail, openShelfForm, openShelfBatch, openShelfLabelPrint, openShelfAdjust, qrSvg, qrEncode, menuFlat:() => menuFlat(), canShelf:() => canShelf(), shelfFormLog, buildBackup:() => buildBackup(), restoreBackup:(...x) => restoreBackup(...x), wipePlan:sc => wipePlan(sc), openProduct:id => openProduct(id), openShelfEditor:() => openShelfEditor(), openBackup:() => openBackup()}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shelfForTest:{normShelf, shelfKey, shelfId, shelfCodeErr, shelfQR, parseShelfQR, shelfDocs, shelfFind, shelfExplicit, shelfUsage, shelfProducts, shelfUnregistered, shelfPatch, shelfGroup, shelfExpand, shelfCodes, shelfUnits, shelfLabelHTML, loadShelfLabelPrefs, labelHTML, labelQrSize, labelPad, labelFonts, labelSmallFs, labelNeedProd, labelNeedShelf, openLabelPrint, loadLabelPrefs, dsShelves, planShelfImport, openShelfImport, shelfImportDecode, shelfImportApply, SHELF_IMPORT_MAX, openShelfMgmt, openShelfDetail, openShelfForm, openShelfBatch, openShelfLabelPrint, openShelfAdjust, qrSvg, qrEncode, menuFlat:() => menuFlat(), canShelf:() => canShelf(), shelfFormLog, buildBackup:() => buildBackup(), restoreBackup:(...x) => restoreBackup(...x), wipePlan:sc => wipePlan(sc), openProduct:id => openProduct(id), openShelfEditor:() => openShelfEditor(), openBackup:() => openBackup()}}); } catch (_) {}
 
 /* ---- 語音 ---- */
 const PV_KEY = 'pickVoice1';
@@ -10861,7 +11092,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bi';
+const APP_VERSION = '2026.10.11-bk';
 const MENU_CATS = [
   ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
   ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
@@ -10890,7 +11121,7 @@ function menuGroups(){
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
-    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
+    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生，或從 Excel／CSV 匯入架位清單）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('價格策略匯入匯出', S.isAdmin, openPriceIO, '價格規則、組合優惠與買送：匯出成 Excel／CSV，改好再匯入批次更新'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
     ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
@@ -13053,14 +13284,15 @@ function dsStatement(pid){
 const COLS = {sku:['料號', 'sku', '編號'], barcode:['條碼', 'barcode', 'ean', 'upc'], name:['品名', 'name', '名稱', '商品名稱'], category:['分類', 'category'], unit:['單位', 'unit'], cartonQty:['每箱入數', '外箱入數', '箱入數', '入數', 'carton', 'cartonqty'],
   cost:['進價', '成本', 'cost'], price:['售價', 'price'], safety:['安全庫存', 'safety'], shelf:['架位', '貨架', '儲位', 'shelf', 'location'], labelSpec:['標籤規格', '標籤', 'label'], family:['系列', '系列名稱', 'family'], opening:['期初庫存', '庫存', 'opening', 'stock'],
   supplier:['供應商', '進貨廠商', '廠商', 'supplier'], moq:['最小採購量', '最小進貨量', '進貨最小數量', 'moq'], lot:['進貨批量', '採購批量', '批量', 'lot'], volume:['材積', '材積（才）', '才數', 'volume'], procSrc:['採購來源', '來源'], status:['狀態', '停用']};
-function parseCSV(t){
+function parseCSV(t, sep){
+  sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
   const rows = []; let row = [], cur = '', q = false;
   for (let i = 0; i < t.length; i++){
     const c = t[i];
     if (q){ if (c === '"'){ if (t[i + 1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
     else if (c === '"') q = true;
-    else if (c === ','){ row.push(cur); cur = ''; }
+    else if (c === sep){ row.push(cur); cur = ''; }
     else if (c === '\n' || c === '\r'){ if (c === '\r' && t[i + 1] === '\n') i++; row.push(cur); cur = ''; rows.push(row); row = []; }
     else cur += c;
   }
@@ -13118,7 +13350,7 @@ const dsProductMaster = () => {
 /* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
 function openDataHub(){
   if (!can('partner') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
-  liveSheet({title:'資料匯入匯出'}, ['partners', 'products', 'prules', 'promos'], sh => {
+  liveSheet({title:'資料匯入匯出'}, ['partners', 'products', 'prules', 'promos', 'shelves'], sh => {
     const nCust = Object.values(S.partners).filter(x => x.type === 'customer').length, nSup = Object.values(S.partners).filter(x => x.type === 'supplier').length, nProd = Object.keys(S.products).length;
     const card = (key, title, n, unit, desc, exp, imp) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 ' + title},
       h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:title}), h('span', {class:'hint', text:n + ' ' + unit})),
@@ -13129,6 +13361,7 @@ function openDataHub(){
       card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
       card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
       card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
+      canShelf() ? card('shelf', '架位清單', Object.keys(S.shelves || {}).length, '個', '架位代碼、倉庫、備註、狀態（啟用／停用）。有同樣的架位就更新備註和狀態，沒有就新增。匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變。', () => openExport(dsShelves()), () => openShelfImport()) : null,
       S.isAdmin ? h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 價格策略'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:'價格策略'}), h('span', {class:'hint', text:Object.keys(S.prules).length + ' 條規則・' + Object.keys(S.promos || {}).length + ' 個組合／買送'})), h('p', {class:'hint', style:'margin:4px 0 10px', text:'價格規則（等級價、數量階梯、促銷期間、客戶專屬價）、組合優惠與買送贈品。匯入前會先預覽，確認後才寫入。'}), h('button', {class:'btn', style:'width:100%', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出')) : null,
       S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
     return {body};
