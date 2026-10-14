@@ -466,7 +466,8 @@ const ICONS = {
   more:'<circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>',
   truck:'<rect x="2" y="8" width="12" height="9"/><path d="M14 11h4l4 3.5V17h-8z"/><circle cx="6.5" cy="18.5" r="1.6"/><circle cx="17" cy="18.5" r="1.6"/>',
   down:'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
-  up:'<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>'
+  up:'<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>',
+  tag:'<path d="M3 12V4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/>'
 };
 
 /* ================= 狀態 ================= */
@@ -876,8 +877,10 @@ function foldSections(nodes, openTitles){
   }
   return out;
 }
-const tabAllowed = k => ({buy:S.isAdmin || rolePerm('sale') || rolePerm('purchase'), acc:S.isAdmin || rolePerm('pay') || rolePerm('report') || rolePerm('cash'), rep:see('report'), veh:S.isAdmin || rolePerm('vehicle')})[k] !== false;
-const NAV_TAB_CAT = {inv:'庫存與商品', buy:'採購與進貨', ord:'銷售與訂單', acc:'收款與帳務', veh:'配送與車輛', rep:'報表與稽核'};
+/* 每個分頁對應的功能：依功能分派時，一個都沒開的分頁就不顯示 */
+const TAB_FN = {inv:['products'], buy:['quote', 'corder', 'purchaseSug', 'porder'], ord:['docs'], acc:['ar', 'ap', 'notes', 'cash'], rep:['reports'], veh:['vehicles', 'fuelCards']};
+const tabAllowed = k => ({buy:S.isAdmin || rolePerm('sale') || rolePerm('purchase'), acc:S.isAdmin || rolePerm('pay') || rolePerm('report') || rolePerm('cash'), rep:see('report'), veh:S.isAdmin || rolePerm('vehicle')})[k] !== false && (!TAB_FN[k] || TAB_FN[k].some(id => fxOn(id)));
+const NAV_TAB_CAT = {inv:'商品與組裝', buy:'採購與進貨', ord:'銷售與訂單', acc:'收款與帳款', veh:'配送與車輛', rep:'報表與稽核'};
 function drawNav(){
   const ui = document.documentElement.dataset.ui, nav = $('#nav');
   if (ui === 'tablet' || ui === 'laptop'){
@@ -933,14 +936,14 @@ function pHome(){
   { const cc = cycHomeCard(); if (cc) page.append(cc); }
   { const lc = lineHomeCard(); if (lc) page.append(lc); }
   page.append(homeTiles()); page.append(homeFavs());
-  if (can('stock') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'調庫補貨提示', onclick:openReplenish}, h('span', null, h('b', {text:whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存'}), h('br'), h('small', {text:'可以依規則從「' + whName(pl.src) + '」調庫補貨'})), h('small', {class:'chev', text:'›'}))))); }
-  if (reviewOn() && canReviewPerm()){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'待覆核單據', onclick:openReviewQueue}, h('span', null, h('b', {text:'待覆核單據 ' + pend.length + ' 張'}), h('br'), h('small', {text:'覆核後單據鎖定，不能再修改或作廢'})), h('small', {class:'chev', text:'›'}))))); }
-  if (tabAllowed('acc')){
+  if (can('stock') && fxOn('replenish') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'調庫補貨提示', onclick:openReplenish}, h('span', null, h('b', {text:whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存'}), h('br'), h('small', {text:'可以依規則從「' + whName(pl.src) + '」調庫補貨'})), h('small', {class:'chev', text:'›'}))))); }
+  if (reviewOn() && canReviewPerm() && fxOn('review')){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'待覆核單據', onclick:openReviewQueue}, h('span', null, h('b', {text:'待覆核單據 ' + pend.length + ' 張'}), h('br'), h('small', {text:'覆核後單據鎖定，不能再修改或作廢'})), h('small', {class:'chev', text:'›'}))))); }
+  if (tabAllowed('acc') && (fxOn('ar') || fxOn('ap'))){
     const sumT = t => r2(Object.entries(S.d.bal).filter(([id]) => S.partners[id] && S.partners[id].type === t).reduce((a, [, b]) => a + b, 0));
     const ar = sumT('customer'), ap = sumT('supplier');
     page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'帳款'})), h('div', {class:'panel'},
-      h('button', {class:'row', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'ar'; draw(); }}, h('span', {text:'應收帳款'}), h('b', {text:money(ar)})),
-      h('button', {class:'row', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'ap'; draw(); }}, h('span', {text:'應付帳款'}), h('b', {text:money(ap)})))));
+      fxOn('ar') ? h('button', {class:'row', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'ar'; draw(); }}, h('span', {text:'應收帳款'}), h('b', {text:money(ar)})) : null,
+      fxOn('ap') ? h('button', {class:'row', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'ap'; draw(); }}, h('span', {text:'應付帳款'}), h('b', {text:money(ap)})) : null)));
   }
   const ps = activeProducts();
   const rw = regionMainWh(), psR = rw ? ps.filter(p => carriedAt(p, rw.id)) : ps, lvF = p => rw ? levelAt(p, rw.id) : level(p), sfF = p => rw ? whRuleOf(p, rw.id).safety : (p.safety || 0), stF = p => rw ? stockAt(p.id, rw.id) : stockOf(p.id);
@@ -971,7 +974,7 @@ function pHome(){
         return h('div', {class:'row'},
           h('button', {style:'min-width:0', onclick:() => openProduct(p.id)}, h('b', {text:p.name}), h('br'),
             h('small', {text:'庫存 ' + num(s) + (sfF(p) > 0 ? '，安全庫存 ' + num(sfF(p)) : '') + ' ' + (p.unit || '')})),
-          can('purchase') ? h('button', {class:'btn sm', onclick:() => openOrder('purchase', {pid:p.id, qty:Math.max(r3(sfF(p) * 2 - s), 1)})}, '補貨') : null,
+          can('purchase') && fxOn('purchase') ? h('button', {class:'btn sm', onclick:() => openOrder('purchase', {pid:p.id, qty:Math.max(r3(sfF(p) * 2 - s), 1)})}, '補貨') : null,
           gauge(p));
       }))));
   }
@@ -979,17 +982,17 @@ function pHome(){
   const coAct = Object.values(S.corders).filter(d => docProgress('co', d).active), poAct = Object.values(S.porders).filter(d => docProgress('po', d).active);
   const nSug = suggestions().length;
   const lateOf2 = l => l.filter(d => d.expected && daysBetween(today(), d.expected) < 0).length;
-  if (coAct.length || poAct.length || nSug){
+  if ((coAct.length && fxOn('corder')) || (poAct.length && fxOn('porder')) || (nSug && fxOn('purchaseSug'))){
     const go = (seg) => () => { S.tab = 'buy'; S.ui.buySeg = seg; draw(); };
     page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'待辦事項'})),
       h('div', {class:'panel'},
-        coAct.length ? h('button', {class:'row', onclick:go('co')}, h('span', {text:'待出貨訂單'}), h('span', {class:'right'}, h('b', {text:coAct.length + ' 張'}), lateOf2(coAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(coAct)}) : null)) : null,
-        nSug ? h('button', {class:'row', onclick:go('sug')}, h('span', {text:'採購建議'}), h('b', {text:nSug + ' 項'})) : null,
-        poAct.length ? h('button', {class:'row', onclick:go('po')}, h('span', {text:'待收貨採購單'}), h('span', {class:'right'}, h('b', {text:poAct.length + ' 張'}), lateOf2(poAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(poAct)}) : null)) : null)));
+        coAct.length && fxOn('corder') ? h('button', {class:'row', onclick:go('co')}, h('span', {text:'待出貨訂單'}), h('span', {class:'right'}, h('b', {text:coAct.length + ' 張'}), lateOf2(coAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(coAct)}) : null)) : null,
+        nSug && fxOn('purchaseSug') ? h('button', {class:'row', onclick:go('sug')}, h('span', {text:'採購建議'}), h('b', {text:nSug + ' 項'})) : null,
+        poAct.length && fxOn('porder') ? h('button', {class:'row', onclick:go('po')}, h('span', {text:'待收貨採購單'}), h('span', {class:'right'}, h('b', {text:poAct.length + ' 張'}), lateOf2(poAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(poAct)}) : null)) : null)));
   }
   const dueNotes = Object.values(S.notes).filter(n => NOTE_OPEN.has(n.status) && daysBetween(today(), n.dueDate) <= 7).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5);
   if (dueNotes.length) page.append(h('section', {class:'sec'},
-    h('div', {class:'sec-h'}, h('h2', {text:'近期到期票據'}), h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }}, '票據管理')),
+    h('div', {class:'sec-h'}, h('h2', {text:'近期到期票據'}), tabAllowed('acc') && fxOn('notes') ? h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }}, '票據管理') : null),
     h('div', {class:'panel'}, dueNotes.map(noteRow))));
   const m = summarize(...rangeOf('month'));
   page.append(h('section', {class:'sec'},
@@ -1004,7 +1007,7 @@ function pHome(){
   const recent = Object.values(S.orders).sort(cmpOrd).slice(0, 5);
   ensureNames(recent.map(o => o.by));
   page.append(h('section', {class:'sec'},
-    h('div', {class:'sec-h'}, h('h2', {text:'最近單據'}), h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'ord'; draw(); }}, '全部單據')),
+    h('div', {class:'sec-h'}, h('h2', {text:'最近單據'}), tabAllowed('ord') ? h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'ord'; draw(); }}, '全部單據') : null),
     recent.length ? h('div', {class:'panel'}, recent.map(orderRow))
       : h('div', {class:'panel empty'}, h('b', {text:'還沒有單據'}), S.canWrite ? '到「單據」建立第一張進貨或銷貨單。' : '')));
   return page;
@@ -1047,14 +1050,14 @@ function pInv(){
   page.append(h('div', {class:'sec'},
     h('div', {class:'sec-h'}, h('h2', {text:'商品與庫存'}),
       h('div', {class:'btns'},
-        can('stock') ? h('button', {class:'btn ghost sm', onclick:openStocktakes}, '盤點') : null,
-        can('stock') && multiWh() ? h('button', {class:'btn ghost sm', onclick:() => openTransfer()}, '調撥') : null,
-        can('stock') ? h('button', {class:'btn ghost sm', onclick:() => openBomOp('assembly')}, '組成／拆解') : null,
-        can('print') ? h('button', {class:'btn ghost sm', onclick:() => openLabelPrint()}, '標籤') : null,
+        can('stock') && fxOn('stocktake') ? h('button', {class:'btn ghost sm', onclick:openStocktakes}, '盤點') : null,
+        can('stock') && multiWh() && fxOn('transfer') ? h('button', {class:'btn ghost sm', onclick:() => openTransfer()}, '調撥') : null,
+        can('stock') && (fxOn('assembly') || fxOn('disassembly')) ? h('button', {class:'btn ghost sm', onclick:() => openBomOp(fxOn('assembly') ? 'assembly' : 'disassembly')}, fxOn('assembly') && fxOn('disassembly') ? '組成／拆解' : (fxOn('assembly') ? '組成' : '拆解')) : null,
+        can('print') && fxOn('labels') ? h('button', {class:'btn ghost sm', onclick:() => openLabelPrint()}, '標籤') : null,
         exportBtn(dsInventory),
         S.isAdmin ? h('button', {class:'btn ghost sm', onclick:openImport}, '匯入') : null,
         S.isAdmin ? h('button', {class:'btn sm', onclick:() => openProductForm()}, icon('plus'), '新增商品') : null)),
-    Object.values(S.counts).some(c => c.status === 'open') ? h('button', {class:'note', onclick:openStocktakes}, '進行中的盤點：' + Object.values(S.counts).filter(c => c.status === 'open').map(c => c.name).join('、') + '，點此查看') : null,
+    Object.values(S.counts).some(c => c.status === 'open') && can('stock') && fxOn('stocktake') ? h('button', {class:'note', onclick:openStocktakes}, '進行中的盤點：' + Object.values(S.counts).filter(c => c.status === 'open').map(c => c.name).join('、') + '，點此查看') : null,
     h('label', {class:'search'}, icon('search'),
       h('input', {type:'search', placeholder:'搜尋料號或品名', value:S.ui.invQ, autocomplete:'off', 'data-k':'inv-q', 'aria-label':'搜尋商品',
         oninput:e => { S.ui.invQ = e.target.value; fill(); }})),
@@ -1114,11 +1117,11 @@ function openProduct(id){
     const foot = [];
     if (S.isAdmin) foot.push(h('button', {class:'btn ghost', onclick:() => openProductForm(id)}, '編輯'));
     if (S.canWrite && p.active !== false){
-      if (can('sale')) foot.push(h('button', {class:'btn ghost grow', onclick:() => openOrder('sale', {pid:id})}, '銷貨'));
-      if (can('purchase')) foot.push(h('button', {class:'btn grow', onclick:() => openOrder('purchase', {pid:id})}, '進貨'));
-      if (can('stock') && multiWh()) foot.push(h('button', {class:'btn ghost', onclick:() => openTransfer({pid:id})}, '調撥'));
-      if (can('print')) foot.push(h('button', {class:'btn ghost', 'aria-label':'列印標籤', onclick:() => openLabelPrint({pids:[id]})}, '標籤'));
-      if (can('stock') && hasBom(p)){ foot.push(h('button', {class:'btn ghost', onclick:() => openBomOp('assembly', {pid:id})}, '組成'), h('button', {class:'btn ghost', onclick:() => openBomOp('disassembly', {pid:id})}, '拆解')); }
+      if (can('sale') && fxOn('sale')) foot.push(h('button', {class:'btn ghost grow', onclick:() => openOrder('sale', {pid:id})}, '銷貨'));
+      if (can('purchase') && fxOn('purchase')) foot.push(h('button', {class:'btn grow', onclick:() => openOrder('purchase', {pid:id})}, '進貨'));
+      if (can('stock') && multiWh() && fxOn('transfer')) foot.push(h('button', {class:'btn ghost', onclick:() => openTransfer({pid:id})}, '調撥'));
+      if (can('print') && fxOn('labels')) foot.push(h('button', {class:'btn ghost', 'aria-label':'列印標籤', onclick:() => openLabelPrint({pids:[id]})}, '標籤'));
+      if (can('stock') && hasBom(p)){ if (fxOn('assembly')) foot.push(h('button', {class:'btn ghost', onclick:() => openBomOp('assembly', {pid:id})}, '組成')); if (fxOn('disassembly')) foot.push(h('button', {class:'btn ghost', onclick:() => openBomOp('disassembly', {pid:id})}, '拆解')); }
     }
     return {body, foot};
   });
@@ -1317,11 +1320,11 @@ function pOrd(){
     h('div', {class:'sec-h'}, h('h2', {text:'單據'}),
       h('div', {class:'btns'},
         exportBtn(dsOrders),
-        can('sale') ? h('button', {class:'btn ghost sm', onclick:openDeliveryList}, '送貨清單') : null,
-        can('sale') || can('stock') ? h('button', {class:'btn ghost sm', onclick:() => openPicking()}, '揀貨') : null,
-        can('purchase') || can('sale') || can('stock') ? h('button', {class:'btn ghost sm', onclick:openMoreTypes}, '退貨 / 盤點' + (multiWh() ? ' / 調撥' : '')) : null,
-        can('purchase') ? h('button', {class:'btn ghost sm', onclick:() => openOrder('purchase')}, icon('plus'), '進貨') : null,
-        can('sale') ? h('button', {class:'btn sm', onclick:() => openOrder('sale')}, icon('plus'), '銷貨') : null)),
+        can('sale') && fxOn('deliveryList') ? h('button', {class:'btn ghost sm', onclick:openDeliveryList}, '送貨清單') : null,
+        (can('sale') || can('stock')) && fxOn('picking') ? h('button', {class:'btn ghost sm', onclick:() => openPicking()}, '揀貨') : null,
+        moreTypesList().length ? h('button', {class:'btn ghost sm', onclick:openMoreTypes}, '退貨 / 盤點' + (multiWh() ? ' / 調撥' : '')) : null,
+        can('purchase') && fxOn('purchase') ? h('button', {class:'btn ghost sm', onclick:() => openOrder('purchase')}, icon('plus'), '進貨') : null,
+        can('sale') && fxOn('sale') ? h('button', {class:'btn sm', onclick:() => openOrder('sale')}, icon('plus'), '銷貨') : null)),
     h('label', {class:'search'}, icon('search'),
       h('input', {type:'search', placeholder:'搜尋單號、對象、商品', value:S.ui.ordQ, autocomplete:'off', 'data-k':'ord-q', 'aria-label':'搜尋單據',
         oninput:e => { S.ui.ordQ = e.target.value; S.ui.ordN = 60; fill(); }})),
@@ -1332,9 +1335,10 @@ function pOrd(){
   fill();
   return page;
 }
+const moreTypesList = () => ['purchase_return', 'sale_return', 'adjust', 'assembly', 'disassembly', ...(multiWh() ? ['transfer'] : [])].filter(k => can(({purchase_return:'purchase', sale_return:'sale', adjust:'stock', transfer:'stock', assembly:'stock', disassembly:'stock'})[k]) && fxOn(k));
 function openMoreTypes(){
   const sh = sheet({title:'選擇單據類型'});
-  sh.bodyEl.append(h('div', {class:'panel'}, ['purchase_return', 'sale_return', 'adjust', 'assembly', 'disassembly', ...(multiWh() ? ['transfer'] : [])].filter(k => can(({purchase_return:'purchase', sale_return:'sale', adjust:'stock', transfer:'stock', assembly:'stock', disassembly:'stock'})[k])).map(k => {
+  sh.bodyEl.append(h('div', {class:'panel'}, moreTypesList().map(k => {
     const T = TYPES[k];
     return h('button', {class:'row', onclick:() => { sh.forceClose(); if (k === 'transfer') openTransfer(); else if (k === 'assembly' || k === 'disassembly') openBomOp(k); else openOrder(k); }},
       h('span', null, h('b', {text:T.label}), h('br'), h('small', {text:k === 'adjust' ? '輸入實際盤點數量，系統自動算出差異' : k === 'assembly' ? '依 BOM 用組件組成成品' : k === 'disassembly' ? '依 BOM 把成品拆回組件' : (k === 'transfer' ? '把商品從一個倉庫移到另一個倉庫' : (k === 'purchase_return' ? '把已進貨的商品退回供應商' : '客戶把商品退回來'))})),
@@ -1346,6 +1350,7 @@ function openOrder(type, pre){
   pre = pre || {};
   const need = ({sale:'sale', sale_return:'sale', purchase:'purchase', purchase_return:'purchase', adjust:'stock'})[type];
   if (need && !can(need)) return toast('你的角色沒有這項操作的權限');
+  if (!fxOrderOk(type, pre)) return;
   const T = TYPES[type], isAdj = type === 'adjust';
   const editO = pre.edit || null;
   if (editO && !(editO.type === 'sale' && can('sale') && (S.isAdmin || (editO.by && editO.by === S.meId)))) return toast('你沒有修改這張單據的權限');
@@ -1735,7 +1740,7 @@ function openOrder(type, pre){
       for (const l of lines){
         const have = stockEff(l.pid), after = r3(have + T.sign * l.qty);
         if (after < 0){
-          if (type !== 'sale' || !(can('purchase') || can('stock'))) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
+          if (type !== 'sale' || !shortAct()) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
           if (await dialog({title:'「' + l.name + '」庫存不足', msg:'現有 ' + num(have) + '，這張要出 ' + num(l.qty) + '，差 ' + num(r3(-after)) + '。要用採購、拆解補貨或直接組裝補足嗎？', ok:'處理缺貨', cancel:'回去修改'}))
             openShortage({pid:l.pid, need:l.qty, have:() => stockEff(l.pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''});
           return;
@@ -1823,8 +1828,8 @@ function openOrderDetail(id){
     const revLocked = reviewLock('order', o);
     const canVoid = can('void') && !isVoid && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
     const canDel = o.type === 'sale' && can('void') && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
-    const canEdit = o.type === 'sale' && !isVoid && !revLocked && can('sale') && (S.isAdmin || (o.by && o.by === S.meId));
-    const canPay = can('pay') && !isVoid && T.money === 1 && o.partnerId && due > 0.004;
+    const canEdit = o.type === 'sale' && !isVoid && !revLocked && can('sale') && fxOn('sale') && (S.isAdmin || (o.by && o.by === S.meId));
+    const canPay = can('pay') && fxOn((pt ? pt.type : T.partner) === 'supplier' ? 'ap' : 'settle') && !isVoid && T.money === 1 && o.partnerId && due > 0.004;
     const body = h('div', null,
       h('div', {class:'dhead'}, h('span', {class:'tag ' + dirCls(T), text:T.short}), h('div', null, h('b', {class:'big', text:o.no}), h('small', {text:T.label + '　' + o.date}))),
       isVoid ? h('div', {class:'note bad', text:'此單據已作廢（' + who(o.voidBy) + '，' + fmtDT(o.voidAt) + '），不計入庫存與帳款。'}) : null,
@@ -1857,13 +1862,13 @@ function openOrderDetail(id){
     const foot = [];
     foot.push(...reviewBtns('order', o));
     if (canEdit) foot.push(h('button', {class:'btn ghost', 'aria-label':'修改單據', onclick:() => openOrder('sale', {edit:o})}, '修改'));
-    if (o.type === 'sale' && !isVoid && can('sale')) foot.push(h('button', {class:'btn ghost', 'aria-label':'銷貨退回', onclick:() => openOrder('sale_return', {srcSale:o.id})}, '退貨'));
+    if (o.type === 'sale' && !isVoid && can('sale') && fxOn('sale_return')) foot.push(h('button', {class:'btn ghost', 'aria-label':'銷貨退回', onclick:() => openOrder('sale_return', {srcSale:o.id})}, '退貨'));
     if (canVoid) foot.push(h('button', {class:'btn plain', onclick:() => voidOrder(o, sh)}, '作廢'));
     if (canDel) foot.push(h('button', {class:'btn plain', 'aria-label':'刪除單據', style:'color:var(--bad, #c0392b)', onclick:() => deleteOrder(o, sh)}, '刪除'));
     if ((o.type === 'sale' || o.type === 'sale_return') && !isVoid && see('print')) { foot.push(h('button', {class:'btn ghost', onclick:() => openPrint(id)}, '列印')); foot.push(h('button', {class:'btn ghost', 'aria-label':'直接列印', onclick:() => printDirect(o)}, '直接列印')); }
-    if (o.type === 'sale' && !isVoid && canDErr()) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記配送錯誤', onclick:() => openDErrForm({orderId:id})}, '登記配送錯誤'));
-    if (o.type === 'sale' && !isVoid && (can('sale') || can('stock'))) foot.push(h('button', {class:'btn ghost', 'aria-label':'揀貨', onclick:() => openPickOrder(id)}, '揀貨'));
-    if (o.type === 'sale' && !isVoid && (can('sale') || can('stock'))) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記退貨處理', onclick:() => openReturnForm({srcOrder:id})}, '登記退貨處理'));
+    if (o.type === 'sale' && !isVoid && canDErr() && fxOn('perf')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記配送錯誤', onclick:() => openDErrForm({orderId:id})}, '登記配送錯誤'));
+    if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('picking')) foot.push(h('button', {class:'btn ghost', 'aria-label':'揀貨', onclick:() => openPickOrder(id)}, '揀貨'));
+    if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('returns')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記退貨處理', onclick:() => openReturnForm({srcOrder:id})}, '登記退貨處理'));
     if (canPay) foot.push(h('button', {class:'btn grow', onclick:() => openPayment({type:pt ? pt.type : T.partner, partnerId:o.partnerId, orderId:id})}, T.partner === 'customer' ? '登記收款' : '登記付款'));
     return {body, foot, title:T.label};
   });
@@ -1944,8 +1949,8 @@ function openPartner(id){
       h('div', {class:'sec-h'}, h('h2', {text:'往來單據'})),
       orders.length ? h('div', {class:'panel'}, orders.slice(0, 30).map(orderRow)) : h('div', {class:'panel empty', text:'尚無往來單據'}));
     const foot = [h('button', {class:'btn ghost', onclick:() => openStatement(id)}, '對帳單')];
-    if (can('partner')) foot.push(h('button', {class:'btn ghost', onclick:() => openPartnerForm(id)}, '編輯'),
-      h('button', {class:'btn grow', onclick:() => openOrder(isCust ? 'sale' : 'purchase')}, isCust ? '銷貨' : '進貨'));
+    if (can('partner')) foot.push(h('button', {class:'btn ghost', onclick:() => openPartnerForm(id)}, '編輯'));
+    if (can(isCust ? 'sale' : 'purchase') && fxOn(isCust ? 'sale' : 'purchase')) foot.push(h('button', {class:'btn grow', onclick:() => openOrder(isCust ? 'sale' : 'purchase', {partnerId:id})}, isCust ? '銷貨' : '進貨'));
     return {body, foot};
   });
 }
@@ -2324,6 +2329,7 @@ async function createPayment(o){
 function openPayment(opts){
   opts = opts || {};
   const type = opts.type || (opts.partnerId && S.partners[opts.partnerId] ? S.partners[opts.partnerId].type : 'customer');
+  if (!fxGate(type === 'supplier' ? 'ap' : 'settle')) return;
   const dir = type === 'customer' ? 'in' : 'out', P = PAY[dir];
   const st = {partnerId:opts.partnerId || '', date:today(), method:'cash', amount:'', note:''};
   const alloc = allocPanel(), info = h('small', {class:'hint'});
@@ -2461,6 +2467,7 @@ function noteRow(n){
 }
 
 function openNoteForm(dir, opts){
+  if (!fxOn('notes') && !fxOn(dir === 'in' ? 'settle' : 'ap')){ fxGate('notes'); return; }
   opts = opts || {};
   const type = dir === 'in' ? 'customer' : 'supplier', P = PAY[dir];
   const st = {partnerId:opts.partnerId || '', kind:'check', no:'', bank:'', acct:'', amount:'', issue:today(), due:addDays(today(), 30), note:''};
@@ -2663,7 +2670,7 @@ function openStatement(pid){
       h('div', {class:'sec-h'}, h('h2', {text:'收付款紀錄'})),
       pays.length ? h('div', {class:'panel', style:'margin-bottom:14px'}, pays.map(payRow)) : h('div', {class:'panel empty', style:'margin-bottom:14px', text:'尚無紀錄'}),
       see('export') ? h('button', {class:'btn ghost', onclick:() => openExport(dsStatement(pid))}, icon('down'), '匯出對帳單（PDF／Excel）') : null);
-    const foot = can('pay') ? [
+    const foot = can('pay') && fxOn(isAR ? 'settle' : 'ap') ? [
       h('button', {class:'btn ghost grow', onclick:() => openNoteForm(isAR ? 'in' : 'out', {partnerId:pid})}, isAR ? '收票' : '開票'),
       h('button', {class:'btn grow', onclick:() => openPayment({type:pt.type, partnerId:pid})}, isAR ? '收款' : '付款'),
       h('button', {class:'btn grow', onclick:() => openSettle({type:pt.type, partnerId:pid})}, '沖帳')] : [];
@@ -2686,13 +2693,14 @@ function ledgerView(type){
     if (Math.abs(ag.open - net) > 0.004) hero.append(h('small', {text:'已扣除退貨與預收款 ' + money(r2(ag.open - net))}));
   }
   wrap.append(hero);
+  const mainOk = fxOn(isAR ? 'settle' : 'ap');
   if (can('pay')) wrap.append(h('div', {class:'btns', style:'margin-top:12px'},
-    h('button', {class:'btn', onclick:() => openSettle({type})}, icon('plus'), '沖帳作業'),
-    isAR ? h('button', {class:'btn ghost', onclick:openBatchSettle}, '批次沖帳') : null,
-    isAR ? h('button', {class:'btn ghost', onclick:openFieldQueue}, '待沖帳收款' + (fieldGroups(true).length ? '（' + fieldGroups(true).length + '）' : '')) : null,
-    isAR ? h('button', {class:'btn ghost', onclick:openCollectSummary}, '收款結算') : null,
-    h('button', {class:'btn ghost', onclick:() => openPayment({type})}, isAR ? '簡易收款' : '付款'),
-    h('button', {class:'btn ghost', onclick:() => openNoteForm(isAR ? 'in' : 'out')}, isAR ? '收票' : '開票')));
+    mainOk ? h('button', {class:'btn', onclick:() => openSettle({type})}, icon('plus'), '沖帳作業') : null,
+    isAR && fxOn('batchSettle') ? h('button', {class:'btn ghost', onclick:openBatchSettle}, '批次沖帳') : null,
+    isAR && fxOn('fieldQueue') ? h('button', {class:'btn ghost', onclick:openFieldQueue}, '待沖帳收款' + (fieldGroups(true).length ? '（' + fieldGroups(true).length + '）' : '')) : null,
+    isAR && fxOn('collectSum') ? h('button', {class:'btn ghost', onclick:openCollectSummary}, '收款結算') : null,
+    mainOk ? h('button', {class:'btn ghost', onclick:() => openPayment({type})}, isAR ? '簡易收款' : '付款') : null,
+    mainOk || fxOn('notes') ? h('button', {class:'btn ghost', onclick:() => openNoteForm(isAR ? 'in' : 'out')}, isAR ? '收票' : '開票') : null));
   wrap.append(h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn ghost', onclick:() => openLedgerQuery(type)}, isAR ? '應收查詢（指定期間）' : '應付查詢（指定期間）')));
   const list = Object.values(S.partners).filter(p => p.type === type && Math.abs(S.d.bal[p.id] || 0) > 0.004).sort((a, b) => (S.d.bal[b.id] || 0) - (S.d.bal[a.id] || 0));
   wrap.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:isAR ? '客戶未收款' : '供應商未付款'}), exportBtn(() => dsLedger(type))),
@@ -2756,9 +2764,11 @@ function notesView(){
   return wrap;
 }
 function pAcc(){
+  const segs = [['ar', '應收帳款', fxOn('ar')], ['ap', '應付帳款', fxOn('ap')], ['note', '票據', fxOn('notes')], ['pt', '往來對象', fxOn('customers') || fxOn('suppliers')], ...(see('cash') ? [['cash', '零用金', fxOn('cash')]] : [])].filter(x => x[2]);
+  if (segs.length && !segs.some(x => x[0] === S.ui.accSeg)) S.ui.accSeg = segs[0][0];
   const page = h('div', {class:'wrap page'}), seg = S.ui.accSeg;
   page.append(h('div', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'帳款與票據'})),
-    h('div', {class:'chips', style:'padding-top:0;margin-bottom:10px'}, [['ar', '應收帳款'], ['ap', '應付帳款'], ['note', '票據'], ['pt', '往來對象'], ...(see('cash') ? [['cash', '零用金']] : [])].map(([k, t]) =>
+    h('div', {class:'chips', style:'padding-top:0;margin-bottom:10px'}, segs.map(([k, t]) =>
       h('button', {class:'chip', 'aria-pressed':seg === k, onclick:() => { S.ui.accSeg = k; draw(); }}, t))),
     seg === 'cash' ? cashView() : seg === 'note' ? notesView() : (seg === 'pt' ? ptView() : ledgerView(seg === 'ar' ? 'customer' : 'supplier'))));
   return page;
@@ -2919,6 +2929,7 @@ async function openCamera(onCode){
 }
 
 function openStocktakes(){
+  if (!fxGate('stocktake')) return;
   liveSheet({title:'庫存盤點'}, ['counts', 'countlines'], sh => {
     const list = Object.values(S.counts).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0)).slice(0, 30);
     ensureNames(list.map(c => c.by));
@@ -3379,6 +3390,7 @@ function docChangeText(kind, ed, nw){
 }
 /* ---- 編輯器（新增、也用來修改：pre.edit＝訂單編號） ---- */
 function openDocEditor(kind, pre){
+  if (!fxGate(kind === 'co' ? 'corder' : 'porder')) return;
   pre = pre || {};
   const D = DOCS[kind];
   if (!can(kind === 'co' ? 'sale' : 'purchase')) return toast('你的角色沒有這項操作的權限');
@@ -3625,7 +3637,7 @@ function openDocDetail(kind, id){
         h('span', null, h('b', {text:l.name}), h('br'),
           h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '') + (l.promo && l.promo.name ? '　組合優惠「' + l.promo.name + '」' + (Number(l.promo.base) > 0 ? '（原價 ' + money(l.promo.base) + '）' : '') : '')}),
           kind === 'co' && pr.active && l.rem > 0 ? [h('br'), h('small', {class:stockOf(l.pid) < l.rem ? 'overdue' : '', text:stockOf(l.pid) < l.rem ? '庫存 ' + num(stockOf(l.pid)) + '，缺 ' + num(r3(l.rem - stockOf(l.pid))) : '庫存足夠（' + num(stockOf(l.pid)) + '）'}),
-            stockOf(l.pid) < l.rem && S.products[l.pid] && (can('purchase') || can('stock')) ? [' ', h('button', {class:'btn ghost sm', type:'button', 'aria-label':'處理缺貨 ' + l.sku, onclick:() => openShortage({pid:l.pid, need:l.rem, have:() => stockOf(l.pid), wid:docWh(d), label:'客戶訂單', haveLabel:'目前庫存', ref:d.no})}, '處理缺貨')] : null] : null),
+            stockOf(l.pid) < l.rem && S.products[l.pid] && shortAct() ? [' ', h('button', {class:'btn ghost sm', type:'button', 'aria-label':'處理缺貨 ' + l.sku, onclick:() => openShortage({pid:l.pid, need:l.rem, have:() => stockOf(l.pid), wid:docWh(d), label:'客戶訂單', haveLabel:'目前庫存', ref:d.no})}, '處理缺貨')] : null] : null),
         h('b', {text:(kind === 'po' && !buyOn()) ? '' : money(amtOf(l.qty, l.price))}))),
         (kind === 'po' && !buyOn()) ? null : h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('b', {text:'合計'}), h('b', {text:money(d.total)}))]),
       more.length ? h('div', {class:'btns', style:'margin-bottom:14px'}, more) : null,
@@ -3750,9 +3762,11 @@ function sugView(){
 }
 
 function pBuy(){
-  const page = h('div', {class:'wrap page'}), seg = S.ui.buySeg, nSug = suggestions().length;
+  const nSug = suggestions().length, segs = [['qt', '報價單', 'quote'], ['co', '客戶訂單', 'corder'], ['sug', '採購建議' + (nSug ? '（' + nSug + '）' : ''), 'purchaseSug'], ['po', '採購單', 'porder']].filter(x => fxOn(x[2]));
+  if (segs.length && !segs.some(x => x[0] === S.ui.buySeg)) S.ui.buySeg = segs[0][0];
+  const page = h('div', {class:'wrap page'}), seg = S.ui.buySeg;
   page.append(h('div', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'訂單與採購'})),
-    h('div', {class:'chips', style:'padding-top:0;margin-bottom:10px'}, [['qt', '報價單'], ['co', '客戶訂單'], ['sug', '採購建議' + (nSug ? '（' + nSug + '）' : '')], ['po', '採購單']].map(([k, t]) =>
+    h('div', {class:'chips', style:'padding-top:0;margin-bottom:10px'}, segs.map(([k, t]) =>
       h('button', {class:'chip', 'aria-pressed':seg === k, onclick:() => { S.ui.buySeg = k; draw(); }}, t))),
     seg === 'qt' ? quoteView() : (seg === 'sug' ? sugView() : docView(seg))));
   return page;
@@ -4915,13 +4929,13 @@ function pVeh(){
   const page = h('div', {class:'wrap page'}), list = vehActive(), due = vehDueList();
   page.append(h('div', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'車輛'}),
     h('div', {class:'btns'}, exportBtn(dsVehicles),
-      h('button', {class:'btn ghost sm', onclick:openFuelCards}, '儲值卡'),
+      fxOn('fuelCards') ? h('button', {class:'btn ghost sm', onclick:openFuelCards}, '儲值卡') : null,
       can('vehicle') ? h('button', {class:'btn ghost sm', onclick:openFuelImport}, '匯入加油紀錄') : null,
       can('vehicle') ? h('button', {class:'btn sm', onclick:() => openVehicleForm()}, icon('plus'), '新增車輛') : null))));
   if (due.length) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'保養提醒'})),
     h('div', {class:'panel'}, due.map(({v, m, d}) => h('button', {class:'row', onclick:() => openVehicle(v.id)},
       h('span', null, h('b', {text:v.plate + '　' + m.item}), h('br'), h('small', {class:d.overdue ? 'overdue' : 'soon', text:d.text})), null)))));
-  { const cs = cardsActive(); if (cs.length) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'加油儲值卡'}), h('button', {class:'btn ghost sm', onclick:openFuelCards}, '管理')),
+  { const cs = cardsActive(); if (cs.length) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'加油儲值卡'}), fxOn('fuelCards') ? h('button', {class:'btn ghost sm', onclick:openFuelCards}, '管理') : null),
     h('div', {class:'panel'}, cs.map(c => { const bal = cardBalance(c.id), low = bal < cardAlert(c); return h('button', {class:'row', onclick:() => openFuelCard(c.id)}, h('span', null, h('b', {text:c.name}), h('br'), h('small', {text:cardPlates(c) || '未綁定車輛'})), h('span', {class:'right'}, h('b', {class:low ? 'overdue' : '', text:money(bal)}), h('br'), h('small', {class:low ? 'overdue' : '', text:low ? '⚠ 餘額偏低' : (cardBonus(c.id) ? '紅利金 ' + money(cardBonus(c.id)) : '現金點')}))); })))); }
   page.append(h('section', {class:'sec'},
     list.length ? h('div', {class:'panel'}, list.map(v => {
@@ -5018,6 +5032,7 @@ function splitAlloc(list, amounts){
   return out;
 }
 function openSettle(opts){
+  if (!fxGate(opts && opts.type === 'supplier' ? 'ap' : 'settle')) return;
   opts = opts || {};
   const type = opts.type || 'customer', dir = type === 'customer' ? 'in' : 'out', L = type === 'customer' ? '收款' : '付款';
   const st = {collector:myName(), partnerId:opts.partnerId || '', date:today(), cash:'', transfer:'', transferNote:'', disc:'', pct:0, touchedPct:false, checks:[], note:'', col:{on:false, date:today(), bank:colBankLast()}};
@@ -5246,6 +5261,7 @@ function openCollect(id){
   });
 }
 function openCollections(){
+  if (!fxGate('collections')) return;
   liveSheet({title:'支票代收作業'}, ['notes', 'collects', 'partners'], sh => {
     const U = S.ui.col, holding = Object.values(S.notes).filter(n => n.dir === 'in' && n.status === 'holding').sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     for (const id of Object.keys(U.sel)) if (!holding.some(n => n.id === id)) delete U.sel[id];
@@ -5325,6 +5341,7 @@ function planBatch(rows){
   }
 }
 function openBatchSettle(){
+  if (!fxGate('batchSettle')) return;
   if (!can('pay')) return toast('你的角色沒有這項操作的權限');
   const st = {defDate:today(), rows:[], collector:myName()};
   const sh = sheet({title:'批次沖帳'}), listBox = h('div'), sumBox = h('div');
@@ -5440,6 +5457,7 @@ function collectSummary(col, from, to){
   return {rows, cash, other, unpaid, custs, cashTotal, otherTotal, unpaidTotal, needDocs, msg};
 }
 function openCollectSummary(){
+  if (!fxGate('collectSum')) return;
   if (!can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {col:myName(), from:today(), to:today()};
   liveSheet({title:'收款結算'}, ['orders', 'payments', 'partners', 'notes', 'collects'], sh => {
@@ -5655,6 +5673,7 @@ function labelHTML(items, cfg, opt){
     (opt.standalone ? '<div class="bar" style="position:fixed;right:8px;top:8px;z-index:9;font:14px sans-serif"><button onclick="window.print()">列印</button></div>' : '') + pages + '</body></html>';
 }
 function openLabelPrint(pre){
+  if (!fxGate('labels')) return;
   pre = pre || {};
   if (!can('print') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const cfg = loadLabelPrefs(), st = {sel:{}, q:''};
@@ -5714,7 +5733,7 @@ const REVK = {
 };
 const reviewOn = () => S.set.reviewOn !== false;
 const isReviewed = (k, d) => d.reviewed === true || (!!S.set.reviewFrom && String(REVK[k].date(d) || '') < S.set.reviewFrom) || monthLocked(catOfKind(k, d), REVK[k].date(d));
-const canReviewPerm = () => { if (!S.canWrite) return false; if (S.isAdmin) return true; const r = roleDefs()[myRoleKey()], p = r && r.perms; return !!p && (p.review !== undefined ? !!p.review : !!p.void); };
+const canReviewPerm = () => { if (!S.canWrite) return false; if (S.isAdmin) return true; const p = S.__permOverride || myPerms(); if (myFx()) return !!p.review; return p.review !== undefined ? !!p.review : !!p.void; };
 const canReviewDoc = (k, d) => reviewOn() && canReviewPerm() && REVK[k].live(d) && !isReviewed(k, d) && (S.isAdmin || S.set.reviewSelf === true || !d.by || d.by !== S.meId);
 const canUnreview = (k, d) => reviewOn() && S.canWrite && d.reviewed === true && (S.isAdmin || d.reviewBy === S.meId);
 const reviewLock = (k, d) => reviewOn() && !!d && isReviewed(k, d);
@@ -5740,6 +5759,7 @@ function pendingReviews(){
   return out.sort((a, b) => String(REVK[b.k].date(b.d) || '').localeCompare(String(REVK[a.k].date(a.d) || '')) || (b.d.at || 0) - (a.d.at || 0));
 }
 function openReviewQueue(){
+  if (!fxGate('review')) return;
   if (!reviewOn()) return toast('單據覆核沒有啟用（系統設定可以開啟）');
   if (!canReviewPerm()) return toast('你的角色沒有覆核權限');
   const U = {k:''};
@@ -5851,6 +5871,7 @@ function deliveryRows(day, drv){
   return rows.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
 }
 function openDeliveryList(){
+  if (!fxGate('deliveryList')) return;
   if (!can('sale') && !can('print') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {day:today(), drv:''};
   liveSheet({title:'送貨清單'}, ['orders', 'partners'], sh => {
@@ -5867,7 +5888,7 @@ function openDeliveryList(){
       h('div', {class:'chips', style:'padding-top:0'}, [['今天', 0], ['明天', 1], ['昨天', -1]].map(([t, n]) => h('button', {class:'chip', onclick:() => { U.day = addDays(today(), n); dIn.value = U.day; fill(); }}, t))),
       h('div', {class:'f2'}, fld('日期', dIn), fld('送貨員', sel)), box);
     fill();
-    const foot = [can('sale') || can('stock') ? h('button', {class:'btn ghost', onclick:() => openDispatch({day:U.day}), 'aria-label':'前往出車排程'}, '出車排程') : null, can('sale') || can('stock') ? h('button', {class:'btn ghost', onclick:() => openPicking({day:U.day, driver:U.drv && U.drv !== '__none' ? U.drv : ''}), 'aria-label':'前往揀貨輔助'}, '揀貨') : null, h('button', {class:'btn grow', 'aria-label':'列印送貨清單', onclick:() => { const rows = deliveryRows(U.day, U.drv); if (!rows.length) return toast('這一天沒有要送的單據'); const title = '送貨清單　' + U.day + (U.drv && U.drv !== '__none' ? '　' + U.drv : ''); printNow(deliveryHTML(rows, title, false), '送貨清單_' + U.day + '.html', () => deliveryHTML(rows, title, true)); }}, '列印送貨清單')].filter(Boolean);
+    const foot = [(can('sale') || can('stock')) && fxOn('dispatch') ? h('button', {class:'btn ghost', onclick:() => openDispatch({day:U.day}), 'aria-label':'前往出車排程'}, '出車排程') : null, (can('sale') || can('stock')) && fxOn('picking') ? h('button', {class:'btn ghost', onclick:() => openPicking({day:U.day, driver:U.drv && U.drv !== '__none' ? U.drv : ''}), 'aria-label':'前往揀貨輔助'}, '揀貨') : null, h('button', {class:'btn grow', 'aria-label':'列印送貨清單', onclick:() => { const rows = deliveryRows(U.day, U.drv); if (!rows.length) return toast('這一天沒有要送的單據'); const title = '送貨清單　' + U.day + (U.drv && U.drv !== '__none' ? '　' + U.drv : ''); printNow(deliveryHTML(rows, title, false), '送貨清單_' + U.day + '.html', () => deliveryHTML(rows, title, true)); }}, '列印送貨清單')].filter(Boolean);
     return {body, foot};
   });
 }
@@ -5960,6 +5981,7 @@ const minsBetween = (a, b) => Math.max(Math.round((b - a) / 60000), 0);
 const countTxt = i => i.n + ' 張' + (i.cos ? '（銷貨單 ' + i.sales + '、客戶訂單 ' + i.cos + '）' : '');
 async function syncTripOrders(t, removedIds){ const x = await syncTripOrders0(t, removedIds); lineDeliveryNotices(t).catch(e => console.error(e)); return x; }
 function openDriverRun(){
+  if (!fxGate('driverRun')) return;
   if (!S.canWrite) return toast('這個帳號是唯讀的，不能記錄出車時間');
   healTripStops();
   const names = () => { const set = new Set(driverHistory()); return [...set]; };
@@ -6007,6 +6029,7 @@ function openDriverRun(){
 }
 function driverHomeCard(){
   if (!S.emp || !driverNames().includes(S.emp.name)) return null;
+  if (!fxOn('driverRun')) return null;
   const runs = driverRuns(today(), S.emp.name); if (!runs.length) return null; const info = runInfo(runs), out = runs.filter(r => r.out && !r.back).length, fin = runs.filter(r => r.out && r.back).length;
   return h('section', {class:'sec', 'aria-label':'今天的配送'}, h('div', {class:'panel pad'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap'}, h('b', {text:'今天的配送'}), h('small', {text:runs.length + ' 趟' + (fin ? '，已完成 ' + fin : '') + (out ? '，配送中 ' + out : '')})), h('div', {style:'margin:6px 0', text:'共 ' + countTxt(info) + '配送單，區域：' + info.areaTxt}), h('button', {class:'btn', style:'width:100%;min-height:54px;font-size:18px', 'aria-label':'前往出車作業', onclick:openDriverRun}, '出車作業')));
 }
@@ -6105,6 +6128,7 @@ function openArEnvelopes(M){
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'列印信封標籤', onclick:() => { const l = list(); if (!l.length) return toast('沒有可以印的客戶'); printNow(envelopeHTML(l, st, false), '信封標籤_' + M.month + '.html', () => envelopeHTML(l, st, true)); }}, '列印信封標籤'));
 }
 function openArReport(){
+  if (!fxGate('arReport')) return;
   if (!see('report') && !can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {month:billMonth(today()), by:'bill', f:{}, q:'', skip:new Set(), onlyDue:false, empty:false, tab:'list', openF:false, land:false, labDx:(() => { try { return Math.max(Number(localStorage.getItem('arLabDx1')) || 0, 0); } catch (_) { return 0; } })()};
   liveSheet({title:'應收帳款報表'}, ['orders', 'payments', 'partners', 'employees', 'settings'], sh => {
@@ -6177,6 +6201,7 @@ function arReturnHTML(M, standalone){
   return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>應收帳款清單回傳表 ' + e(M.month) + '</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>　紙張選 A4（直式），比例 100%。每個營業所盡量一頁。</span></div>' : '') + pages + '</body></html>';
 }
 function openArReturn(){
+  if (!fxGate('arReturn')) return;
   if (!see('report') && !can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {month:billMonth(today()), by:'bill', office:'', empty:false};
   liveSheet({title:'應收帳款清單回傳表'}, ['orders', 'payments', 'partners', 'settings'], sh => {
@@ -6435,6 +6460,7 @@ async function cycStart(items, plan){
   if (ok){ [...layers].forEach(l => l.forceClose()); S.counts[ref.id] = S.counts[ref.id] || {id:ref.id, ...rec}; openCount(ref.id); }
 }
 function openCycleCount(){
+  if (!fxGate('cycleCount')) return;
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有盤點的權限');
   const U = {tab:'plan', skip:new Set(), add:[], cfg:null};
   liveSheet({title:'循環盤點'}, ['products', 'orders', 'counts', 'countlines', 'settings'], sh => {
@@ -6471,6 +6497,7 @@ function openCycleCount(){
 }
 function cycHomeCard(){
   if (!can('stock') && !S.isAdmin) return null;
+  if (!fxOn('cycleCount')) return null;
   const open = Object.values(S.counts).find(c => c.status === 'open' && c.cycle);
   if (!open && !Object.values(S.counts).some(c => c.cycle) && !Object.keys(S.products).length) return null;
   const n = open ? (open.pids || []).length : 0, done = open ? Object.keys(countTotals(open.id).tot).filter(k => (open.pids || []).includes(k)).length : 0;
@@ -6529,6 +6556,7 @@ function dsBuReport(month){
   return {title:'事業部營業績效　' + month, sub:month + '　營業額為未稅；毛利 ＝ 未稅營業額 − 銷貨成本（用開單當時的進價）；退貨已扣除　' + today(), filename:'事業部營業績效_' + month, landscape:true, sections:[{name:'事業部營業績效', cols, rows:R.list.map(row), foot:['合計', tot.n, r2(tot.sales), r2(tot.returns), r2(tot.net), r2(tot.tax), r2(tot.gp), tot.net ? Math.round(tot.gp / tot.net * 1000) / 10 : 0, null, null, null, r2(pvT), pvT ? Math.round((tot.net - pvT) / pvT * 1000) / 10 : null]}]};
 }
 function openBuReport(){
+  if (!fxGate('buReport')) return;
   if (!see('report') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {month:today().slice(0, 7), sel:''};
   const mv = d => { const [y, m] = U.month.split('-').map(Number), dt = new Date(y, m - 1 + d, 1); U.month = dt.getFullYear() + '-' + pad(dt.getMonth() + 1); render('orders'); };
@@ -6621,6 +6649,7 @@ function openHandSign(g0){
   });
 }
 function openHandover(){
+  if (!fxGate('handover')) return;
   if (!can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {tab:'todo'};
   liveSheet({title:'現金票據簽收'}, ['payments', 'notes', 'handovers', 'partners'], sh => {
@@ -6644,6 +6673,7 @@ function openHandDetail(id){
 }
 function handHomeCard(){
   if (!can('pay') && !S.isAdmin) return null;
+  if (!fxOn('handover')) return null;
   const todo = handPending(); if (!todo.length) return null;
   const cash = r2(todo.reduce((a, g) => a + g.cash, 0)), nChk = todo.reduce((a, g) => a + g.checks.length, 0), chk = r2(todo.reduce((a, g) => a + g.checkAmt, 0)), old = Math.max(...todo.map(g => g.ageDays));
   return h('button', {class:'card-btn', 'aria-label':'外務待簽收', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openHandover}, h('b', {text:'外務待簽收 ' + todo.length + ' 位'}), h('br'), h('small', {class:old >= 1 ? 'overdue' : 'hint', text:'現金 ' + money(cash) + '　支票 ' + nChk + ' 張 ' + money(chk) + (old >= 1 ? '　最久 ' + old + ' 天沒交' : '') + '　點這裡簽收'}));
@@ -6702,7 +6732,7 @@ function salesBoard(){
     line('上月同期', null, R.mo.net, R.pm, '上月同期'),
     st.lyHas ? line('去年同期', null, R.mo.net, R.ly, '去年同期', true) : null,
     pctFull != null ? h('div', {style:'margin-top:10px', 'aria-label':'本月進度'}, h('small', {class:'hint', text:'上月全月 ' + money(full) + '，本月已達 ' + pctFull + '%'}), h('span', {class:'bar'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'}))) : null);
-  return h('section', {class:'sec', 'aria-label':'營業額看板'}, h('div', {class:'sec-h', style:'display:flex;justify-content:space-between;align-items:center'}, h('h2', {text:'營業額看板'}), h('span', {style:'display:flex;gap:6px'}, see('report') || S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看事業部營業績效', onclick:openBuReport}, '事業部') : null, S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看板設定', onclick:openBoardSettings}, '設定') : null)), wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'}));
+  return h('section', {class:'sec', 'aria-label':'營業額看板'}, h('div', {class:'sec-h', style:'display:flex;justify-content:space-between;align-items:center'}, h('h2', {text:'營業額看板'}), h('span', {style:'display:flex;gap:6px'}, (see('report') || S.isAdmin) && fxOn('buReport') ? h('button', {class:'btn ghost sm', 'aria-label':'看事業部營業績效', onclick:openBuReport}, '事業部') : null, S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看板設定', onclick:openBoardSettings}, '設定') : null)), wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'}));
 }
 function openBoardSettings(){
   if (!S.isAdmin) return toast('只有管理員可以設定');
@@ -6834,6 +6864,7 @@ function lineFillFromLast(d, lo){
 }
 const linePrice = (pid, partnerId, qty, fl) => { const p = S.products[pid]; if (!p) return 0; try { return resolvePrice({product:p, partner:S.partners[partnerId] || {}, side:'sale', qty:qty || 1, famQty:fl ? famQtyOf(fl, p, qty || 1) : null, date:today()}).price; } catch (_) { return p.price || 0; } };
 function openLineOrders(){
+  if (!fxGate('lineOrders')) return;
   if (!can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {tab:'pending', drafts:{}};
   const draft0 = lo => U.drafts[lo.id] = U.drafts[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; const fl = (lo.lines || []).filter(x => x.pid).map(x => ({pid:x.pid, qty:Number(x.qty) || 1})); return {partnerId:pid, bind:true, expected:today(), note:'', lines:(lo.lines || []).map(l => ({text:l.text || '', pid:l.pid || '', qty:Number(l.qty) || 1, unit:l.unit || '', conf:l.conf, ambiguous:!!l.ambiguous, price:l.pid ? linePrice(l.pid, pid, Number(l.qty) || 1, fl) : 0}))}; })();
@@ -6904,7 +6935,7 @@ async function lineReject(lo, d){
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'確認駁回', onclick:async () => { const ok = await run(async () => { await S.db.doc('lineorders/' + lo.id).update({status:'rejected', rejectReason:reason.trim(), rejectedBy:S.meId || '', rejectedAt:Date.now()}); if (tell && L.on && lo.lineUserId) await queueLine('rej_' + lo.id, {to:lo.lineUserId, type:'reject', text:lineFill(L.tplReject, {公司:S.set.co || S.set.name || '', 客戶:pt ? (pt.shortName || pt.name) : '', 時間:lineTimeTxt(lo.createdAt), 原因:reason.trim() ? '（' + reason.trim() + '）' : ''})}); return true; }); if (ok){ toast('已駁回'); sh.forceClose(); } }}, '確認駁回'));
 }
 function lineHomeCard(){
-  const n = linePending().length; if (!n && !LINE().on) return null; if (!can('sale') && !S.isAdmin) return null;
+  const n = linePending().length; if (!n && !LINE().on) return null; if (!can('sale') && !S.isAdmin) return null; if (!fxOn('lineOrders')) return null;
   const first = linePending()[0];
   return h('button', {class:'card-btn', 'aria-label':'LINE 待審核訂單', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openLineOrders}, h('b', {text:n ? 'LINE 待審核訂單 ' + n + ' 張' : 'LINE 訂單：目前沒有待審核'}), n ? [h('br'), h('small', {class:'overdue', text:'最久已等 ' + lineAgoTxt(first.createdAt) + '，點這裡審核'})] : null);
 }
@@ -6987,6 +7018,7 @@ function pickOrdersForTrip(date, vid, slot){
   sh.footEl.append(goBtn); fill();
 }
 function openDispatch(pre){
+  if (!fxGate('dispatch')) return;
   healTripStops();
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {day:(pre && pre.day) || today(), back:false};
@@ -7062,6 +7094,7 @@ function dsTrips(from, to){
   return {title:'出車績效', sub:(from || '') + '～' + (to || ''), filename:'出車績效', sections:[{name:'出車明細', cols, rows:rows.map(t => { const os = (t.stops || []).map(st => ordOf(st.orderId)).filter(Boolean); return [t.date, SLOTS[t.slot], vehLabel(S.vehicles[t.vehicleId]), tripDriver(t), t.outTime || '', t.backTime || '', tripMin(t) === null ? '' : tripMin(t), os.length, new Set(os.map(o => o.partnerId || o.id)).size, r2(os.reduce((a, o) => a + (o.total || 0), 0)), os.map(o => o.no).join('、')]; })}]};
 }
 function openTripStats(){
+  if (!fxGate('tripStats')) return;
   if (!see('report') && !S.isAdmin) return toast('你的角色沒有查看報表的權限');
   const t0 = new Date(), U = {by:'driver', from:ymd(new Date(t0.getFullYear(), t0.getMonth(), 1)), to:today()};
   liveSheet({title:'出車績效'}, ['trips', 'orders', 'partners', 'vehicles'], sh => {
@@ -7285,6 +7318,7 @@ function openReturnSaleOrder(r){
   openOrder('sale_return', r.srcId && S.orders[r.srcId] ? {srcSale:r.srcId, rtn:{id:r.id, only}} : {partnerId:r.partnerId, lines:(r.items || []).map(i => ({pid:i.pid, qty:i.qty, price:Number((S.products[i.pid] || {}).price) || 0})), rtn:{id:r.id, only}});
 }
 function openReturnForm(pre){
+  if (!fxGate('returns')) return;
   pre = pre || {};
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const ex = pre.edit || null, src0 = pre.srcOrder && S.orders[pre.srcOrder] ? S.orders[pre.srcOrder] : null;
@@ -7358,7 +7392,7 @@ function openReturnDetail(id){
     const foot = [], on = !locked && live && !['done'].includes(r.status) && (can('sale') || can('stock') || S.isAdmin);
     if (on && r.status === 'processing'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'記錄檢測結果', onclick:() => openReturnStep(r, 'diag')}, '記錄檢測結果')); foot.push(h('button', {class:'btn grow', 'aria-label':'已修好', onclick:() => openReturnStep(r, 'fixed')}, '已修好')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
     if (on && r.status === 'ready'){ foot.push(h('button', {class:'btn grow', 'aria-label':'已退還客戶', onclick:() => openReturnStep(r, 'returned')}, '已退還客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
-    if (on && r.status === 'exchanging'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'建立換貨銷貨單', onclick:() => openOrder('sale', {partnerId:r.partnerId, note:'換貨 ' + r.no + '（免費換新）', lines:(r.items || []).filter(i => S.products[i.pid]).map(i => ({pid:i.pid, qty:i.qty, price:0}))})}, '建立換貨銷貨單')); foot.push(h('button', {class:'btn grow', 'aria-label':'已換貨', onclick:() => openReturnStep(r, 'exchanged')}, '已換貨給客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
+    if (on && r.status === 'exchanging'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'建立換貨銷貨單', onclick:() => openOrder('sale', {fromRtn:r.id, partnerId:r.partnerId, note:'換貨 ' + r.no + '（免費換新）', lines:(r.items || []).filter(i => S.products[i.pid]).map(i => ({pid:i.pid, qty:i.qty, price:0}))})}, '建立換貨銷貨單')); foot.push(h('button', {class:'btn grow', 'aria-label':'已換貨', onclick:() => openReturnStep(r, 'exchanged')}, '已換貨給客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
     if (on && r.status === 'supplier'){ foot.push(h('button', {class:'btn grow', 'aria-label':'廠商已回覆', onclick:() => openReturnGoods(r, 'supplierReply')}, '廠商已回覆')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成報廢', onclick:() => openReturnGoods(r, 'scrap')}, '改成報廢')); }
     if (on && r.status === 'refunding'){ if (!r.returnOrderId) foot.push(h('button', {class:'btn ghost', 'aria-label':'建立銷貨退回單', onclick:() => openReturnSaleOrder(r)}, '建立銷貨退回單')); foot.push(h('button', {class:'btn grow', 'aria-label':'登記已退款', onclick:() => openReturnStep(r, 'refunded')}, '登記已退款')); }
     if (!locked && live && (r.status === 'received' || r.status === 'processing') && (can('sale') || can('stock') || S.isAdmin)) foot.push(h('button', {class:'btn ghost', 'aria-label':'編輯退貨登記', onclick:() => openReturnForm({edit:r})}, '編輯'));
@@ -7375,11 +7409,13 @@ function dsReturns(){
 }
 function rtHomeCard(){
   if (!can('sale') && !can('stock') && !S.isAdmin) return null;
+  if (!fxOn('returns')) return null;
   const open = Object.values(S.returns).filter(rtOpen); if (!open.length) return null;
   const old = Math.max(...open.map(rtAge)), late = open.filter(r => rtAge(r) >= rtWarnDays()).length, goods = open.filter(r => r.status === 'goods').length;
   return h('button', {class:'card-btn', 'aria-label':'待處理退貨', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel)', onclick:openReturnMgmt}, h('b', {text:'待處理退貨 ' + open.length + ' 筆'}), h('br'), h('small', {class:late ? 'overdue' : 'hint', text:(goods ? '其中 ' + goods + ' 筆等著決定退回商品怎麼處理　' : '') + (late ? late + ' 筆已超過 ' + rtWarnDays() + ' 天沒動（最久 ' + old + ' 天）' : '最久 ' + old + ' 天') + '　點這裡處理'}));
 }
 function openReturnMgmt(){
+  if (!fxGate('returns')) return;
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {f:'open', act:'', q:''};
   liveSheet({title:'退貨管理'}, ['returns', 'partners', 'orders'], sh => {
@@ -7516,7 +7552,7 @@ function shelfRow(p){
   if (!txt && !canAdj) return null;
   const row = kv('架位', h('span', {style:'display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap'},
     txt ? h('span', {text:txt}) : h('span', {style:'color:var(--ink3)', text:'（未設定）'}),
-    canAdj ? h('button', {class:'btn ghost sm', 'aria-label':'調整架位', onclick:() => openShelfAdjust({pid:p.id})}, '調整') : null));
+    canAdj && fxOn('shelfAdjust') ? h('button', {class:'btn ghost sm', 'aria-label':'調整架位', onclick:() => openShelfAdjust({pid:p.id})}, '調整') : null));
   row.style.alignItems = 'center';
   return row;
 }
@@ -8066,7 +8102,7 @@ function openShelfDetail(id){
     if (canShelf()){
       foot.push(h('button', {class:'btn ghost', 'aria-label':'編輯架位', onclick:() => openShelfForm(id)}, '編輯'));
       foot.push(h('button', {class:'btn ghost', 'aria-label':'列印這個架位的標籤', onclick:() => openShelfLabelPrint({ids:[id], wh:wid})}, '列印標籤'));
-      if (s.active !== false) foot.push(h('button', {class:'btn grow', 'aria-label':'用掃描整理這個架位', onclick:() => openShelfAdjust({shelfId:id})}, '掃描整理'));
+      if (s.active !== false && fxOn('shelfAdjust')) foot.push(h('button', {class:'btn grow', 'aria-label':'用掃描整理這個架位', onclick:() => openShelfAdjust({shelfId:id})}, '掃描整理'));
     }
     return {title:'架位 ' + s.code, body, foot};
   });
@@ -8074,6 +8110,7 @@ function openShelfDetail(id){
 
 /* ---- 架位管理（清單）---- */
 function openShelfMgmt(opt){
+  if (!fxGate('shelfMgmt')) return;
   opt = opt || {};
   if (!canShelf()) return toast('你的角色沒有架位管理的權限');
   const U = {wh:opt.wh || WH_MAIN, q:'', f:'all', max:100};
@@ -8104,7 +8141,7 @@ function openShelfMgmt(opt){
       h('div', {class:'btns', style:'margin-top:10px'}, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'批次產生架位', onclick:() => openShelfBatch({wh:U.wh})}, '批次產生') : null, canShelf() ? h('button', {class:'btn ghost sm', 'aria-label':'匯入架位清單', onclick:() => openShelfImport({wh:U.wh})}, icon('up'), '匯入架位清單') : null, canExport() ? h('button', {class:'btn ghost sm', 'aria-label':'匯出架位清單', onclick:() => openExport(dsShelves())}, icon('down'), '匯出架位清單') : null));
     fill();
     const foot = [];
-    if (canShelf()) foot.push(h('button', {class:'btn ghost', 'aria-label':'商品架位調整', onclick:() => openShelfAdjust({wh:U.wh})}, '掃描調整'));
+    if (canShelf() && fxOn('shelfAdjust')) foot.push(h('button', {class:'btn ghost', 'aria-label':'商品架位調整', onclick:() => openShelfAdjust({wh:U.wh})}, '掃描調整'));
     if (S.isAdmin || can('stock') || can('print')) foot.push(h('button', {class:'btn ghost', 'aria-label':'列印架位標籤', onclick:() => openShelfLabelPrint({wh:multiWh() ? U.wh : ''})}, '列印標籤'));
     if (canShelf()) foot.push(h('button', {class:'btn grow', 'aria-label':'新增架位', onclick:() => openShelfForm(null, {wh:U.wh})}, icon('plus'), '新增架位'));
     return {body, foot};
@@ -8122,6 +8159,7 @@ const loadShelfAdj = () => { try { return {mode:'shelf', ...JSON.parse(localStor
 const saveShelfAdj = c => { try { localStorage.setItem(SADJ_KEY, JSON.stringify(c)); } catch (_) {} };
 /* opt：{shelfId 先選好的架位, pid 先選好的商品（用單品移位）, wh 倉庫, mode} */
 function openShelfAdjust(opt){
+  if (!fxGate('shelfAdjust')) return;
   opt = opt || {};
   if (!canShelf()) return toast('你的角色沒有調整架位的權限');
   const pref = loadShelfAdj();
@@ -8314,7 +8352,7 @@ function openShelfAdjust(opt){
     h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap'},
       h('button', {class:'btn ghost sm', 'aria-label':'相機掃描', onclick:() => openCamera(handle)}, '相機掃描'),
       h('button', {class:'btn ghost sm', 'aria-label':'拍照掃描', onclick:() => photoIn.click()}, '拍照掃描'), photoIn,
-      h('span', {style:'flex:1'}), S.isAdmin || can('stock') ? h('button', {class:'btn plain sm', 'aria-label':'開啟架位管理', onclick:() => openShelfMgmt({wh:st.wh})}, '架位管理') : null),
+      h('span', {style:'flex:1'}), (S.isAdmin || can('stock')) && fxOn('shelfMgmt') ? h('button', {class:'btn plain sm', 'aria-label':'開啟架位管理', onclick:() => openShelfMgmt({wh:st.wh})}, '架位管理') : null),
     hintEl, mainBox, recentBox);
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'完成', onclick:() => sh.forceClose()}, '完成'));
   paint();
@@ -8377,6 +8415,7 @@ function pickPhotos(it, repaint){
   return h('div', {'aria-label':'揀貨照片', style:'display:flex;gap:10px;margin-bottom:10px'}, col('pack', '包裝'), col('photo', '產品'));
 }
 function openPicking(pre){
+  if (!fxGate('picking')) return;
   if (!can('stock') && !can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const cfg = loadPV(); let drv = ''; try { drv = (pre && pre.driver) || localStorage.getItem('pickDriver') || ''; } catch (_) {}
   const U = {day:(pre && pre.day) || today(), drv, only:true, prog:{}};
@@ -8436,6 +8475,7 @@ function fieldGroups(pendingOnly){
 }
 const fieldTxt = g => '現金 ' + money(g.cash) + (g.notes.length ? '　支票 ' + g.notes.length + ' 張 ' + money(g.checkAmt) : '') + '　共 ' + money(g.total);
 function openFieldPay(){
+  if (!fxGate('fieldPay')) return;
   if (!canField()) return toast('你的角色沒有這項操作的權限');
   const st = {date:today(), partnerId:'', cash:'', checks:[], note:''}, entry = {deps:['payments', 'notes', 'partners'], run:() => paintRecent()}, sh = sheet({title:'外務收款', onclose:() => live.delete(entry)}), checkBox = h('div'), sumEl = h('div'), recent = h('div');
   const newCheck = () => { const hst = st.partnerId ? checkHistory(st.partnerId, 'in')[0] : null; return {no:'', bank:hst ? hst.bank : '', acct:hst ? hst.acct : '', due:'', amount:''}; };
@@ -8488,6 +8528,7 @@ function openFieldPay(){
   sh.footEl.append(saveBtn); paintChecks(); paintSum(); paintRecent(); live.add(entry);
 }
 function openFieldQueue(){
+  if (!fxGate('fieldQueue')) return;
   if (!can('pay') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {done:false};
   liveSheet({title:'待沖帳收款'}, ['payments', 'notes', 'partners'], sh => {
@@ -8651,6 +8692,7 @@ function openExpDetail(id){
   });
 }
 function openCustody(){
+  if (!fxGate('custody')) return;
   if (!canCustody()) return toast('你的角色沒有這項操作的權限');
   liveSheet({title:'保管管理'}, ['notes', 'expdocs', 'moves', 'partners', 'settings'], sh => {
     const offs = officeList(), transit = Object.values(S.moves).filter(m => m.status === 'sent').sort((a, b) => (b.at || 0) - (a.at || 0)), recent = Object.values(S.moves).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.at || 0) - (a.at || 0)).slice(0, 25);
@@ -8815,7 +8857,7 @@ function punchRow(it, withEmp){
     canAttMgr() ? h('div', {style:'display:flex;gap:8px;margin-top:4px'}, h('button', {class:'btn grow', 'aria-label':'確認有效 ' + it.emp.code + ' ' + e.k, onclick:() => reviewPunch(it, 'ok', '')}, '確認有效'), h('button', {class:'btn ghost grow', 'aria-label':'不採計 ' + it.emp.code + ' ' + e.k, onclick:() => rtStepSheet('不採計這筆打卡', [{k:'note', label:'原因（必填）', value:''}], async st => { if (!st.note.trim()){ toast('請填原因'); return false; } return reviewPunch(it, 'bad', st.note.trim()); }, '不採計')}, '不採計')) : null);
 }
 function punchReviewCard(){
-  if (!canAttMgr()) return null; const n = pendingPunches().length; if (!n) return null;
+  if (!canAttMgr() || !fxOn('attAdmin')) return null; const n = pendingPunches().length; if (!n) return null;
   return h('button', {class:'card-btn', 'aria-label':'打卡待確認', style:'display:block;width:100%;text-align:left;margin:0 0 12px;padding:12px 14px;border-radius:14px;border:1px solid var(--late);background:var(--lates, #fdecea)', onclick:() => openAttAdmin('rev')}, h('b', {class:'overdue', text:'打卡待確認 ' + n + ' 筆'}), h('br'), h('small', {text:'不在公司範圍、沒有位置、或手機時間不準的打卡，請確認是不是真的到公司了'}));
 }
 function geoSection(){
@@ -9362,6 +9404,7 @@ function dsLeaveBal(){
   return {title:'假別餘額表　' + today().slice(0, 4), sub:(S.set.name || '') + '　截至 ' + today() + '　單位：天（1 天＝8 小時）', filename:'假別餘額', sections:[{name:'每人各假別（已使用 / 額度）', cols:[XC('代號', 'text', 8), XC('姓名', 'text', 10), XC('到職日', 'text', 12), ...types.map(([k, t]) => XC(t.name, 'text', 14))], rows:emps.map(e => [e.code, e.name, e.hireDate || '', ...types.map(([k]) => { const b = leaveBalance(e, k); return r2(b.used / 8) + ' / ' + (b.quota === null ? '不限' : r2(b.quota / 8)); })])}]};
 }
 function openAttAdmin(tab){
+  if (!fxGate('attAdmin')) return;
   if (!canAttView() && !canAttMgr()) return toast('你的角色沒有這項操作的權限');
   const U = {tab:typeof tab === 'string' ? tab : 'stats', ym:today().slice(0, 7), all:false};
   liveSheet({title:'考勤管理'}, ['employees', 'attdays', 'leaves', 'settings'], sh => {
@@ -9500,6 +9543,7 @@ function dsPayroll(ym){
 }
 /* ---- 登記配送錯誤 ---- */
 function openDErrForm(pre){
+  if (!fxGate('perf')) return;
   pre = pre || {}; if (!canDErr()) return toast('你的角色沒有這項操作的權限');
   const ex = pre.edit || null, st = {orderId:ex ? ex.orderId : (pre.orderId || ''), lineIdx:ex ? ex.lineIdx : 0, cause:ex ? ex.cause : 'wrong_pick', empId:ex ? ex.empId || '' : '', desc:ex ? ex.desc || '' : '', result:ex ? ex.result : 'pending', redo:ex ? ex.redeliverOrderId || '' : '', amount:ex ? ex.amount : '', points:ex ? ex.points : '', date:ex ? ex.date : today(), touched:!!ex};
   const sh = sheet({title:ex ? '配送錯誤 ' + ex.no : '登記配送錯誤'}), box = h('div'), orderBox = h('div');
@@ -9539,6 +9583,7 @@ function openDErrDetail(id){
   });
 }
 function openPerfAdmin(){
+  if (!fxGate('perf')) return;
   if (!canPerf() && !canDErr()) return toast('你的角色沒有這項操作的權限');
   const U = {tab:canPerf() ? 'table' : 'list', ym:today().slice(0, 7), emp:''};
   liveSheet({title:'配送錯誤與考核績效'}, ['derrors', 'orders', 'employees', 'attdays', 'settings'], sh => {
@@ -9558,6 +9603,7 @@ function openPerfAdmin(){
 }
 /* ---- 業績獎金與薪資連結 ---- */
 function openPayroll(){
+  if (!fxGate('payroll')) return;
   if (!canPayroll()) return toast('只有「薪資與獎金」權限的人可以使用');
   const U = {tab:'pay', ym:today().slice(0, 7)};
   liveSheet({title:'獎金與薪資'}, ['employees', 'orders', 'derrors', 'attdays', 'leaves', 'payroll', 'settings', 'partners'], sh => {
@@ -9590,7 +9636,7 @@ const UI_PIN = 'uiPins1', UI_REC = 'uiRecent1';
 const lsGet = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v || d; } catch (_) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} };
 const menuFlat = () => menuGroups().flatMap(([g, items]) => items.filter(i => i.ok !== false).map(i => ({...i, group:g})));
-const menuPins = () => lsGet(UI_PIN, []), menuRecents = () => lsGet(UI_REC, []);
+const menuPins = () => lsGet(UI_PIN, []).map(l => FN_ALIAS[l] || l), menuRecents = () => lsGet(UI_REC, []).map(l => FN_ALIAS[l] || l);
 const usedMenu = label => lsSet(UI_REC, [label, ...menuRecents().filter(x => x !== label)].slice(0, 8));
 const togglePin = label => { const p = menuPins(); lsSet(UI_PIN, p.includes(label) ? p.filter(x => x !== label) : [...p, label]); };
 const runMenu = i => { usedMenu(i.label); i.fn(); };
@@ -9599,8 +9645,8 @@ function openPalette(){
   const sh = sheet({title:'搜尋功能'}), box = h('div'); let list = [];
   const all = menuFlat(), fill = q => {
     q = q.trim().toLowerCase(); const byLabel = l => all.find(i => i.label === l);
-    list = q ? all.filter(i => (i.label + ' ' + i.desc + ' ' + i.group).toLowerCase().includes(q)).sort((a, b) => (b.label.toLowerCase().includes(q) ? 1 : 0) - (a.label.toLowerCase().includes(q) ? 1 : 0)) : [...new Set([...menuPins(), ...menuRecents()])].map(byLabel).filter(Boolean).slice(0, 12);
-    setKids(box, list.length ? h('div', {class:'panel'}, list.map(i => h('button', {class:'row', 'aria-label':'功能 ' + i.label, onclick:() => { sh.forceClose(); runMenu(i); }}, h('span', {style:'text-align:left;min-width:0'}, h('b', {text:i.label}), h('br'), h('small', {text:i.group + (i.desc ? '　' + i.desc : '')})), menuPins().includes(i.label) ? h('small', {text:'★'}) : h('small', {class:'chev', text:'›'})))) : h('div', {class:'panel empty', text:q ? '找不到「' + q + '」' : '輸入功能名稱，例如：銷貨、揀貨、考勤、票據。釘選或最近用過的功能會顯示在這裡。'}));
+    list = q ? all.filter(i => menuHit(i, i.group, q)).sort((a, b) => (b.label.toLowerCase().includes(q) ? 1 : 0) - (a.label.toLowerCase().includes(q) ? 1 : 0)) : [...new Set([...menuPins(), ...menuRecents()])].map(byLabel).filter(Boolean).slice(0, 12);
+    setKids(box, list.length ? h('div', {class:'panel'}, list.map(i => h('button', {class:'row', 'aria-label':'功能 ' + i.label, onclick:() => { sh.forceClose(); runMenu(i); }}, h('span', {style:'text-align:left;min-width:0'}, h('b', {text:i.label}), h('br'), h('small', {text:i.group + (i.sub ? '・' + i.sub : '') + (i.desc ? '　' + i.desc : '')})), menuPins().includes(i.label) ? h('small', {text:'★'}) : h('small', {class:'chev', text:'›'})))) : h('div', {class:'panel empty', text:q ? '找不到「' + q + '」' : '輸入功能名稱，例如：銷貨、揀貨、考勤、票據。釘選或最近用過的功能會顯示在這裡。'}));
   };
   const inp = h('input', {type:'search', placeholder:'輸入功能名稱…', autocomplete:'off', 'aria-label':'搜尋功能', oninput:e => fill(e.target.value), 'data-enter':'own', onkeydown:e => { if (e.key === 'Enter' && list[0]){ sh.forceClose(); runMenu(list[0]); } }});
   put(sh.bodyEl, h('label', {class:'search'}, icon('search'), inp), h('div', {style:'height:8px'}), box); fill(''); setTimeout(() => inp.focus(), 50);
@@ -9647,6 +9693,7 @@ function openDisStep(opt, it, wid, orderNo, done){
   sh.footEl.append(go); if (sc) setTimeout(sc.focus, 80);
 }
 function openPickOrder(orderId, opts){
+  if (!fxGate('picking')) return;
   opts = opts || {};
   const o = S.orders[orderId]; if (!o) return toast('找不到這張單據');
   const cfg = loadPV(), items = pickItems(o), wid = orderWh(o), gaps = {}; let pk = emptyPick(), unsub = null, focus = '', first = true;
@@ -9737,6 +9784,7 @@ function openDisPlanForm(ex){
     const data = {fpid:st.fpid, cpid:st.cpid, minQty:Math.max(toNum(st.minQty), 1), hint:st.hint.trim(), place:st.place.trim(), active:st.active}; const ok = await run(async () => { if (ex) await S.db.doc('displans/' + ex.id).update(data); else await S.db.collection('displans').doc().set({...data, ...stamp(), at:Date.now()}); return true; }); saving = false; if (ok){ toast('已儲存拆解作業'); sh.forceClose(); } }}, '儲存'));
 }
 function openDisPlans(){
+  if (!fxGate('disPlans')) return;
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   liveSheet({title:'拆解作業設定'}, ['displans', 'products'], sh => {
     const list = Object.values(S.displans).sort((a, b) => String((S.products[a.cpid] || {}).sku).localeCompare(String((S.products[b.cpid] || {}).sku)));
@@ -9747,68 +9795,115 @@ function openDisPlans(){
   });
 }
 
-/* ================= 使用者權限管理：分類管理使用者、核取可使用的功能、個別設定 ================= */
-const PERM_CATS = [['銷售與訂單', ['sale', 'price', 'void', 'print']], ['採購與進貨', ['purchase']], ['庫存與商品', ['stock']], ['配送與車輛', ['vehicle']], ['收款與帳務', ['pay', 'fieldpay']], ['票據與現金', ['custody', 'cash']], ['客戶與供應商', ['partner']], ['人事與考核', ['attview', 'attmgr', 'attedit', 'payroll']], ['報表與稽核', ['report', 'cost', 'export', 'review']]];
-const PERM_FUNCS = {sale:'銷貨作業、銷貨退回、報價、客戶訂單、退貨管理、揀貨輔助', price:'開單時可以手動修改單價', void:'作廢單據（也可以覆核）', print:'列印銷貨單、發票、送貨清單、產品標籤', purchase:'進貨、進貨退回、採購單、採購建議', stock:'盤點、轉倉、庫存調整、組裝拆解、拆解作業設定、揀貨、出車排程', vehicle:'車輛管理、加油儲值卡', pay:'沖帳、批次沖帳、待沖帳收款、收款結算、票據、支票代收', fieldpay:'外務收款（只登記收款，由會計沖帳）', custody:'保管管理、移交單、費用原始單據', cash:'零用金帳簿、其他收支', partner:'新增與編輯客戶、供應商，客戶資料匯入', attview:'查看全部員工出勤、統計表、異常表', attmgr:'管理考勤人員、假別，核准請假', attedit:'修改原始打卡紀錄（必須寫原因）', payroll:'獎金規則、薪資彙總、配送考核獎懲規則', report:'營運報表、帳款、出車績效', cost:'看進價、成本、毛利，進貨成本設定', export:'匯出 PDF、Excel、CSV', review:'覆核單據、取消覆核'};
-const permLabel = k => (PERMS.find(p => p[0] === k) || [k, k])[1];
+/* ================= 使用者權限管理：使用者分類、依功能表逐項勾選可以使用的功能、個別設定 =================
+   權限以「功能」為單位：設定畫面的分類、小分類和「全部功能」頁一模一樣（FN_CATS），管理員逐項勾選。
+   另外有幾個跨功能的「操作與資料權限」（作廢、匯出、看成本…），勾選的功能需要的會自動開啟。 */
 const cleanPerms = o => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => v));
-function funcsFor(perms){
-  const keep = {a:S.isAdmin, o:S.__permOverride, w:S.canWrite};
-  S.isAdmin = false; S.canWrite = true; S.__permOverride = cleanPerms(perms);
-  try { return menuGroups().map(([g, items]) => [g, items.map(i => i.label)]); }
-  finally { S.isAdmin = keep.a; S.__permOverride = keep.o; S.canWrite = keep.w; }
+const permLabel = k => (PERMS.find(p => p[0] === k) || [k, k])[1];
+const roleOfKey = key => { const defs = roleDefs(), a = ((S.roles && S.roles.assign) || {})[key] || {}, d = (S.roles && S.roles.defRole) || 'operator'; return a.role && defs[a.role] ? a.role : (defs[d] ? d : 'operator'); };
+const defOfKey = key => { const a = ((S.roles && S.roles.assign) || {})[key] || {}; return a.perms ? {perms:a.perms, fx:a.fx || null, acts:a.acts} : roleDefs()[roleOfKey(key)]; };
+/* 權限名單：人員資料＋登入帳號（還沒建立人員資料的帳號也列出來） */
+function permPeople(){
+  const assign = (S.roles && S.roles.assign) || {};
+  const emps = Object.values(S.employees).sort((a, b) => String(a.code).localeCompare(String(b.code))), linked = new Set(emps.filter(e => e.uid).map(e => e.uid));
+  const accIds = new Set([...Object.keys(S.members), ...Object.keys(assign).filter(k => !String(k).startsWith('emp_'))]);
+  for (const o of Object.values(S.orders)) if (o.by) accIds.add(o.by);
+  const nameOf = id => (S.members[id] && S.members[id].name) || S.names[id] || (id === S.meId && S.me ? S.me.name : '') || '成員 ' + String(id).slice(-4);
+  ensureNames([...accIds]);
+  return [...emps.map(e => ({key:empKey(e), emp:e, name:e.name, code:e.code, resigned:e.active === false})), ...[...accIds].filter(id => !linked.has(id)).map(id => ({key:id, emp:null, name:nameOf(id), code:'', resigned:false})).sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'))];
 }
-const funcCount = perms => funcsFor(perms).reduce((a, [, l]) => a + l.length, 0);
-function permMatrix(perms, o){
-  o = o || {}; const box = h('div', {class:'pmx'}), refs = {};
-  const refresh = () => PERM_CATS.forEach(([cat, keys]) => { const n = keys.filter(k => perms[k]).length, all = refs['all:' + cat]; all.checked = n === keys.length; all.indeterminate = n > 0 && n < keys.length; refs['cnt:' + cat].textContent = n + ' / ' + keys.length; });
-  for (const [cat, keys] of PERM_CATS){
-    const allCb = h('input', {type:'checkbox', 'aria-label':'全選 ' + cat, disabled:!!o.disabled, onchange:e => { keys.forEach(k => { perms[k] = e.target.checked; refs[k].checked = e.target.checked; }); refresh(); if (o.onChange) o.onChange(); }}), cnt = h('small', {text:''});
-    refs['all:' + cat] = allCb; refs['cnt:' + cat] = cnt;
-    box.append(h('div', {class:'pm-h'}, h('label', {class:'check', style:'margin:0'}, allCb, h('b', {text:cat})), cnt),
-      h('div', {class:'pm-b'}, keys.map(k => { const cb = h('input', {type:'checkbox', checked:!!perms[k], disabled:!!o.disabled, 'aria-label':permLabel(k), onchange:e => { perms[k] = e.target.checked; refresh(); if (o.onChange) o.onChange(); }}); refs[k] = cb; return h('label', {class:'check pm-i'}, cb, h('span', null, h('b', {text:permLabel(k)}), h('small', {text:PERM_FUNCS[k] || ''}))); })));
+/* 權限勾選表：分類（可展開）→ 小分類 → 功能；最下面是操作與資料權限。st＝{fx, acts}，直接改 st。 */
+function fnMatrix(st, o){
+  o = o || {};
+  const av = fnAvail(), desc = {}, cats = [], ids = Object.keys(FN).filter(id => av[id] === 'yes');
+  menuFlat().forEach(i => { if (i.id) desc[i.id] = i.desc || ''; });
+  const sumEl = h('b', {'aria-label':'已勾選功能數', style:'font-size:14px'}), acts = h('div', {class:'pm-b', 'aria-label':'操作與資料權限'});
+  const paintOpen = C => { C.body.hidden = !C.open; C.btn.setAttribute('aria-expanded', String(C.open)); C.chev.textContent = C.open ? '⌄' : '›'; };
+  const syncRows = () => cats.forEach(C => C.rows.forEach(r => { r.cb.checked = !!st.fx[r.id]; }));
+  const paintActs = () => { const forced = fxForced(st.fx, st.acts);
+    setKids(acts, FN_ACTS.map(([k, t, d]) => { const f = forced[k], on = !!st.acts[k] || !!f;
+      const cb = h('input', {type:'checkbox', checked:on, disabled:!!o.disabled || !!f, 'aria-label':'操作權限 ' + t, onchange:e => { st.acts[k] = e.target.checked; changed(); }});
+      return h('label', {class:'check pm-i', 'data-act':k}, cb, h('span', null, h('b', {text:t}), h('small', {text:d}), f ? h('small', {class:'soon', text:'勾選的' + (f.length ? '「' + f.slice(0, 2).map(fnLabel).join('」「') + '」' + (f.length > 2 ? '等 ' + f.length + ' 項功能' : '') : '功能') + '需要，會自動開啟'}) : null)); })); };
+  const refresh = () => {
+    let tot = 0;
+    for (const C of cats){ const n = C.own.filter(id => st.fx[id]).length; tot += n; C.all.checked = n > 0 && n === C.own.length; C.all.indeterminate = n > 0 && n < C.own.length; C.cnt.textContent = C.own.length ? n + ' / ' + C.own.length : '只有管理員'; }
+    sumEl.textContent = '已勾選 ' + tot + ' / ' + ids.length + ' 項功能';
+    paintActs();
+  };
+  const changed = () => { refresh(); if (o.onChange) o.onChange(); };
+  for (const [cat, ic, subs] of FN_CATS){
+    const own = subs.flatMap(([, x]) => x.filter(id => av[id] === 'yes')), adm = subs.flatMap(([, x]) => x.filter(id => av[id] === 'admin'));
+    if (!own.length && !adm.length) continue;
+    const C = {cat, own, open:false, rows:[]};
+    C.all = h('input', {type:'checkbox', 'aria-label':'全選 ' + cat, disabled:!!o.disabled || !own.length, onchange:e => { own.forEach(id => { st.fx[id] = e.target.checked; }); syncRows(); changed(); }});
+    C.cnt = h('small'); C.chev = h('span', {class:'chev', text:'›'});
+    C.btn = h('button', {class:'fn-t', type:'button', 'aria-expanded':'false', 'aria-label':'展開 ' + cat, onclick:() => { C.open = !C.open; paintOpen(C); }}, icon(ic), h('b', {text:cat}), C.cnt, C.chev);
+    C.body = h('div', {class:'fn-b', hidden:true});
+    for (const [sub, x] of subs){
+      const a = x.filter(id => av[id] === 'yes'); if (!a.length) continue;
+      const sh = h('div', {class:'msub', text:sub}); C.body.append(sh);
+      for (const id of a){
+        const cb = h('input', {type:'checkbox', checked:!!st.fx[id], disabled:!!o.disabled, 'aria-label':'功能 ' + fnLabel(id), onchange:e => { st.fx[id] = e.target.checked; changed(); }});
+        const row = h('label', {class:'check pm-i', 'data-fn':id}, cb, h('span', null, h('b', {text:fnLabel(id)}), desc[id] || FN[id].d ? h('small', {text:desc[id] || FN[id].d}) : null));
+        C.body.append(row); C.rows.push({id, cb, row, sh, q:[fnLabel(id), FN[id].kw || '', desc[id] || '', cat, sub].join(' ').toLowerCase()});
+      }
+    }
+    if (adm.length) C.body.append(h('small', {class:'hint', 'aria-label':'只有管理員的功能 ' + cat, style:'display:block;margin:8px 2px 6px', text:'只有管理員可以用：' + adm.map(fnLabel).join('、') + '。'}));
+    C.el = h('div', {class:'fn-cat', 'aria-label':'權限分類 ' + cat}, h('div', {class:'fn-h'}, C.all, C.btn), C.body);
+    cats.push(C);
   }
-  box.append(h('div', {class:'pm-h'}, h('b', {text:'系統與設定'})), h('div', {class:'pm-b'}, h('small', {class:'hint', text:'系統設定、使用者權限管理、備份、整批修改等，只有管理員（在分享選單設為「可編輯」的人）可以使用，不在這裡勾選。'})));
+  const filt = v => { const ws = String(v || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    for (const C of cats){ const shown = new Set(); let any = false;
+      for (const r of C.rows){ const hit = !ws.length || ws.every(w => r.q.includes(w)); r.row.style.display = hit ? '' : 'none'; if (hit){ any = true; shown.add(r.sh); } }
+      C.rows.forEach(r => { r.sh.style.display = shown.has(r.sh) ? '' : 'none'; });
+      C.el.style.display = !ws.length || any ? '' : 'none';
+      if (ws.length){ C.open = any; paintOpen(C); } } };
+  const bulk = v => { ids.forEach(id => { st.fx[id] = v; }); syncRows(); changed(); };
+  const box = h('div', {class:'fnmx'},
+    h('label', {class:'search', style:'margin-bottom:6px'}, icon('search'), h('input', {type:'search', placeholder:'搜尋功能，例如：盤點、沖帳、薪資', autocomplete:'off', 'aria-label':'搜尋權限功能', oninput:e => filt(e.target.value)})),
+    h('div', {style:'display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 4px'}, sumEl, h('span', {style:'flex:1'}),
+      h('button', {class:'btn ghost sm', type:'button', 'aria-label':'全部功能都勾選', disabled:!!o.disabled, onclick:() => bulk(true)}, '全選'),
+      h('button', {class:'btn ghost sm', type:'button', 'aria-label':'全部功能都取消', disabled:!!o.disabled, onclick:() => bulk(false)}, '全不選'),
+      h('button', {class:'btn ghost sm', type:'button', 'aria-label':'全部展開或收合', onclick:() => { const v = cats.some(C => !C.open); cats.forEach(C => { C.open = v; paintOpen(C); }); }}, '展開／收合')),
+    ...cats.map(C => C.el),
+    h('div', {class:'sec-h', style:'margin-top:16px'}, h('h2', {text:'操作與資料權限'})),
+    h('p', {class:'hint', style:'margin:0 0 2px', text:'這些權限在好幾個功能裡共用（例如作廢、匯出、看成本）。勾選的功能一定要的，會自動開啟。'}), acts,
+    h('p', {class:'hint', style:'margin-top:10px', text:'系統設定、使用者權限管理、備份、新增商品等會改到主檔或設定的功能，只有管理員（在分享選單設為「可編輯」的人）可以使用，不在這裡勾選。'}));
   refresh(); return box;
 }
-const funcPreview = perms => { const g = funcsFor(perms), n = g.reduce((a, [, l]) => a + l.length, 0); return h('details', {class:'fold', 'aria-label':'可使用的功能'}, h('summary', {text:'可以使用的功能（' + n + ' 項）'}), h('div', {class:'fold-b'}, g.map(([t, l]) => h('div', {style:'margin-bottom:8px'}, h('b', {text:t}), h('br'), h('small', {text:l.join('、')}))))); };
 function openUserPerms(uid, name){
   if (!S.isAdmin) return toast('只有管理員可以設定權限');
   const defs = roleDefs(), a0 = (S.roles && S.roles.assign && S.roles.assign[uid]) || {}, eff = a0.role || (S.roles && S.roles.defRole) || 'operator';
-  const st = {role:defs[eff] ? eff : 'operator', custom:!!a0.perms, perms:{...(a0.perms || (defs[eff] || {}).perms || {})}};
-  const sh = sheet({title:'權限設定　' + name}), body = h('div'), prev = h('div');
-  const paintPrev = () => setKids(prev, funcPreview(st.perms));
-  const roleSel = () => { const s2 = h('select', {class:'in', 'aria-label':'使用者分類', onchange:e => { st.role = e.target.value; if (!st.custom) st.perms = {...(defs[st.role].perms || {})}; paint(); }}, ...Object.entries(defs).map(([k, r]) => h('option', {value:k, text:r.name}))); s2.value = st.role; return s2; };
+  const st = {role:defs[eff] ? eff : 'operator', custom:!!a0.perms, fx:{}, acts:{}};
+  const load = def => { const x = fxFromDef(def); st.fx = x.fx; st.acts = x.acts; };
+  load(st.custom ? {perms:a0.perms, fx:a0.fx || null, acts:a0.acts} : defs[st.role]);
+  const sh = sheet({title:'權限設定　' + name}), body = h('div'), sum = h('div', {'aria-label':'可以使用的功能數'});
+  const paintSum = () => setKids(sum, h('p', {class:'note', style:'margin:12px 0 0', text:name + ' 可以使用 ' + fnCountOf(defFromSt(st)) + ' 項功能' + (st.custom ? '（個別設定）' : '（依分類「' + defs[st.role].name + '」）') + '。'}));
+  const roleSel = () => { const s2 = h('select', {class:'in', 'aria-label':'使用者分類', onchange:e => { st.role = e.target.value; if (!st.custom) load(defs[st.role]); paint(); }}, ...Object.entries(defs).map(([k, r]) => h('option', {value:k, text:r.name}))); s2.value = st.role; return s2; };
   const paint = () => {
     setKids(body, fld('這位使用者屬於哪一類', roleSel()),
-      h('div', {class:'chips', style:'padding:0 0 6px'}, h('button', {class:'chip', 'aria-pressed':!st.custom, 'aria-label':'權限依分類', onclick:() => { st.custom = false; st.perms = {...(defs[st.role].perms || {})}; paint(); }}, '依分類「' + defs[st.role].name + '」的權限'), h('button', {class:'chip', 'aria-pressed':st.custom, 'aria-label':'權限個別設定', onclick:() => { if (!st.custom){ st.custom = true; st.perms = {...(defs[st.role].perms || {})}; paint(); } }}, '個別勾選（只對他一個人）')),
-      h('p', {class:'hint', style:'margin:0 0 4px', text:st.custom ? '勾選這位使用者可以使用的功能。和分類不同的地方，只影響他一個人。' : '目前套用分類的權限（不能在這裡改）。要微調請按「個別勾選」，或到「使用者分類」改整類。'}),
-      permMatrix(st.perms, {disabled:!st.custom, onChange:paintPrev}), h('div', {style:'height:10px'}), prev);
-    paintPrev();
+      h('div', {class:'chips', style:'padding:0 0 6px'}, h('button', {class:'chip', 'aria-pressed':!st.custom, 'aria-label':'權限依分類', onclick:() => { st.custom = false; load(defs[st.role]); paint(); }}, '依分類「' + defs[st.role].name + '」的權限'), h('button', {class:'chip', 'aria-pressed':st.custom, 'aria-label':'權限個別設定', onclick:() => { if (!st.custom){ st.custom = true; paint(); } }}, '個別勾選（只對他一個人）')),
+      h('p', {class:'hint', style:'margin:0 0 6px', text:st.custom ? '勾選這位使用者可以使用的功能。和分類不同的地方，只影響他一個人。' : '目前套用分類的權限（這裡不能改）。要微調請按「個別勾選」，或到下面「使用者分類」改整類。'}),
+      fnMatrix(st, {disabled:!st.custom, onChange:paintSum}), sum);
+    paintSum();
   };
   put(sh.bodyEl, body); paint();
-  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存使用者權限', onclick:async () => { if (await saveRoles(c => { const x = c.assign[uid] = c.assign[uid] || {}; x.role = st.role; if (st.custom) x.perms = cleanPerms(st.perms); else delete x.perms; })){ toast('已儲存 ' + name + ' 的權限'); sh.forceClose(); } }}, '儲存'));
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存使用者權限', onclick:async () => { const d = defFromSt(st); if (await saveRoles(c => { const x = c.assign[uid] = c.assign[uid] || {}; x.role = st.role; if (st.custom){ x.perms = d.perms; x.fx = d.fx; x.acts = d.acts; } else { delete x.perms; delete x.fx; delete x.acts; } })){ toast('已儲存 ' + name + ' 的權限'); sh.forceClose(); } }}, '儲存'));
 }
 function openRoles(){
   if (!S.isAdmin) return toast('只有管理員可以管理使用者權限');
   liveSheet({title:'使用者權限管理'}, ['roles', 'members', 'settings', 'employees'], sh => {
-    const defs = roleDefs(), assign = (S.roles && S.roles.assign) || {}, defRole = (S.roles && S.roles.defRole) || 'operator';
-    const emps = Object.values(S.employees).sort((a, b) => String(a.code).localeCompare(String(b.code))), linked = new Set(emps.filter(e => e.uid).map(e => e.uid));
-    const accIds = new Set([...Object.keys(S.members), ...Object.keys(assign).filter(k => !String(k).startsWith('emp_'))]);
-    for (const o of Object.values(S.orders)) if (o.by) accIds.add(o.by);
-    const nameOf = id => (S.members[id] && S.members[id].name) || S.names[id] || (id === S.meId && S.me ? S.me.name : '') || '成員 ' + String(id).slice(-4);
-    ensureNames([...accIds]);
-    const people = [...emps.map(e => ({key:empKey(e), emp:e, name:e.name, code:e.code, resigned:e.active === false})), ...[...accIds].filter(id => !linked.has(id)).map(id => ({key:id, emp:null, name:nameOf(id), code:'', resigned:false})).sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'))];
-    const roleOf = key => ((assign[key] || {}).role && defs[assign[key].role] ? assign[key].role : (defs[defRole] ? defRole : 'operator'));
+    const defs = roleDefs(), assign = (S.roles && S.roles.assign) || {}, defRole = (S.roles && S.roles.defRole) || 'operator', people = permPeople();
+    const roleOf = roleOfKey;
     const roleSel = (cur, on, label) => { const s = h('select', {class:'in', 'aria-label':label, style:'height:38px', onchange:e => on(e.target.value)}, ...Object.entries(defs).map(([k, r]) => h('option', {value:k, text:r.name}))); s.value = defs[cur] ? cur : 'operator'; return s; };
-    const whs = whActive(), sel = new Set(), cache = {}, cntOf = perms => { const k = JSON.stringify(cleanPerms(perms)); return cache[k] !== undefined ? cache[k] : (cache[k] = funcCount(perms)); };
+    const whs = whActive(), sel = new Set(), cache = {}, cntOf = def => { const k = JSON.stringify([cleanPerms((def && def.perms) || {}), (def && def.fx) || null]); return cache[k] !== undefined ? cache[k] : (cache[k] = fnCountOf(def || {})); };
     const bulkSel = h('select', {class:'in', 'aria-label':'移入的分類', style:'height:38px;flex:1'}, ...Object.entries(defs).map(([k, r]) => h('option', {value:k, text:r.name})));
     const bulkBar = h('div', {class:'panel pad', style:'display:none;margin-bottom:10px;gap:8px;align-items:center', 'aria-label':'批次移入分類'});
-    const paintBulk = () => { bulkBar.style.display = sel.size ? 'flex' : 'none'; setKids(bulkBar, h('b', {style:'white-space:nowrap', text:'已選 ' + sel.size + ' 人'}), bulkSel, h('button', {class:'btn sm', 'aria-label':'移入分類', onclick:async () => { const keys = [...sel], v = bulkSel.value, hasCustom = keys.some(k => (assign[k] || {}).perms); if (hasCustom && !await dialog({title:'移入「' + defs[v].name + '」？', msg:'有人原本有個別勾選的權限，移入後會改成完全依分類的權限。', ok:'移入'})) return; if (await saveRoles(c => { keys.forEach(k => { const x = c.assign[k] = c.assign[k] || {}; x.role = v; delete x.perms; }); })) toast('已把 ' + keys.length + ' 人移入「' + defs[v].name + '」'); }}, '移入'), h('button', {class:'btn plain sm', onclick:() => { sel.clear(); body.querySelectorAll('input[data-sel]').forEach(i => { i.checked = false; }); paintBulk(); }}, '取消選取')); };
-    const userRow = p => { const a = assign[p.key] || {}, isMe = p.key === S.meId || (p.emp && p.emp.uid && p.emp.uid === S.meId), restricted = a.whs && a.whs.length, nm = p.name, rk = roleOf(p.key), perms = a.perms || defs[rk].perms || {}, off = p.emp ? p.emp.office || '' : a.office || '';
+    const paintBulk = () => { bulkBar.style.display = sel.size ? 'flex' : 'none'; setKids(bulkBar, h('b', {style:'white-space:nowrap', text:'已選 ' + sel.size + ' 人'}), bulkSel, h('button', {class:'btn sm', 'aria-label':'移入分類', onclick:async () => { const keys = [...sel], v = bulkSel.value, hasCustom = keys.some(k => (assign[k] || {}).perms); if (hasCustom && !await dialog({title:'移入「' + defs[v].name + '」？', msg:'有人原本有個別勾選的權限，移入後會改成完全依分類的權限。', ok:'移入'})) return; if (await saveRoles(c => { keys.forEach(k => { const x = c.assign[k] = c.assign[k] || {}; x.role = v; delete x.perms; delete x.fx; delete x.acts; }); })) toast('已把 ' + keys.length + ' 人移入「' + defs[v].name + '」'); }}, '移入'), h('button', {class:'btn plain sm', onclick:() => { sel.clear(); body.querySelectorAll('input[data-sel]').forEach(i => { i.checked = false; }); paintBulk(); }}, '取消選取')); };
+    const userRow = p => { const a = assign[p.key] || {}, isMe = p.key === S.meId || (p.emp && p.emp.uid && p.emp.uid === S.meId), restricted = a.whs && a.whs.length, nm = p.name, rk = roleOf(p.key), def = a.perms ? {perms:a.perms, fx:a.fx || null} : defs[rk], off = p.emp ? p.emp.office || '' : a.office || '';
       const offSel = officeList().length > 1 ? (() => { const s2 = h('select', {class:'in', 'aria-label':'所屬營業所 ' + nm, style:'height:38px', onchange:e => { const v = e.target.value; if (p.emp) run(async () => { await S.db.doc('employees/' + p.emp.id).update({office:v}); return true; }); else saveRoles(c => { (c.assign[p.key] = c.assign[p.key] || {}).office = v; }); }}, h('option', {value:'', text:'未指定'}), ...officeList().map(o => h('option', {value:o, text:o}))); s2.value = off; return s2; })() : null;
       return h('div', {class:'row', 'data-name':nm + (p.code ? ' ' + p.code : ''), style:'grid-template-columns:1fr;gap:8px'},
-        h('div', {style:'display:flex;align-items:center;gap:10px;flex-wrap:wrap'}, h('input', {type:'checkbox', 'data-sel':'1', 'aria-label':'選取 ' + nm, onchange:e => { if (e.target.checked) sel.add(p.key); else sel.delete(p.key); paintBulk(); }}), S.members[p.key] && S.members[p.key].avatarUrl ? h('img', {class:'av', src:S.members[p.key].avatarUrl, alt:''}) : null, h('b', {text:nm + (p.code ? '（' + p.code + '）' : '') + (isMe ? '（我）' : '')}), S.members[p.key] && S.members[p.key].admin ? h('span', {class:'pill', text:'管理員'}) : null, a.perms ? h('span', {class:'pill', style:'background:var(--lows);color:var(--low)', text:'個別設定'}) : null, !p.emp ? h('span', {class:'pill', style:'background:var(--zeros);color:var(--zero)', text:'尚未建立人員資料'}) : null, p.emp && !p.emp.uid ? h('span', {class:'pill', text:'員工編號登錄'}) : null, h('small', {style:'margin-left:auto;color:var(--ink3)', text:'可用 ' + cntOf(perms) + ' 項功能'})),
+        h('div', {style:'display:flex;align-items:center;gap:10px;flex-wrap:wrap'}, h('input', {type:'checkbox', 'data-sel':'1', 'aria-label':'選取 ' + nm, onchange:e => { if (e.target.checked) sel.add(p.key); else sel.delete(p.key); paintBulk(); }}), S.members[p.key] && S.members[p.key].avatarUrl ? h('img', {class:'av', src:S.members[p.key].avatarUrl, alt:''}) : null, h('b', {text:nm + (p.code ? '（' + p.code + '）' : '') + (isMe ? '（我）' : '')}), S.members[p.key] && S.members[p.key].admin ? h('span', {class:'pill', text:'管理員'}) : null, a.perms ? h('span', {class:'pill', style:'background:var(--lows);color:var(--low)', text:'個別設定'}) : null, !p.emp ? h('span', {class:'pill', style:'background:var(--zeros);color:var(--zero)', text:'尚未建立人員資料'}) : null, p.emp && !p.emp.uid ? h('span', {class:'pill', text:'員工編號登錄'}) : null, h('small', {style:'margin-left:auto;color:var(--ink3)', text:'可用 ' + cntOf(def) + ' 項功能'})),
         h('div', {style:'display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end'}, h('div', null, h('label', {style:'font-size:12px;color:var(--ink3)', text:'分類'}), roleSel(rk, v => saveRoles(c => { (c.assign[p.key] = c.assign[p.key] || {}).role = v; }), '角色 ' + nm)), h('button', {class:'btn ghost', 'aria-label':'設定權限 ' + nm, onclick:() => openUserPerms(p.key, nm)}, '設定權限')),
         offSel ? h('div', null, h('label', {style:'font-size:12px;color:var(--ink3)', text:'所屬營業所（登入後預設顯示這個營業所主要倉庫的庫存）'}), offSel) : null,
         h('div', {style:'display:flex;gap:8px;flex-wrap:wrap'}, p.emp ? h('button', {class:'btn plain sm', 'aria-label':'人員資料 ' + nm, onclick:() => openPersonDetail(p.emp.id)}, '人員資料') : h('button', {class:'btn sm', 'aria-label':'建立人員資料 ' + nm, onclick:() => openEmpForm(null, {name:nm, uid:p.key, code:nextEmpCode()})}, '建立人員資料')),
@@ -9818,17 +9913,18 @@ function openRoles(){
     const groups = [...Object.keys(defs).map(k => [k, defs[k].name, active.filter(p => roleOf(p.key) === k)]), ['__resigned', '已離職', resigned]].filter(([, , l]) => l.length);
     const searchIn = h('input', {type:'search', placeholder:'搜尋使用者姓名或員工編號', autocomplete:'off', 'aria-label':'搜尋使用者', oninput:e => { const q = e.target.value.trim().toLowerCase(); body.querySelectorAll('[data-name]').forEach(r => { r.style.display = !q || r.getAttribute('data-name').toLowerCase().includes(q) ? '' : 'none'; }); if (q) body.querySelectorAll('.pm-grp').forEach(pn => { pn.hidden = false; }); }});
     const body = h('div', null,
-      h('p', {class:'note', text:'這裡和「人員管理」是同一份名單：在人員管理新增、離職的人，這裡馬上跟著出現、移到「已離職」；在這裡改的分類、營業所，人員管理也看得到。使用者依「分類」管理：同一類的人用同一組權限。管理員（設為「可編輯」的人）不受這裡限制。'}),
+      h('p', {class:'note', text:'權限以「功能」為單位：按分類或個人的「設定權限」，依功能表的分類（銷售、採購、庫存、帳款…）逐項勾選可以使用的功能。同一類的人用同一組權限；有特殊需要的人可以「個別勾選」。沒勾選的功能，在他的功能表、首頁和其他畫面都不會出現。管理員（設為「可編輯」的人）不受這裡限制。'}),
       h('div', {class:'note warn', text:'權限是由畫面控制，適合分工與防止誤操作；不是防止惡意存取的安全機制，機密資料請只分享給信任的人。'}),
       unlinkedN ? h('div', {class:'note', style:'background:var(--zeros);color:var(--zero)', text:'有 ' + unlinkedN + ' 個登入帳號還沒建立人員資料，按他們的「建立人員資料」，兩邊就會同步。'}) : null,
+      h('div', {class:'btns', style:'margin:0 0 10px'}, h('button', {class:'btn ghost sm', 'aria-label':'依功能查看誰可以用', onclick:openFnOverview}, '依功能查看誰可以用')),
       h('div', {class:'sec-h'}, h('h2', {text:'預設分類（尚未指派的人）'})), h('div', {class:'f'}, roleSel(defRole, v => saveRoles(c => { c.defRole = v; }), '預設角色')),
       h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'使用者（在職 ' + active.length + ' 人' + (resigned.length ? '，離職 ' + resigned.length + ' 人' : '') + '）'})), h('label', {class:'search', style:'margin-bottom:8px'}, icon('search'), searchIn), bulkBar,
       people.length ? groups.map(([k, nameG, list]) => { const on = open === k;
-        return h('section', {class:'sec mcat-sec'}, h('div', {class:'mcat', role:'button', tabindex:'0', 'aria-expanded':String(on), 'aria-label':'分類 ' + nameG, onclick:() => { S.ui.permOpen = on ? '' : k; render('roles'); }, onkeydown:e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); S.ui.permOpen = on ? '' : k; render('roles'); } }}, icon('users'), h('b', {text:nameG}), h('small', {text:list.length + ' 人' + (k === '__resigned' ? '' : '・可用 ' + cntOf(defs[k].perms || {}) + ' 項')}), h('span', {class:'chev', text:on ? '⌄' : '›'})), h('div', {class:'panel pm-grp', hidden:!on}, list.map(userRow))); }) : h('div', {class:'panel empty', text:'還沒有人員。到「人員管理」新增，或等成員第一次開啟系統。'}),
+        return h('section', {class:'sec mcat-sec'}, h('div', {class:'mcat', role:'button', tabindex:'0', 'aria-expanded':String(on), 'aria-label':'分類 ' + nameG, onclick:() => { S.ui.permOpen = on ? '' : k; render('roles'); }, onkeydown:e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); S.ui.permOpen = on ? '' : k; render('roles'); } }}, icon('users'), h('b', {text:nameG}), h('small', {text:list.length + ' 人' + (k === '__resigned' ? '' : '・可用 ' + cntOf(defs[k]) + ' 項')}), h('span', {class:'chev', text:on ? '⌄' : '›'})), h('div', {class:'panel pm-grp', hidden:!on}, list.map(userRow))); }) : h('div', {class:'panel empty', text:'還沒有人員。到「人員管理」新增，或等成員第一次開啟系統。'}),
       h('div', {class:'sec-h', style:'margin-top:16px'}, h('h2', {text:'使用者分類'})),
       h('div', {class:'panel'}, Object.entries(defs).map(([k, r]) => h('button', {class:'row', 'aria-label':'分類設定 ' + r.name, onclick:() => openRoleForm(k)},
-        h('span', null, h('b', {text:r.name}), h('br'), h('small', {text:active.filter(p => roleOf(p.key) === k).length + ' 人　可用 ' + cntOf(r.perms || {}) + ' 項功能' + (r.perms && Object.values(r.perms).some(Boolean) ? '' : '（只能查看）')})),
-        h('small', {text:ROLE_BUILTIN[k] ? '內建' : '自訂'})))));
+        h('span', null, h('b', {text:r.name}), h('br'), h('small', {text:active.filter(p => roleOf(p.key) === k).length + ' 人　可用 ' + cntOf(r) + ' 項功能' + (r.perms && Object.values(r.perms).some(Boolean) ? '' : '（只能查看）')})),
+        h('small', {text:ROLE_BUILTIN[k] && !(S.roles && S.roles.roles && S.roles.roles[k]) ? '內建' : ROLE_BUILTIN[k] ? '內建（已修改）' : '自訂'})))));
     paintBulk();
     return {body, foot:[h('button', {class:'btn grow', 'aria-label':'新增使用者分類', onclick:() => openRoleForm()}, icon('plus'), '新增分類'), canAttMgr() || S.isAdmin ? h('button', {class:'btn ghost', 'aria-label':'新增人員', onclick:() => openEmpForm(null, {code:nextEmpCode()})}, '新增人員') : null].filter(Boolean)};
   });
@@ -9836,13 +9932,16 @@ function openRoles(){
 function openRoleForm(key){
   if (!S.isAdmin) return toast('只有管理員可以編輯分類');
   const defs = roleDefs(), isNew = !key, base = key ? defs[key] : {name:'', perms:{}};
-  const st = {name:base.name, perms:{...(base.perms || {})}}, prev = h('div');
-  const sh = sheet({title:isNew ? '新增使用者分類' : '編輯分類「' + base.name + '」'});
-  const paintPrev = () => setKids(prev, funcPreview(st.perms));
+  const st = {name:base.name, ...fxFromDef(base)};
+  const sh = sheet({title:isNew ? '新增使用者分類' : '編輯分類「' + base.name + '」'}), mx = h('div'), sum = h('div', {'aria-label':'可以使用的功能數'});
+  const paintSum = () => setKids(sum, h('p', {class:'note', style:'margin:12px 0 0', text:'這一類的人可以使用 ' + fnCountOf(defFromSt(st)) + ' 項功能。'}));
+  const paintMx = () => { setKids(mx, fnMatrix(st, {onChange:paintSum})); paintSum(); };
+  const copySel = h('select', {class:'in', 'aria-label':'以其他分類為範本', onchange:e => { const d = defs[e.target.value]; e.target.value = ''; if (!d) return; const x = fxFromDef(d); st.fx = x.fx; st.acts = x.acts; paintMx(); toast('已套用「' + d.name + '」的權限，可以再調整'); }}, h('option', {value:'', text:'（選一個分類，複製它的權限）'}), ...Object.entries(defs).filter(([k]) => k !== key).map(([k, r]) => h('option', {value:k, text:r.name})));
   put(sh.bodyEl,
     fld('分類名稱', h('input', {class:'in', value:st.name, placeholder:'例如：出貨員', 'aria-label':'角色名稱', oninput:e => { st.name = e.target.value; }})),
-    h('div', {class:'sec-h'}, h('h2', {text:'這一類使用者可以使用的功能'})), permMatrix(st.perms, {onChange:paintPrev}), h('div', {style:'height:10px'}), prev,
-    h('p', {class:'note', style:'margin-top:12px', text:'管理員（在分享選單設為「可編輯」的人）不受分類限制。「查看報表」、「查看進價成本」、「匯出」、「列印」這幾項，唯讀帳號也依分類決定能不能看。有人另外「個別勾選」的，不會跟著這裡改。'}),
+    fld('以其他分類為範本（選填）', copySel),
+    h('div', {class:'sec-h'}, h('h2', {text:'這一類使用者可以使用的功能'})), mx, sum,
+    h('p', {class:'note', style:'margin-top:12px', text:'管理員（在分享選單設為「可編輯」的人）不受分類限制。唯讀帳號也依這裡決定能不能看報表、成本、匯出、列印。有人另外「個別勾選」的，不會跟著這裡改。'}),
     key && !ROLE_BUILTIN[key] ? h('button', {class:'btn plain', onclick:async () => {
       const used = Object.values((S.roles && S.roles.assign) || {}).some(a => a.role === key) || (S.roles && S.roles.defRole === key);
       if (used) return toast('還有人使用這個角色，請先改派其他角色');
@@ -9850,12 +9949,37 @@ function openRoleForm(key){
       if (await saveRoles(c => { delete c.roles[key]; })){ toast('已刪除'); sh.forceClose(); }
     }}, '刪除分類') : null,
     key && ROLE_BUILTIN[key] && (S.roles && S.roles.roles && S.roles.roles[key]) ? h('button', {class:'btn plain', onclick:async () => { if (await saveRoles(c => { delete c.roles[key]; })){ toast('已還原預設權限'); sh.forceClose(); } }}, '還原成預設權限') : null);
-  paintPrev();
+  paintMx();
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存分類', onclick:async () => {
     const name = st.name.trim(); if (!name) return toast('請填寫分類名稱');
     const k = key || 'r' + rid().toLowerCase();
-    if (await saveRoles(c => { c.roles[k] = {name, perms:cleanPerms(st.perms)}; })){ toast('已儲存分類'); sh.forceClose(); }
+    if (await saveRoles(c => { c.roles[k] = {name, ...defFromSt(st)}; })){ toast('已儲存分類'); sh.forceClose(); }
   }}, '儲存'));
+}
+/* 依功能查看：每個功能有哪些分類（幾個人）可以用、哪些人是個別設定的 */
+function openFnOverview(){
+  if (!S.isAdmin) return toast('只有管理員可以查看');
+  const U = {q:''};
+  liveSheet({title:'依功能查看誰可以用'}, ['roles', 'members', 'settings', 'employees'], sh => {
+    const defs = roleDefs(), assign = (S.roles && S.roles.assign) || {}, av = fnAvail(), people = permPeople().filter(p => !p.resigned);
+    const vis = {}; Object.entries(defs).forEach(([k, r]) => { vis[k] = new Set(fnVisible(r).map(i => i.id)); });
+    const nIn = k => people.filter(p => roleOfKey(p.key) === k && !(assign[p.key] || {}).perms).length;
+    const custom = people.filter(p => (assign[p.key] || {}).perms).map(p => ({name:p.name, set:new Set(fnVisible(defOfKey(p.key)).map(i => i.id))}));
+    const box = h('div');
+    const fill = () => { const ws = U.q.trim().toLowerCase().split(/\s+/).filter(Boolean), out = [];
+      for (const [cat, , subs] of FN_CATS){ const rows = [];
+        for (const [sub, ids] of subs) for (const id of ids){ if (av[id] !== 'yes' && av[id] !== 'admin') continue; if (ws.length && !ws.every(w => [fnLabel(id), FN[id].kw || '', cat, sub].join(' ').toLowerCase().includes(w))) continue;
+          const rs = av[id] === 'admin' ? [] : Object.keys(defs).filter(k => vis[k].has(id)), cs = av[id] === 'admin' ? [] : custom.filter(c => c.set.has(id)), withP = rs.filter(k => nIn(k) > 0), noP = rs.filter(k => !nIn(k));
+          rows.push(h('div', {class:'row', 'aria-label':'誰可以用 ' + fnLabel(id), style:'grid-template-columns:1fr;gap:4px'}, h('b', {text:fnLabel(id)}),
+            av[id] === 'admin' ? h('small', {class:'hint', text:'只有管理員'}) : [withP.length || cs.length ? h('div', {style:'display:flex;gap:6px;flex-wrap:wrap'}, ...withP.map(k => h('span', {class:'pill', style:'background:var(--brands);color:var(--brand)', text:defs[k].name + ' ' + nIn(k) + ' 人'})), ...cs.map(c => h('span', {class:'pill', text:c.name + '（個別）'}))) : h('small', {class:'hint', text:'目前沒有人可以用（只有管理員）'}),
+              noP.length ? h('small', {class:'hint', text:'目前沒有人的分類也可以用：' + noP.map(k => defs[k].name).join('、')}) : null])); }
+        if (rows.length) out.push(h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:cat})), h('div', {class:'panel'}, rows)); }
+      setKids(box, out.length ? out : h('div', {class:'panel empty', text:'找不到「' + U.q + '」'})); };
+    const body = h('div', null, h('p', {class:'note', text:'每個功能列出可以使用的使用者分類（後面是這一類目前在職的人數）和個別設定的人（橘色）；目前沒有人的分類列在下一行。管理員可以用全部功能，沒有列出來。'}),
+      h('label', {class:'search', style:'margin-bottom:6px'}, icon('search'), h('input', {type:'search', placeholder:'搜尋功能，例如：作廢、沖帳、盤點', autocomplete:'off', value:U.q, 'aria-label':'搜尋功能 誰可以用', oninput:e => { U.q = e.target.value; fill(); }})), box);
+    fill();
+    return {body};
+  });
 }
 /* ================= 人員管理：人員資料、登入帳號綁定、送貨員、離職與復職 ================= */
 const nextEmpCode = () => { const nums = Object.values(S.employees).map(e => /^E(\d+)$/i.exec(e.code || '')).filter(Boolean).map(m => Number(m[1])); return 'E' + String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0'); };
@@ -9879,11 +10003,12 @@ function openPersonDetail(id){
       foot.push(h('button', {class:'btn ghost', 'aria-label':'重設打卡密碼', onclick:() => rtStepSheet('重設打卡密碼　' + e.name, [{k:'pw', label:'新密碼（至少 4 碼）', value:''}], async st => { if (String(st.pw).length < 4){ toast('密碼至少 4 碼'); return false; } const salt = newSalt(); return !!(await run(async () => { await S.db.doc('employees/' + id).update({pwSalt:salt, pwHash:hashPw(String(st.pw), salt)}); toast('已重設 ' + e.name + ' 的打卡密碼'); return true; })); }, '重設')}, '重設打卡密碼'));
       if (S.isAdmin) foot.push(h('button', {class:'btn ghost', 'aria-label':'設定他的權限', onclick:() => openUserPerms(empKey(e), e.name)}, '設定權限'));
       foot.push(inactive ? h('button', {class:'btn', 'aria-label':'辦理復職', onclick:async () => { if (await dialog({title:'讓 ' + e.name + ' 復職？', ok:'復職'})) run(async () => { await S.db.doc('employees/' + id).update({active:true, leaveDate:'', leaveReason:''}); toast('已復職'); return true; }); }}, '復職')
-        : h('button', {class:'btn plain', 'aria-label':'辦理離職', onclick:() => rtStepSheet('辦理離職　' + e.name, [{k:'date', label:'離職日', type:'date', value:today()}, {k:'reason', label:'原因（選填）', value:''}, ...(S.isAdmin && e.uid ? [{k:'viewer', label:'他的登入帳號', type:'select', value:'yes', options:[['yes', '同時改成「僅查看」'], ['no', '維持原本的分類']]}] : [])], async st => { const ok = await run(async () => { await S.db.doc('employees/' + id).update({active:false, leaveDate:st.date || today(), leaveReason:(st.reason || '').trim()}); return true; }); if (ok && st.viewer === 'yes' && e.uid) await saveRoles(c => { const x = c.assign[e.uid] = c.assign[e.uid] || {}; x.role = 'viewer'; delete x.perms; }); if (ok) toast('已辦理離職，不能再打卡'); return !!ok; }, '確認離職')}, '辦理離職')); }
+        : h('button', {class:'btn plain', 'aria-label':'辦理離職', onclick:() => rtStepSheet('辦理離職　' + e.name, [{k:'date', label:'離職日', type:'date', value:today()}, {k:'reason', label:'原因（選填）', value:''}, ...(S.isAdmin && e.uid ? [{k:'viewer', label:'他的登入帳號', type:'select', value:'yes', options:[['yes', '同時改成「僅查看」'], ['no', '維持原本的分類']]}] : [])], async st => { const ok = await run(async () => { await S.db.doc('employees/' + id).update({active:false, leaveDate:st.date || today(), leaveReason:(st.reason || '').trim()}); return true; }); if (ok && st.viewer === 'yes' && e.uid) await saveRoles(c => { const x = c.assign[e.uid] = c.assign[e.uid] || {}; x.role = 'viewer'; delete x.perms; delete x.fx; delete x.acts; }); if (ok) toast('已辦理離職，不能再打卡'); return !!ok; }, '確認離職')}, '辦理離職')); }
     return {body, foot};
   });
 }
 function openPeopleMgr(){
+  if (!fxGate('people')) return;
   if (!canAttView() && !canAttMgr()) return toast('你的角色沒有這項操作的權限');
   const U = {f:'active', q:''};
   liveSheet({title:'人員管理'}, ['employees', 'members', 'roles', 'settings'], sh => {
@@ -9939,13 +10064,14 @@ function openWhRules(){
   const fill = () => { const q = U.q.trim().toLowerCase(), list = activeProducts().sort(cmpSku).filter(p => (!q || (p.name + ' ' + p.sku).toLowerCase().includes(q)) && (U.f === 'all' || (U.f === 'set' ? whRuleOf(p, U.wh).own : !whRuleOf(p, U.wh).own))).slice(0, 120); setKids(box, list.length ? h('div', {class:'panel'}, list.map(rowOf)) : h('div', {class:'panel empty', text:'沒有符合的商品'})); };
   const whChips = h('div', {class:'chips', style:'padding-top:0'});
   const paintChips = () => setKids(whChips, ...whs.map(w => h('button', {class:'chip', 'aria-pressed':U.wh === w.id, 'aria-label':'倉庫 ' + w.name, onclick:() => { U.wh = w.id; paintChips(); fill(); }}, w.name)));
-  put(sh.bodyEl, h('p', {class:'note', text:'每個倉庫各自設定：安全庫存、最小進貨批量、進貨批量（倍數）。沒填的就沿用商品資料裡全公司的數字。'}), whChips,
+  put(sh.bodyEl, h('p', {class:'note', text:'每個倉庫各自設定：安全庫存、最小進貨批量、進貨批量（倍數）。沒填的就沿用商品資料裡全公司的數字。各倉庫的安全庫存，也可以用「產品基本資料」的匯出、匯入一次設定。'}), whChips,
     h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋品名或料號', autocomplete:'off', 'aria-label':'搜尋商品', oninput:e => { U.q = e.target.value; fill(); }})),
     h('div', {class:'chips'}, [['all', '全部'], ['set', '已單獨設定'], ['unset', '還沒設定']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.f === k, 'aria-label':'規則篩選 ' + t, onclick:e => { U.f = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t))), box);
   sh.footEl.append(h('button', {class:'btn ghost', 'aria-label':'複製另一個倉庫的設定', onclick:() => rtStepSheet('複製設定到「' + whName(U.wh) + '」', [{k:'from', label:'從哪個倉庫複製', type:'select', value:(whs.find(w => w.id !== U.wh) || {}).id, options:whs.filter(w => w.id !== U.wh).map(w => [w.id, w.name])}], async st => { if (!await dialog({title:'覆蓋「' + whName(U.wh) + '」的設定？', msg:'會用「' + whName(st.from) + '」的安全庫存和批量，取代這個倉庫目前已填的。', ok:'複製'})) return false; let n = 0; const ok = await run(async () => { for (const p of Object.values(S.products)){ const src = p.whRules && p.whRules[st.from]; if (!src) continue; await S.db.doc('products/' + p.id).update({whRules:{...(p.whRules || {}), [U.wh]:{...src}}}); n++; } return true; }); if (ok) toast('已複製 ' + n + ' 個商品的設定'); fill(); return !!ok; }, '複製')}, '複製其他倉庫的設定'));
   paintChips(); fill();
 }
 function openReplenish(){
+  if (!fxGate('replenish')) return;
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const U = {sel:null, qty:{}};
   liveSheet({title:'調庫補貨作業'}, ['products', 'orders', 'settings'], sh => {
@@ -10283,6 +10409,7 @@ function bomEditor(ex){
 
 /* 組成／拆解作業 */
 function openBomOp(kind, pre){
+  if (!fxGate(kind === 'disassembly' ? 'disassembly' : 'assembly')) return;
   pre = pre || {};
   if (!can('stock')) return toast('你的角色沒有這項操作的權限');
   const isAsm = kind === 'assembly', T = TYPES[kind];
@@ -10321,7 +10448,7 @@ function openBomOp(kind, pre){
   const btn = h('button', {class:'btn grow', onclick:save}, isAsm ? '確認組成' : '確認拆解');
   const sh = sheet({title:T.label});
   put(sh.bodyEl,
-    h('div', {class:'chips', style:'padding-top:0'}, [['assembly', '組成作業'], ['disassembly', '拆解作業']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':kind === k, onclick:() => { if (k !== kind){ sh.forceClose(); openBomOp(k, {pid:st.pid, wh:st.wh, note:st.note}); } }}, t))),
+    h('div', {class:'chips', style:'padding-top:0'}, [['assembly', '組成作業'], ['disassembly', '拆解作業']].filter(([k]) => fxOn(k)).map(([k, t]) => h('button', {class:'chip', 'aria-pressed':kind === k, onclick:() => { if (k !== kind){ sh.forceClose(); openBomOp(k, {pid:st.pid, wh:st.wh, note:st.note}); } }}, t))),
     h('p', {class:'note', text:isAsm ? '依 BOM 扣掉組件庫存，增加成品庫存。' : '依 BOM 扣掉成品庫存，把組件加回庫存。'}),
     fld('成品（已設定 BOM）', prodSel),
     h('div', {class:'f2'}, fld(isAsm ? '組成數量' : '拆解數量', qtyIn), fld('日期', h('input', {class:'in', type:'date', value:st.date, onchange:e => { st.date = e.target.value || today(); }}))),
@@ -10404,7 +10531,7 @@ const shortWays = pl => [!pl.self ? '採購' : null, pl.dis.some(op => op.useN >
 function shortRow(o){
   const p = S.products[o.pid]; if (!p) return null;
   const gap = r3(o.need - o.have()); if (!(gap > SHORT_EPS)) return null;
-  const pl = shortagePlan(o.pid, gap, shortWid(o)), ways = shortWays(pl), act = can('purchase') || can('stock');
+  const pl = shortagePlan(o.pid, gap, shortWid(o)), ways = shortWays(pl), act = shortAct();
   const tail = (pl.inc > SHORT_EPS ? '採購在途 ' + num(pl.inc) + (pl.inc >= gap - SHORT_EPS ? '（夠補）' : '（不夠補）') : '') + (act ? '' : '　請通知採購或作業人員補貨');
   return h('div', {class:'note warn', 'aria-label':'缺貨提示 ' + p.sku, style:'margin:6px 0 0;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap'},
     h('span', {style:'min-width:0;flex:1 1 170px'}, h('b', {text:'⚠ 缺貨：還差 ' + num(gap) + ' ' + (p.unit || '')}),
@@ -10416,7 +10543,7 @@ function openShortage(o){
   liveSheet({title:'處理缺貨'}, ['orders', 'porders', 'corders', 'products', 'partners', 'settings', 'displans'], sh => {
     const p = S.products[o.pid]; if (!p) return false;
     const wid = shortWid(o), have = o.have(), gap = r3(o.need - have), unit = p.unit || '', done = !(gap > SHORT_EPS), pl = done ? null : shortagePlan(o.pid, gap, wid);
-    const memo = '缺貨補貨（' + o.label + (o.ref ? ' ' + o.ref : '') + '）', mayBuy = can('purchase'), mayOp = can('stock');
+    const memo = '缺貨補貨（' + o.label + (o.ref ? ' ' + o.ref : '') + '）', mayBuy = can('purchase') && fxOn('porder'), mayXfer = can('stock') && fxOn('transfer'), mayDis = can('stock') && fxOn('disassembly'), mayAsm = can('stock') && fxOn('assembly');
     const sec = t => h('div', {class:'sec-h'}, h('h2', {text:t}));
     const card = (aria, ...kids) => h('div', {class:'panel pad', 'aria-label':aria, style:'margin-bottom:12px'}, ...kids);
     const wide = 'margin-top:8px;width:100%';
@@ -10447,7 +10574,7 @@ function openShortage(o){
         card('調撥方式', h('small', {class:'hint', text:'別的倉庫還有庫存，可以調到「' + whName(wid) + '」：'}),
           h('div', {class:'panel', 'aria-label':'可調撥的倉庫', style:'margin:8px 0 0'}, pl.xfer.map(x => h('div', {class:'mv', style:'grid-template-columns:1fr auto;gap:8px'},
             h('span', {style:'min-width:0'}, h('b', {text:x.name}), h('br'), h('small', {text:'庫存 ' + num(x.stock) + ' ' + unit + (x.stock < gap - SHORT_EPS ? '，只夠補一部分' : '')})),
-            x.mine && mayOp ? h('button', {class:'btn sm', type:'button', 'aria-label':'調撥 ' + x.name, onclick:() => openTransfer({from:x.wid, to:wid, pid:p.id, qty:x.qty, note:memo})}, '調 ' + num(x.qty) + ' ' + unit + ' 過來')
+            x.mine && mayXfer ? h('button', {class:'btn sm', type:'button', 'aria-label':'調撥 ' + x.name, onclick:() => openTransfer({from:x.wid, to:wid, pid:p.id, qty:x.qty, note:memo})}, '調 ' + num(x.qty) + ' ' + unit + ' 過來')
               : h('small', {class:'hint', text:x.mine ? '沒有調撥的權限' : '不是你負責的倉庫'})))))];
     };
     /* ---- 拆解補貨 ---- */
@@ -10461,9 +10588,9 @@ function openShortage(o){
             h('span', {text:'→ 得到 ' + num(op.useYield) + ' ' + unit + '「' + p.name + '」' + (left > SHORT_EPS ? '（還差 ' + num(left) + '，要靠其他方式補）' : (op.useYield > gap + SHORT_EPS ? '（比缺口多 ' + num(r3(op.useYield - gap)) + '，留在庫存）' : ''))}),
             h('small', {class:'hint', text:'成品庫存 ' + num(op.fstock) + ' ' + fu + (shelf ? '　架位 ' + shelf : '') + '；1 ' + fu + ' 拆出 ' + num(op.per) + ' ' + unit}),
             op.plan && op.plan.hint ? h('small', {class:'hint', text:'提示：' + op.plan.hint}) : null,
-            mayOp ? h('button', {class:'btn', style:wide, type:'button', 'aria-label':'拆解 ' + F.sku, onclick:() => openBomOp('disassembly', {pid:F.id, qty:op.useN, wh:wid, note:memo})}, '拆解補貨') : null); }),
+            mayDis ? h('button', {class:'btn', style:wide, type:'button', 'aria-label':'拆解 ' + F.sku, onclick:() => openBomOp('disassembly', {pid:F.id, qty:op.useN, wh:wid, note:memo})}, '拆解補貨') : null); }),
         infeas.length ? h('small', {class:'hint', 'aria-label':'無法拆解的成品', style:'margin:-4px 0 12px', text:'另外還有 ' + infeas.length + ' 種成品含有這個商品，但目前沒有庫存可以拆：' + infeas.slice(0, 5).map(op => op.F.name).join('、') + (infeas.length > 5 ? '…' : '')}) : null,
-        !mayOp && feas.length ? h('div', {class:'note', text:'你的角色沒有拆解的權限，請通知作業人員處理。'}) : null];
+        !mayDis && feas.length ? h('div', {class:'note', text:'你的角色沒有拆解的權限，請通知作業人員處理。'}) : null];
     };
     /* ---- 直接組裝 ---- */
     const asmSec = () => {
@@ -10477,7 +10604,7 @@ function openShortage(o){
             h('span', {style:'min-width:0'}, h('b', {text:c.name}), h('br'), h('small', {class:c.lack > SHORT_EPS ? 'overdue' : '', text:c.sku + '　需 ' + num(c.need) + ' ' + c.unit + '　庫存 ' + num(c.stock) + (c.lack > SHORT_EPS ? '　缺 ' + num(c.lack) : '　✓')})),
             c.lack > SHORT_EPS && c.buyable && mayBuy ? h('button', {class:'btn ghost sm', type:'button', 'aria-label':'採購組件 ' + c.sku, onclick:() => openDocEditor('po', {pid:c.pid, qty:c.buyQty, partnerId:c.sup, wh:wid, note:'組裝缺料（' + p.name + '，' + o.label + (o.ref ? ' ' + o.ref : '') + '）'})}, '採購') : null))),
           short ? h('small', {class:'hint', 'aria-label':'組裝說明', text:S.set.allowNeg ? '目前的組件只夠組 ' + num(pl.build) + ' ' + unit + '，其餘的組件不夠，組裝後那些組件的庫存會變成負數。' : '目前的組件最多只能組 ' + num(pl.build) + ' ' + unit + '，其餘 ' + num(r3(gap - pl.asmQty)) + ' ' + unit + ' 要先採購缺的組件，或用其他方式補。'}) : h('small', {class:'hint', 'aria-label':'組裝說明', text:'目前的組件夠，可以一次組完。'}),
-          mayOp ? h('button', {class:'btn', style:wide, type:'button', disabled:!(pl.asmQty > 0), 'aria-label':'組裝 ' + p.sku, onclick:() => openBomOp('assembly', {pid:p.id, qty:pl.asmQty, wh:wid, note:memo})}, '直接組裝' + (pl.asmQty > 0 ? ' ' + num(pl.asmQty) + ' ' + unit : ''))
+          mayAsm ? h('button', {class:'btn', style:wide, type:'button', disabled:!(pl.asmQty > 0), 'aria-label':'組裝 ' + p.sku, onclick:() => openBomOp('assembly', {pid:p.id, qty:pl.asmQty, wh:wid, note:memo})}, '直接組裝' + (pl.asmQty > 0 ? ' ' + num(pl.asmQty) + ' ' + unit : ''))
             : h('div', {class:'note', style:'margin:8px 0 0', text:'你的角色沒有組裝的權限，請通知作業人員處理。'}))];
     };
     const body = h('div', null, head,
@@ -10821,6 +10948,7 @@ function dsCards(){
     {name:'儲值與扣款明細', opt:true, cols:[XC('卡名', 'text', 20), XC('日期', 'text', 12), XC('類型', 'text', 12), XC('車牌', 'text', 12), XC('加油站', 'text', 14), XC('交易序號', 'text', 16), XC('現金點增減', 'money', 12), XC('紅利金增減', 'money', 12), XC('現金點結餘', 'money', 12), XC('紅利金結餘', 'money', 12), XC('儲值來源', 'text', 10), XC('備註', 'text', 24)], rows:det}]};
 }
 function openFuelCards(){
+  if (!fxGate('fuelCards')) return;
   liveSheet({title:'加油儲值卡'}, ['fuelcards', 'fuellogs', 'vehicles'], sh => {
     const list = Object.values(S.fuelcards).sort((a, b) => (a.active === false) - (b.active === false) || String(a.name).localeCompare(String(b.name), 'zh-TW')), tot = r2(list.filter(c => c.active !== false).reduce((a, c) => a + cardBalance(c.id), 0));
     const body = h('div', null, h('div', {class:'panel ledger'}, h('div', {class:'row'}, h('span', {text:'使用中的卡片餘額合計'}), h('b', {text:money(tot)}))),
@@ -10923,6 +11051,7 @@ const taxOptText = p => (TAXOPTS.find(([k]) => k === taxOptOf(p)) || [0, '應稅
 function openCustomerMgmt(){ openPartnerMgmt('customer'); }
 function openSupplierMgmt(){ openPartnerMgmt('supplier'); }
 function openPartnerMgmt(type){
+  if (!fxGate(type === 'customer' ? 'customers' : 'suppliers')) return;
   const isCust = type === 'customer', U = isCust ? S.ui.cm : S.ui.sm;
   liveSheet({title:isCust ? '客戶管理' : '供應商管理'}, ['partners', 'orders', 'payments'], sh => {
     const all = Object.values(S.partners).filter(p => p.type === type);
@@ -10957,6 +11086,7 @@ function qtTotals(q){
   return taxSplit(sum, S.set.taxMode === 'none' ? 'exempt' : (pt.taxType || 'taxable'), pt.taxMode === 'incl' ? 'incl' : 'excl');
 }
 function openQuoteForm(ex){
+  if (!fxGate('quote')) return;
   if (!can('sale')) return toast('你的角色沒有這項操作的權限');
   const st = ex ? {partnerId:ex.partnerId || '', date:ex.date, validTo:ex.validTo || '', note:ex.note || '', lines:(ex.lines || []).filter(l => S.products[l.pid]).map(l => ({pid:l.pid, qty:String(l.qty), price:String(l.price), manual:true}))}
     : {partnerId:'', date:today(), validTo:addDays(today(), 14), note:'', lines:[]};
@@ -11007,6 +11137,7 @@ function openQuoteForm(ex){
   sh.footEl.append(totEl, btn); paintLines();
 }
 async function convertQuote(q){
+  if (!fxGate('quote')) return;
   if (!can('sale')) return toast('你的角色沒有這項操作的權限');
   if (!await suspendOk(q.partnerId, '把報價單轉成客戶訂單')) return;
   if (qtState(q) === 'expired' && !await dialog({title:'這張報價單已逾期', msg:'有效期限 ' + q.validTo + ' 已過，仍要轉成客戶訂單嗎？', ok:'仍要轉單'})) return;
@@ -11085,6 +11216,7 @@ async function autoCost(o, stockBefore){
   }
 }
 function openCostPage(){
+  if (!fxGate('costPage')) return;
   if (!see('cost')) return toast('你的角色沒有查看成本的權限');
   const U = S.ui;
   liveSheet({title:'進貨成本設定'}, ['products', 'orders', 'settings'], sh => {
@@ -11236,26 +11368,191 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bm';
-const MENU_CATS = [
-  ['銷售與訂單', 'doc', ['單據查詢', 'LINE 訂單審核', '銷貨作業', '銷貨退回作業', '國內報價作業', '國內訂單作業', '退貨管理', '價格等級與折扣', '價格策略匯入匯出']],
-  ['採購與進貨', 'cart', ['國內採購單', '採購建議作業', '進貨作業', '進貨退回作業', '進貨成本設定']],
-  ['庫存與商品', 'box', ['產品基本資料', '新增產品', '庫存轉倉作業', '庫存盤點作業', '循環盤點', '庫存調整作業', '調庫補貨作業', '倉庫庫存規則', '產品組裝作業', '產品拆解作業', '拆解作業設定', '揀貨輔助', '架位管理', '商品架位調整', '架位設定', '產品標籤列印', '庫存關帳作業']],
-  ['配送與車輛', 'truck', ['出車作業', '出車排程', '送貨清單', '出車績效', '車輛管理', '加油儲值卡']],
-  ['收款與帳務', 'wallet', ['現金票據簽收', '應收帳款報表', '應收帳款清單回傳表', '應收帳款作業', '應付帳款作業', '應收沖帳作業', '批次沖帳', '外務收款', '待沖帳收款', '收款結算']],
-  ['票據與現金', 'lock', ['支票代收作業', '保管管理', '其他收支作業']],
-  ['客戶與供應商', 'users', ['客戶管理', '供應商管理', '客戶資料匯入', '資料匯入匯出']],
-  ['人事與考核', 'clock', ['人員管理', '上下班打卡', '我的考勤', '考勤管理', '配送錯誤與考核', '獎金與薪資']],
-  ['報表與稽核', 'chart', ['營運報表', '事業部營業績效', '單據覆核', '期間封存']],
-  ['系統與設定', 'sliders', ['系統設定', '鍵盤快速鍵', '清除所有資料', '事業部設定', '費用保護', 'LINE 通知設定', '登出系統', '成員與權限', '登入帳號管理', '整批修改作業', '資料庫備份', '程式備份', '列印設定', '列印診斷', '登出']]
+const APP_VERSION = '2026.10.11-bo';
+/* ================= 功能分類（功能表）與功能權限 =================
+   FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
+     kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
+     need＝要用這個功能需要的基本權限（陣列裡任一個就可以，第一個是分派時預設給的）；
+     al＝每個人都可以用（打卡、列印設定、登出…），不用分派；
+     沒有 need、也不是 al 的＝只有管理員能用（會改到商品主檔、價格或系統設定，雲端資料庫規則也只讓管理員寫）。
+   FN_CATS：功能表的分類 → 小分類 → 功能。「全部功能」頁、搜尋、電腦版左側選單、權限設定畫面都用這一份。 */
+const FN = {
+  sale:{l:'銷貨作業', kw:'出貨 開單 銷售 賣 銷貨單 出貨單 送貨單', need:['sale'], d:'開銷貨單出貨，可以帶入客戶訂單、自動算價'},
+  sale_return:{l:'銷貨退回作業', kw:'退貨 客戶退貨 銷退 退回', need:['sale'], d:'客戶退回商品，沖減應收或退款'},
+  quote:{l:'國內報價作業', kw:'報價 報價單 估價', need:['sale']},
+  corder:{l:'國內訂單作業', kw:'訂單 客戶訂單 接單 未交 預購', need:['sale']},
+  lineOrders:{l:'LINE 訂單審核', kw:'line 賴 線上訂單 審核', need:['sale']},
+  docs:{l:'單據查詢', kw:'查單 單據 銷貨單 進貨單 補印 查詢 作廢', need:[]},
+  returns:{l:'退貨管理', kw:'退貨 維修 換貨 退款 故障 客訴', need:['sale', 'stock']},
+  priceLevels:{l:'價格等級與折扣', kw:'價格 等級 折扣 特價 售價 促銷 價格表'},
+  priceIO:{l:'價格策略匯入匯出', kw:'價格 匯入 匯出 組合 買送 促銷'},
+  purchaseSug:{l:'採購建議作業', kw:'採購 建議 補貨 缺貨 叫貨', need:['purchase']},
+  porder:{l:'國內採購單', kw:'採購 採購單 叫貨 下單 收貨 到貨', need:['purchase']},
+  purchase:{l:'進貨作業', kw:'進貨 收貨 入庫 進貨單 回頭車 運費', need:['purchase']},
+  purchase_return:{l:'進貨退回作業', kw:'退回供應商 退廠商 進退 退貨', need:['purchase'], d:'把已進貨的商品退回供應商'},
+  costPage:{l:'進貨成本設定', kw:'成本 進價 毛利', need:['cost']},
+  stocktake:{l:'庫存盤點作業', kw:'盤點 盤存 清點 實盤 盤盈 盤虧', need:['stock'], d:'整批盤點，輸入實盤數量，系統算出差異'},
+  cycleCount:{l:'循環盤點', kw:'盤點 每日盤點 抽盤 掃碼', need:['stock']},
+  adjust:{l:'庫存調整作業', kw:'調整 庫存調整 報廢 盤盈 盤虧 修正庫存', need:['stock'], d:'直接調整庫存數量（報廢、盤盈、盤虧）'},
+  transfer:{l:'庫存轉倉作業', kw:'調撥 轉倉 移倉 倉庫 調貨', need:['stock'], d:'把商品從一個倉庫移到另一個倉庫'},
+  replenish:{l:'調庫補貨作業', kw:'補貨 調撥 營業所 工廠 安全庫存', need:['stock']},
+  picking:{l:'揀貨輔助', kw:'揀貨 撿貨 備貨 出貨 拆解 語音', need:['stock', 'sale']},
+  shelfAdjust:{l:'商品架位調整', kw:'架位 儲位 位置 掃描 搬移 QR', need:['stock']},
+  shelfMgmt:{l:'架位管理', kw:'架位 儲位 貨架 架位標籤 QR', need:['stock']},
+  shelfEditor:{l:'架位設定', kw:'架位 儲位 位置'},
+  whRules:{l:'倉庫庫存規則', kw:'安全庫存 進貨批量 最小進貨量 倉庫 規則 營業所'},
+  closing:{l:'庫存關帳作業', kw:'關帳 月結 結帳 鎖定', d:'鎖定關帳日以前的單據，避免帳被改掉'},
+  products:{l:'產品基本資料', kw:'商品 產品 品項 料號 查庫存 庫存 條碼', need:[]},
+  newProduct:{l:'新增產品', kw:'新增商品 建立商品 新品 開新料號'},
+  labels:{l:'產品標籤列印', kw:'標籤 貼紙 QR 條碼 列印 自黏', need:['print']},
+  assembly:{l:'產品組裝作業', kw:'組裝 組成 BOM 生產 加工 組合', need:['stock']},
+  disassembly:{l:'產品拆解作業', kw:'拆解 拆箱 拆組 BOM', need:['stock']},
+  disPlans:{l:'拆解作業設定', kw:'拆解 設定 方案 揀貨', need:['stock']},
+  driverRun:{l:'出車作業', kw:'出車 司機 送貨 外務 回公司 配送', need:[]},
+  dispatch:{l:'出車排程', kw:'排程 派車 行程 貨車 上午 下午', need:['sale', 'stock']},
+  deliveryList:{l:'送貨清單', kw:'送貨 出貨 清單 司機 配送', need:['sale', 'print']},
+  vehicles:{l:'車輛管理', kw:'車輛 車子 加油 油耗 保養 里程', need:['vehicle']},
+  fuelCards:{l:'加油儲值卡', kw:'加油卡 儲值 油卡 中油', need:['vehicle']},
+  tripStats:{l:'出車績效', kw:'出車 績效 趟數 司機 統計', need:['report']},
+  ar:{l:'應收帳款作業', kw:'應收 帳款 欠款 對帳 對帳單 客戶帳 帳齡', need:['report', 'pay', 'cash'], d:'每位客戶的應收、帳齡、對帳單、收款與沖帳'},
+  settle:{l:'應收沖帳作業', kw:'收款 沖帳 收錢 銷帳 折讓 轉帳', need:['pay']},
+  batchSettle:{l:'批次沖帳', kw:'匯款 批次 沖帳 收款 對帳', need:['pay']},
+  fieldPay:{l:'外務收款', kw:'外務 收款 收現 收支票 司機收款', need:['fieldpay', 'pay']},
+  handover:{l:'現金票據簽收', kw:'簽收 交款 繳款 現金 支票 外務', need:['pay']},
+  fieldQueue:{l:'待沖帳收款', kw:'外務 收款 沖帳 待處理', need:['pay']},
+  collectSum:{l:'收款結算', kw:'結算 收款人 現金 繳款 日結', need:['pay']},
+  ap:{l:'應付帳款作業', kw:'應付 付款 付錢 廠商帳 供應商帳 開票 帳齡', need:['report', 'pay', 'cash'], d:'每家供應商的應付、帳齡、付款、開票與沖帳'},
+  arReport:{l:'應收帳款報表', kw:'應收 報表 月結 帳款月份 對帳', need:['report', 'pay']},
+  arReturn:{l:'應收帳款清單回傳表', kw:'應收 回傳 營業所 清單 稅金', need:['report', 'pay']},
+  notes:{l:'票據管理', kw:'支票 票據 兌現 退票 到期 收票 開票', need:['report', 'pay', 'cash']},
+  collections:{l:'支票代收作業', kw:'支票 託收 代收 兌現 退票 銀行', need:['pay']},
+  cash:{l:'其他收支作業', kw:'零用金 費用 收支 現金 雜支 零用', need:['cash']},
+  custody:{l:'保管管理', kw:'保管 移交 交接 票據 原始單據 現金', need:['custody', 'pay', 'cash']},
+  customers:{l:'客戶管理', kw:'客戶 顧客 客人 地址 電話 業務', need:[]},
+  suppliers:{l:'供應商管理', kw:'供應商 廠商 進貨商 原料商', need:[]},
+  custImport:{l:'客戶資料匯入', kw:'客戶 匯入 CSV Excel 批次', need:['partner']},
+  dataHub:{l:'資料匯入匯出', kw:'匯入 匯出 Excel CSV 產品 客戶 供應商 架位 批次更新', need:['partner']},
+  clock:{l:'上下班打卡', kw:'打卡 上班 下班 出勤 刷卡', al:1},
+  myAtt:{l:'我的考勤', kw:'考勤 出勤 請假 特休 加班', al:1},
+  people:{l:'人員管理', kw:'人員 員工 職員 離職 到職 送貨員 名冊', need:['attview', 'attmgr']},
+  attAdmin:{l:'考勤管理', kw:'考勤 出勤 請假 審核 異常 統計 假別', need:['attview', 'attmgr']},
+  perf:{l:'配送錯誤與考核', kw:'考核 績效 送錯 配送錯誤 獎懲 再度配送', need:['attview', 'attmgr', 'payroll', 'sale', 'stock']},
+  payroll:{l:'獎金與薪資', kw:'薪資 薪水 獎金 業績獎金 扣款', need:['payroll']},
+  reports:{l:'營運報表', kw:'報表 營業額 毛利 銷售統計 排行', need:['report']},
+  buReport:{l:'事業部營業績效', kw:'事業部 績效 營業額 網路 客單價', need:['report']},
+  review:{l:'單據覆核', kw:'覆核 審核 稽核 檢查', need:['review']},
+  periodLock:{l:'期間封存', kw:'封存 鎖定 月結 關帳'},
+  roles:{l:'使用者權限管理', kw:'權限 功能權限 使用者 帳號 角色 分類 成員 分派 指派 設定權限'},
+  loginAccounts:{l:'登入帳號管理', kw:'帳號 登入 密碼 使用者 權限層級'},
+  settings:{l:'系統設定', kw:'設定 帳期 稅 倉庫 折讓 公司資料'},
+  buSettings:{l:'事業部設定', kw:'事業部 網路事業部'},
+  lineSettings:{l:'LINE 通知設定', kw:'line 通知 賴 推播'},
+  guard:{l:'費用保護', kw:'費用 用量 保護 暫停'},
+  batchEdit:{l:'整批修改作業', kw:'整批 批次 修改 調價 停用', d:'一次調整一批商品的售價、進價、分類、供應商、單位或啟用狀態'},
+  backup:{l:'資料庫備份', kw:'備份 下載 還原 資料', d:'下載全部資料的備份檔，也可以從備份還原'},
+  progBackup:{l:'程式備份', kw:'備份 程式 html', d:'把目前的系統程式存成 .html 檔留存'},
+  wipe:{l:'清除所有資料', kw:'清除 刪除 重設 初始化'},
+  printSettings:{l:'列印設定', kw:'印表機 列印 Windows', al:1},
+  printDiag:{l:'列印診斷', kw:'列印 印不出來 列印視窗', al:1},
+  keys:{l:'鍵盤快速鍵', kw:'快速鍵 鍵盤 熱鍵', al:1},
+  logoutSys:{l:'登出系統', kw:'登出 換人 離開', al:1},
+  logout:{l:'登出', kw:'登出 離開 帳號', al:1}
+};
+const FN_CATS = [
+  ['銷售與訂單', 'doc', [['開單', ['sale', 'sale_return']], ['報價與訂單', ['quote', 'corder', 'lineOrders']], ['查詢與售後', ['docs', 'returns']], ['價格設定', ['priceLevels', 'priceIO']]]],
+  ['採購與進貨', 'cart', [['採購', ['purchaseSug', 'porder']], ['進貨', ['purchase', 'purchase_return']], ['成本', ['costPage']]]],
+  ['庫存與倉儲', 'box', [['庫存作業', ['stocktake', 'cycleCount', 'adjust', 'transfer', 'replenish']], ['揀貨與架位', ['picking', 'shelfAdjust', 'shelfMgmt', 'shelfEditor']], ['規則與關帳', ['whRules', 'closing']]]],
+  ['商品與組裝', 'tag', [['商品資料', ['products', 'newProduct', 'labels']], ['組裝與拆解', ['assembly', 'disassembly', 'disPlans']]]],
+  ['配送與車輛', 'truck', [['出車與送貨', ['driverRun', 'dispatch', 'deliveryList']], ['車輛', ['vehicles', 'fuelCards']], ['績效', ['tripStats']]]],
+  ['收款與帳款', 'wallet', [['應收帳款', ['ar', 'settle', 'batchSettle']], ['外務收款', ['fieldPay', 'handover', 'fieldQueue', 'collectSum']], ['應付帳款', ['ap']], ['帳款報表', ['arReport', 'arReturn']]]],
+  ['票據與現金', 'lock', [['票據', ['notes', 'collections']], ['現金與保管', ['cash', 'custody']]]],
+  ['客戶與供應商', 'users', [['資料', ['customers', 'suppliers']], ['匯入匯出', ['custImport', 'dataHub']]]],
+  ['人事與考勤', 'clock', [['個人', ['clock', 'myAtt']], ['人員與考勤', ['people', 'attAdmin']], ['考核與薪資', ['perf', 'payroll']]]],
+  ['報表與稽核', 'chart', [['報表', ['reports', 'buReport']], ['稽核', ['review', 'periodLock']]]],
+  ['系統與設定', 'sliders', [['使用者與權限', ['roles', 'loginAccounts']], ['系統設定', ['settings', 'buSettings', 'lineSettings', 'guard']], ['資料維護', ['batchEdit', 'backup', 'progBackup', 'wipe']], ['列印與操作', ['printSettings', 'printDiag', 'keys']], ['登出', ['logoutSys', 'logout']]]]
 ];
-const menuCatIcon = t => (MENU_CATS.find(c => c[0] === t) || [])[1] || 'more';
-function regroupMenu(raw){
-  const flat = raw.flatMap(([, items]) => items.filter(i => i.ok)), used = new Set(), out = [];
-  for (const [title, , labels] of MENU_CATS){ const items = labels.map(l => flat.find(i => i.label === l)).filter(Boolean); items.forEach(i => used.add(i.label)); if (items.length) out.push([title, items]); }
-  const rest = flat.filter(i => !used.has(i.label)); if (rest.length) out.push(['其他', rest]);
+const FN_LABEL = Object.fromEntries(Object.entries(FN).map(([id, f]) => [f.l, id]));
+const FN_ALIAS = {'成員與權限':'使用者權限管理'};   // 改過名字的功能：舊名稱 → 新名稱（釘選、最近使用沿用）
+const fnLabel = id => (FN[id] || {}).l || id;
+const MENU_CATS = FN_CATS.map(([t, ic, subs]) => [t, ic, subs.flatMap(([, ids]) => ids.map(fnLabel))]);
+const menuCatIcon = t => (FN_CATS.find(c => c[0] === t) || [])[1] || 'more';
+/* 跨功能的「操作與資料權限」：不是功能表上的一個項目，而是在好幾個功能裡共用的權限 */
+const FN_ACTS = [
+  ['report', '查看報表與帳款金額', '營運報表、帳款、首頁的營業額與應收應付金額'],
+  ['cost', '查看進價、成本與毛利', '商品進價、庫存成本、毛利'],
+  ['price', '開單時可以手動修改單價', '銷貨、報價、訂單可以改單價'],
+  ['void', '作廢單據', '作廢銷貨、進貨、收付款等單據'],
+  ['review', '覆核單據', '單據的覆核與取消覆核'],
+  ['pay', '收付款、票據與沖帳', '帳款裡的收款、付款、沖帳，票據的收票、開票、兌現、退票'],
+  ['export', '匯出 PDF／Excel／CSV', '各種清單、報表的匯出'],
+  ['print', '列印單據、發票與標籤', '銷貨單、發票、送貨清單、標籤'],
+  ['partner', '新增與編輯客戶／供應商', '客戶、供應商資料的新增、修改與匯入'],
+  ['attmgr', '管理人員、假別，核准請假', '考勤的管理工作（人員資料、假別、請假審核）'],
+  ['attedit', '修改原始打卡紀錄', '必須寫明原因']
+];
+const ACT_KEYS = FN_ACTS.map(a => a[0]);
+/* ---- 目前這個人可以用哪些功能 ----
+   角色（使用者分類）或個人「個別勾選」存了 fx（{功能: true/false}）＝依功能分派；沒有 fx 的是舊的設定，照基本權限判斷（和以前一樣）。
+   S.__permOverride／S.__fxOverride：權限設定畫面試算「這組設定看得到哪些功能」時用。 */
+const myFx = () => { if (S.__permOverride) return S.__fxOverride || null; const a = myAssign(); if (a.perms) return a.fx || null; const r = roleDefs()[myRoleKey()]; return (r && r.fx) || null; };
+const fxOn = id => { if (S.isAdmin && !S.__permOverride) return true; const f = FN[id]; if (f && f.al) return true; const fx = myFx(); return !fx || fx[id] !== false; };
+const fxGate = id => { if (fxOn(id)) return true; toast('你沒有「' + fnLabel(id) + '」的使用權限，請洽管理員'); return false; };
+/* 依勾選的功能＋操作權限，算出要存的基本權限（各功能裡面的按鈕、存檔仍依基本權限判斷） */
+function fxPerms(fx, acts){
+  const out = {}, on = Object.keys(FN).filter(id => fx && fx[id] === true && FN[id].need && FN[id].need.length);
+  ACT_KEYS.forEach(k => { if (acts && acts[k]) out[k] = true; });
+  on.forEach(id => { const n = FN[id].need; if (n.length === 1) out[n[0]] = true; });
+  on.forEach(id => { const n = FN[id].need; if (n.length > 1 && !n.some(k => out[k])) out[n[0]] = true; });
   return out;
 }
+/* 哪些操作權限是勾選的功能一定要的（畫面上鎖住、寫出是哪個功能需要） */
+function fxForced(fx, acts){
+  const out = {};
+  for (const k of ACT_KEYS){
+    const without = {...(acts || {}), [k]:false}, p = fxPerms(fx, without); if (!p[k]) continue;
+    out[k] = Object.keys(FN).filter(id => fx[id] === true && FN[id].need && FN[id].need[0] === k && !FN[id].need.slice(1).some(x => p[x] && x !== k));
+  }
+  return out;
+}
+/* 試算：這組設定（{perms, fx}）在功能表上看得到哪些功能 */
+function fnVisible(def){
+  const keep = {a:S.isAdmin, o:S.__permOverride, f:S.__fxOverride, w:S.canWrite};
+  S.isAdmin = false; S.canWrite = true; S.__permOverride = cleanPerms((def && def.perms) || {}); S.__fxOverride = (def && def.fx) || null;
+  try { return menuFlat(); } finally { S.isAdmin = keep.a; S.__permOverride = keep.o; S.__fxOverride = keep.f; S.canWrite = keep.w; }
+}
+const fnCountOf = def => fnVisible(def).filter(i => i.id && FN[i.id] && !FN[i.id].al).length;
+/* 每個功能能不能分派：yes＝可以分派；admin＝只有管理員能用；always＝每個人都能用；na＝這個環境用不到（例如沒開覆核、不是網站版） */
+function fnAvail(){
+  const all = Object.fromEntries(PERMS.map(([k]) => [k, true])), ok = new Set(fnVisible({perms:all}).map(i => i.id)), adm = new Set(menuFlat().map(i => i.id)), out = {};
+  for (const id of Object.keys(FN)) out[id] = FN[id].al ? 'always' : ok.has(id) ? 'yes' : (S.isAdmin && adm.has(id)) ? 'admin' : 'na';
+  return out;
+}
+/* 權限設定畫面用的狀態：{fx:{每個可分派的功能: true/false}, acts:{操作權限}}；舊設定（只有 perms）換算成「目前看得到的功能」 */
+function fxFromDef(def){
+  def = def || {}; const p = def.perms || {}, acts = {}, fx = {}, av = fnAvail(), vis = new Set(fnVisible(def).map(i => i.id));
+  ACT_KEYS.forEach(k => { const v = def.acts ? def.acts[k] : (k === 'review' ? (p.review !== undefined ? p.review : p.void) : p[k]); if (v) acts[k] = true; });
+  Object.keys(FN).forEach(id => { if (av[id] === 'yes') fx[id] = vis.has(id); });
+  return {fx, acts};
+}
+const defFromSt = st => ({perms:fxPerms(st.fx, st.acts), fx:{...st.fx}, acts:cleanPerms(st.acts)});
+/* 開單：銷貨、進貨等單據要有對應的功能；從客戶訂單、採購單轉單，或從退貨管理退款、換貨，有那個功能也可以 */
+const fxOrderOk = (type, pre) => { const id = ({sale:'sale', sale_return:'sale_return', purchase:'purchase', purchase_return:'purchase_return', adjust:'adjust'})[type]; if (!id || fxOn(id)) return true; pre = pre || {}; if (pre.src && fxOn(pre.src.kind === 'co' ? 'corder' : 'porder')) return true; if ((pre.rtn || pre.fromRtn) && fxOn('returns')) return true; return fxGate(id); };
+/* 功能表搜尋：名稱、說明、分類、小分類、別名都比對；空白隔開的每個字都要符合 */
+const menuHit = (i, g, q) => { const hay = [i.label, i.desc, g, i.sub, i.kw].join(' ').toLowerCase(); return String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w)); };
+/* 一個分類裡的功能，依小分類加上小標題 */
+const menuRows = (list, row) => { const out = []; let last = null; for (const i of list){ if (i.sub && i.sub !== last){ out.push(h('div', {class:'msub', text:i.sub})); last = i.sub; } out.push(row(i)); } return out; };
+/* 開單時遇到缺貨：這個人能不能處理（採購、調撥、拆解、組裝任一個） */
+const shortAct = () => (can('purchase') && fxOn('porder')) || (can('stock') && (fxOn('transfer') || fxOn('assembly') || fxOn('disassembly')));
+function regroupMenu(raw){
+  const flat = raw.flatMap(([, items]) => items.filter(i => i.ok)), out = [], used = new Set();
+  flat.forEach(i => { i.id = FN_LABEL[i.label] || ''; const f = FN[i.id]; if (f){ i.kw = f.kw || ''; if (!i.desc && f.d) i.desc = f.d; } });
+  for (const [title, , subs] of FN_CATS){ const items = [];
+    for (const [sub, ids] of subs) for (const id of ids){ const it = flat.find(i => i.id === id); if (it && fxOn(id)){ it.sub = sub; items.push(it); used.add(it); } }
+    if (items.length) out.push([title, items]); }
+  const rest = flat.filter(i => !used.has(i) && !FN[i.id]); if (rest.length) out.push(['其他', rest]);
+  return out;
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {fnForTest:{FN, FN_CATS, FN_ACTS, ACT_KEYS, FN_LABEL, fxPerms, fxForced, fxFromDef, defFromSt, fnVisible, fnAvail, fnCountOf, fxOn, myFx, fxOrderOk, menuHit, shortAct, tabAllowed:k => tabAllowed(k), menuGroups:() => menuGroups(), menuFlat:() => menuFlat(), openRoles:() => openRoles(), openRoleForm:k => openRoleForm(k), openUserPerms:(u, n) => openUserPerms(u, n), openFnOverview:() => openFnOverview(), homeTiles:() => homeTiles(), canReviewPerm:() => canReviewPerm(), openPalette:() => openPalette(), menuPins:() => menuPins(), menuRecents:() => menuRecents(), moreTypesList:() => moreTypesList()}}); } catch (_) {}
 function menuGroups(){
   const goTab = (tab, ui) => () => { S.tab = tab; if (ui) Object.assign(S.ui, ui); window.scrollTo(0, 0); draw(); };
   const M = (label, ok, fn, desc) => ({label, ok:!!ok, fn, desc:desc || ''});
@@ -11265,10 +11562,10 @@ function menuGroups(){
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
     ['生產', [M('產品組裝作業', can('stock'), () => openBomOp('assembly'), '依 BOM 用組件組成成品'), M('產品拆解作業', can('stock'), () => openBomOp('disassembly'), '依 BOM 把成品拆回組件')]],
-    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生，或從 Excel／CSV 匯入架位清單）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
+    ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生，或從 Excel／CSV 匯入架位清單）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('票據管理', tabAllowed('acc'), goTab('acc', {accSeg:'note'}), '收到的支票、開出的支票、到期提醒，兌現與退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('價格策略匯入匯出', S.isAdmin, openPriceIO, '價格規則、組合優惠與買送：匯出成 Excel／CSV，改好再匯入批次更新'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
-    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('成員與權限', S.isAdmin, openRoles, '使用者分類、核取每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
+    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('使用者權限管理', S.isAdmin, openRoles, '使用者分類，依功能逐項勾選每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
   ];
   return regroupMenu(raw);
 }
@@ -11291,10 +11588,11 @@ function pMore(){
     if (fav.length) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'★ 常用功能'})), chipRow(fav)));
     if (rec.length) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'最近使用'})), chipRow(rec))); }
   const open = S.ui.moreOpen || '';
-  for (const [t, items] of menuGroups()){ const list = items.filter(i => i.ok !== false && (!q || (i.label + ' ' + i.desc + ' ' + t).toLowerCase().includes(q))); if (!list.length) continue;
-    if (q) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:t})), h('div', {class:'panel'}, list.map(row))));
+  if (!S.isAdmin && !q) page.append(h('p', {class:'hint', 'aria-label':'功能權限說明', style:'margin:10px 4px 14px;column-span:all', text:'這裡只列出你可以使用的功能；需要其他功能，請管理員到「使用者權限管理」開啟。'}));
+  for (const [t, items] of menuGroups()){ const list = items.filter(i => i.ok !== false && (!q || menuHit(i, t, q))); if (!list.length) continue;
+    if (q) page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:t})), h('div', {class:'panel'}, menuRows(list, row))));
     else { const on = open === t, toggle = () => { S.ui.moreOpen = on ? '' : t; draw(); };
-      page.append(h('section', {class:'sec mcat-sec'}, h('div', {class:'mcat', role:'button', tabindex:'0', 'aria-expanded':String(on), 'aria-label':'分類 ' + t, onclick:toggle, onkeydown:e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } }}, icon(menuCatIcon(t)), h('b', {text:t}), h('small', {text:list.length + ' 項'}), h('span', {class:'chev', text:on ? '⌄' : '›'})), h('div', {class:'panel', hidden:!on}, list.map(row)))); } }
+      page.append(h('section', {class:'sec mcat-sec'}, h('div', {class:'mcat', role:'button', tabindex:'0', 'aria-expanded':String(on), 'aria-label':'分類 ' + t, onclick:toggle, onkeydown:e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } }}, icon(menuCatIcon(t)), h('b', {text:t}), h('small', {text:list.length + ' 項'}), h('span', {class:'chev', text:on ? '⌄' : '›'})), h('div', {class:'panel', hidden:!on}, menuRows(list, row)))); } }
   if (q && !page.querySelector('.mrow')) page.append(h('div', {class:'panel empty', text:'找不到「' + S.ui.moreQ + '」'}));
   const pr = uiPref(), now = detectUi(), p0 = uiProbe();
   page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'畫面版面'})), h('div', {class:'panel pad'},
@@ -11306,13 +11604,14 @@ function pMore(){
 }
 function homeTiles(){
   const T = [];
-  if (can('sale')) T.push(['銷貨', 'doc', () => openOrder('sale'), true]);
-  if (can('purchase')) T.push(['進貨', 'cart', () => openOrder('purchase'), true]);
-  if (canField() && !can('pay')) T.push(['外務收款', 'wallet', () => openFieldPay(), true]);
-  if (can('pay')) T.push(['收款', 'wallet', () => openSettle({type:'customer'}), false]);
-  T.push(['查庫存', 'box', () => { S.tab = 'inv'; window.scrollTo(0, 0); draw(); }, false]);
-  if (can('sale')) T.push(['報價', 'doc', () => { S.tab = 'buy'; S.ui.buySeg = 'qt'; draw(); }, false]);
-  if (can('stock')) T.push(['盤點', 'box', openStocktakes, false]);
+  const settleOk = can('pay') && fxOn('settle');
+  if (can('sale') && fxOn('sale')) T.push(['銷貨', 'doc', () => openOrder('sale'), true]);
+  if (can('purchase') && fxOn('purchase')) T.push(['進貨', 'cart', () => openOrder('purchase'), true]);
+  if (canField() && fxOn('fieldPay') && !settleOk) T.push(['外務收款', 'wallet', () => openFieldPay(), true]);
+  if (settleOk) T.push(['收款', 'wallet', () => openSettle({type:'customer'}), false]);
+  if (fxOn('products')) T.push(['查庫存', 'box', () => { S.tab = 'inv'; window.scrollTo(0, 0); draw(); }, false]);
+  if (can('sale') && fxOn('quote')) T.push(['報價', 'doc', () => { S.tab = 'buy'; S.ui.buySeg = 'qt'; draw(); }, false]);
+  if (can('stock') && fxOn('stocktake')) T.push(['盤點', 'box', openStocktakes, false]);
   const tiles = T.slice(0, 5); tiles.push(['全部功能', 'more', () => { S.tab = 'more'; window.scrollTo(0, 0); draw(); }, false]);
   return h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'今天要做什麼？'})),
     h('div', {class:'tiles'}, tiles.map(([t, ic, fn, pri]) => h('button', {class:'tile' + (pri ? ' pri' : ''), onclick:fn}, icon(ic), h('span', {text:t})))));
@@ -11483,6 +11782,7 @@ function planPartnerImport(text, type, mode){
   return {items, issues, nNew, nUp, nSkip, nWarn};
 }
 function openPartnerImport(type){
+  if (!(type === 'customer' ? fxOn('custImport') || fxOn('dataHub') || fxOn('customers') : fxOn('dataHub') || fxOn('suppliers'))){ fxGate(type === 'customer' ? 'custImport' : 'dataHub'); return; }
   type = type || 'customer';
   if (!can('partner')) return toast('你的角色沒有這項操作的權限');
   const L = PLABEL[type], st = {mode:'upsert', text:null, plan:null};
@@ -12984,6 +13284,7 @@ function whPicker(get, set, label, list){
   s.value = get(); return s;
 }
 function openTransfer(pre){
+  if (!fxGate('transfer')) return;
   pre = pre || {};
   if (!multiWh()) return toast('目前只有一個倉庫。到「系統設定」新增倉庫後才能調撥。');
   const mine = myWhs(); if (!mine.length) return toast('你沒有可操作的倉庫');
@@ -13461,22 +13762,44 @@ const pcNum = v => { const t = String(v == null ? '' : v).normalize('NFKC').repl
 const prodSep = t => { const first = (String(t == null ? '' : t).slice(0, 4000).replace(/^﻿/, '').split(/\r\n|\r|\n/).find(l => l.trim() !== '')) || '', n = ch => first.split(ch).length - 1, c = n(','), tab = n('\t'), semi = n(';'); return tab > 0 && tab >= c && tab >= semi ? '\t' : (semi > c ? ';' : ','); };
 /* 檔案第一列的每一欄 → 對應到哪個欄位。回傳 [{i, header, key（空字串＝不匯入）, how（auto 自動認得／manual 自己選的）}]
    override：{欄位序號: 欄位 key 或 ''}，自己選的優先；選了別欄已經在用的欄位，別欄就變成不匯入 */
+/* ---- 各倉庫自己的安全庫存（有多個倉庫才有）：欄位叫「安全庫存（倉庫名稱）」，欄位代號是 safety@倉庫代號 ---- */
+const WH_RESET = /^(沿用|沿用全公司|同全公司|全公司)$/;
+/* 這個倉庫單獨設定的安全庫存（沒有單獨設定＝null，沿用全公司；和 whRuleOf 的判斷一樣，單獨設定成 0 是 0 不是 null） */
+const whOwnSafety = (p, wid) => { const r = p && p.whRules && p.whRules[wid]; return r && r.safety !== undefined && r.safety !== '' && r.safety !== null ? (Number(r.safety) || 0) : null; };
+/* 新的 whRules：patch 是 {倉庫代號: {to}}，to 是數字（單獨設定）或 null（改回沿用全公司）；最小進貨批量、進貨批量原樣保留，整個倉庫都沒設定了就拿掉 */
+const applyWhSafety = (cur, patch) => { const rules = {...(cur || {})}; for (const [wid, c] of Object.entries(patch || {})){ const r = {...(rules[wid] || {})}; if (c.to === null) delete r.safety; else r.safety = c.to; if (Object.keys(r).length) rules[wid] = r; else delete rules[wid]; } return rules; };
+/* 欄位對應下拉選單裡的所有欄位（多倉庫、管理員才有各倉庫的安全庫存） */
+const prodFields = () => { const out = {}; for (const [k, v] of Object.entries(PROD_FIELD)){ out[k] = v; if (k === 'safety' && multiWh() && S.isAdmin) for (const w of whActive()) out['safety@' + w.id] = '安全庫存（' + w.name + '）'; } return out; };
+/* 各倉庫安全庫存欄的各種寫法（倉庫名稱和安全庫存的順序、符號、括號、安全存量等說法都認得）→ 倉庫代號 */
+const whSafetyCands = () => {
+  const out = new Map(); if (!multiWh()) return out;
+  const words = COLS.safety.filter(a => /[一-鿿]/.test(a) || /^safety/i.test(a)).map(pcNorm);
+  for (const w of whActive()){ const nm = pcNorm(w.name); if (!nm) continue; for (const a of words) for (const t of [a + '(' + nm + ')', a + '[' + nm + ']', a + '【' + nm + '】', a + nm, nm + a, nm + '(' + a + ')', '[' + nm + ']' + a, '【' + nm + '】' + a]) if (!out.has(t)) out.set(t, w.id); }
+  return out;
+};
+/* 「安全庫存（件）」這種括號裡是單位、備註的，還是全公司的安全庫存；括號裡是別的字（例如倉庫名稱）就不是，不能把某個倉庫的數字當成全公司的 */
+const SAFE_QUAL = /^(件|個|箱|瓶|包|盒|組|支|罐|pcs?|ea|單位|基本單位|庫存單位|最低|最小|必填|選填|數量|量)?$/;
 function matchProdCols(head, override){
   const raw = head.map(x => String(x == null ? '' : x).trim()), full = raw.map(pcNorm), bare = raw.map(x => pcBare(x) || pcNorm(x));
+  const qual = raw.map(x => (pcNorm(x).match(/[(\[{【〔「][^)\]}】〕」]*[)\]}】〕」]/g) || []).map(t => t.slice(1, -1)).join(''));
   const cols = raw.map((header, i) => ({i, header, key:'', how:''})), used = new Set();
-  const pass = arr => { for (const k in COLS){ if (cols.some(c => c.key === k)) continue; for (const a of COLS[k]){ const an = pcNorm(a), i = arr.findIndex((x, j) => x === an && !used.has(j)); if (i >= 0){ cols[i].key = k; cols[i].how = 'auto'; used.add(i); break; } } } };
-  pass(full); pass(bare);
-  for (const [i, key] of Object.entries(override || {})){ const c = cols[Number(i)]; if (!c) continue; if (key) cols.forEach(x => { if (x.key === key){ x.key = ''; x.how = ''; } }); c.key = PROD_FIELD[key] ? key : ''; c.how = 'manual'; }
+  const pass = (arr, strict) => { for (const k in COLS){ if (cols.some(c => c.key === k)) continue; for (const a of COLS[k]){ const an = pcNorm(a), i = arr.findIndex((x, j) => x === an && !used.has(j) && (!strict || k !== 'safety' || SAFE_QUAL.test(qual[j]))); if (i >= 0){ cols[i].key = k; cols[i].how = 'auto'; used.add(i); break; } } } };
+  pass(full);
+  const wc = whSafetyCands();
+  if (wc.size) full.forEach((x, i) => { const wid = wc.get(x); if (wid === undefined || used.has(i) || cols.some(c => c.key === 'safety@' + wid)) return; cols[i].key = 'safety@' + wid; cols[i].how = 'auto'; used.add(i); });
+  pass(bare, true);
+  const F = prodFields();
+  for (const [i, key] of Object.entries(override || {})){ const c = cols[Number(i)]; if (!c) continue; if (key) cols.forEach(x => { if (x.key === key){ x.key = ''; x.how = ''; } }); c.key = F[key] ? key : ''; c.how = 'manual'; }
   return cols;
 }
 /* 預覽「會更新的商品」：欄位名稱＋（原本→新的），一眼看出安全庫存等數字會變成多少 */
 const PROD_KEY_LABEL = {name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態'};
-const prodChangeText = it => Object.keys(it.data).map(k => {
+const prodChangeText = it => [...Object.keys(it.data).map(k => {
   const lb = PROD_KEY_LABEL[k] || k; if (['name', 'supplierId', 'procSrc', 'active'].includes(k)) return lb;
   const f = x => PROD_NUM.includes(k) ? num(Number(x) || 0) : (x == null || x === '' ? '空' : String(x));
   return lb + '（' + f(it.old && it.old[k]) + '→' + f(it.data[k]) + '）';
-}).join('、');
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
+}), ...Object.entries(it.wh || {}).map(([wid, c]) => whName(wid) + '安全庫存（' + num(c.from) + '→' + (c.to === null ? '沿用全公司 ' + num(c.cw) : num(c.to)) + '）')].join('、');
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
 function parseCSV(t, sep){
   sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
@@ -13501,11 +13824,14 @@ function planImport(text, mode, override){
   const rows = parseCSV(text, prodSep(text));
   if (rows.length < 2) return {error:'檔案沒有資料列'};
   const cols = matchProdCols(rows[0], override), idx = {};
+  if (!S.isAdmin) cols.forEach(c => { if (c.key.startsWith('safety@')){ c.key = ''; c.how = 'blocked'; } });   // 各倉庫的安全庫存只有管理員可以改（和「倉庫庫存規則」一樣）
   for (const k in COLS) idx[k] = cols.findIndex(c => c.key === k);
-  const unknown = cols.filter(c => c.header && !c.key && c.how !== 'manual' && !PROD_IGNORE.includes(pcBare(c.header)));
-  if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」', cols, unknown};
+  const whIdx = {}; cols.forEach(c => { if (c.key.startsWith('safety@')) whIdx[c.key.slice(7)] = c.i; });
+  const blocked = cols.filter(c => c.how === 'blocked');
+  const unknown = cols.filter(c => c.header && !c.key && c.how !== 'manual' && c.how !== 'blocked' && !PROD_IGNORE.includes(pcBare(c.header)));
+  if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」', cols, unknown, blocked};
   const bySku = new Map(Object.values(S.products).map(p => [String(p.sku).toLowerCase(), p]));
-  const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0;
+  const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0, nWh = 0;
   rows.slice(1).forEach((r, n) => {
     const line = n + 2, g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
     const bc = g('barcode'), sku = g('sku') || bc, name = g('name');
@@ -13520,33 +13846,47 @@ function planImport(text, mode, override){
     const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
     const ps = piSrc(g('procSrc')); if (ps === null) warn.push('採購來源「' + g('procSrc') + '」看不懂（請寫國內採購或自行生產），已略過'); else if (ps) data.procSrc = ps;
     const ac = piActive(g('status')); if (ac === null) warn.push('狀態「' + g('status') + '」看不懂（請寫啟用或停用），已略過'); else if (ac !== '') data.active = ac;
+    /* 各倉庫的安全庫存：空白＝不改；寫「沿用」＝改回沿用全公司（null）；數字＝這個倉庫單獨的安全庫存 */
+    const whWant = {};
+    for (const wid of Object.keys(whIdx)){
+      const v = String(r[whIdx[wid]] == null ? '' : r[whIdx[wid]]).trim(); if (v === '') continue;
+      if (WH_RESET.test(v.replace(/[\s　]/g, ''))){ whWant[wid] = null; continue; }
+      const x = pcNum(v); if (x !== null) whWant[wid] = x; else warn.push('安全庫存（' + whName(wid) + '）「' + v + '」不是有效的數字（只填數字；要改回沿用全公司請寫「沿用」），已略過');
+    }
     const ex = bySku.get(sku.toLowerCase());
     if (warn.length){ nWarn += warn.length; warn.forEach(w => issues.push('第 ' + line + ' 列「' + sku + '」：' + w)); }
     if (ex){
       if (mode === 'add'){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 已存在，略過'); return; }
       const patch = {}; if (name !== ex.name) patch.name = name;
       for (const [k, v] of Object.entries(data)){ const cur = ex[k]; if (typeof v === 'number' ? Number(cur || 0) !== v : (k === 'active' ? (ex.active !== false) !== v : (k === 'procSrc' ? (ex.procSrc === 'make' ? 'make' : 'buy') !== v : String(cur == null ? '' : cur) !== String(v)))) patch[k] = v; }
-      if (!Object.keys(patch).length){ nSame++; return; }
+      const cwNew = patch.safety !== undefined ? patch.safety : Number(ex.safety) || 0, wh = {};
+      for (const [wid, x] of Object.entries(whWant)){ const own = whOwnSafety(ex, wid), eff = own !== null ? own : (Number(ex.safety) || 0); if (x === null ? own !== null : x !== eff) wh[wid] = {from:eff, to:x, cw:cwNew}; }
+      if (!Object.keys(patch).length && !Object.keys(wh).length){ nSame++; return; }
       if (patch.safety !== undefined && ex.whRules){
-        const own = Object.entries(ex.whRules).filter(([, r]) => r && r.safety !== undefined && r.safety !== '' && r.safety !== null && Number(r.safety) !== patch.safety);
+        const own = Object.entries(ex.whRules).filter(([w, r]) => !(w in whWant) && r && r.safety !== undefined && r.safety !== '' && r.safety !== null && Number(r.safety) !== patch.safety);
         if (own.length){ nWarn++; issues.push('第 ' + line + ' 列「' + sku + '」：安全庫存已改成全公司的 ' + num(patch.safety) + '，但 ' + own.map(([w, r]) => whName(w) + ' 另外設定了 ' + num(r.safety)).join('、') + '，那些倉庫仍照自己的設定'); }
       }
-      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]]))}); nUp++;
+      nWh += Object.keys(wh).length;
+      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]])), wh}); nUp++;
     } else {
       if (data.cartonQty === 0) delete data.cartonQty;
-      items.push({line, action:'new', sku, name, data:{sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, opening:Math.max(pcNum(g('opening')) || 0, 0)}); nNew++;
+      const dN = {sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, cwN = Number(dN.safety) || 0, wh = {};
+      for (const [wid, x] of Object.entries(whWant)) if (x !== null && x !== cwN) wh[wid] = {from:cwN, to:x, cw:cwN};
+      nWh += Object.keys(wh).length;
+      items.push({line, action:'new', sku, name, data:dN, wh, opening:Math.max(pcNum(g('opening')) || 0, 0)}); nNew++;
     }
   });
-  return {items, skipped, issues, nNew, nUp, nSame, nWarn, cols, unknown};
+  return {items, skipped, issues, nNew, nUp, nSame, nWarn, nWh, whCols:Object.keys(whIdx), cols, unknown, blocked};
 }
 const dsProductMaster = () => {
-  const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '';
-  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
-  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', stockOf(p.id)]);
-  return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和「匯入商品」相同，修改後存成 CSV 再匯入，就會依料號更新', filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
+  const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '', whs = multiWh() ? whActive() : [];
+  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
+  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', stockOf(p.id)]);
+  return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和「匯入商品」相同，修改後存成 CSV 再匯入，就會依料號更新' + (whs.length ? '。「安全庫存（倉庫名稱）」是那個倉庫現在實際使用的數字：改了數字就是幫那個倉庫單獨設定，沒改的不會動，要改回沿用全公司的安全庫存請寫「沿用」' : ''), filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
 };
 /* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
 function openDataHub(){
+  if (!fxGate('dataHub')) return;
   if (!can('partner') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   liveSheet({title:'資料匯入匯出'}, ['partners', 'products', 'prules', 'promos', 'shelves'], sh => {
     const nCust = Object.values(S.partners).filter(x => x.type === 'customer').length, nSup = Object.values(S.partners).filter(x => x.type === 'supplier').length, nProd = Object.keys(S.products).length;
@@ -13558,8 +13898,8 @@ function openDataHub(){
       h('div', {class:'note', style:'margin-top:0', text:'匯出的 CSV，欄位和匯入完全一樣：先匯出、在 Excel 改好，再匯入，就能批次更新。匯入時，檔案裡空白的欄位不會清掉原本的資料。'}),
       card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
       card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
-      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
-      canShelf() ? card('shelf', '架位清單', Object.keys(S.shelves || {}).length, '個', '架位代碼、倉庫、備註、狀態（啟用／停用）。有同樣的架位就更新備註和狀態，沒有就新增。匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變。', () => openExport(dsShelves()), () => openShelfImport()) : null,
+      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存（有多個倉庫時，每個倉庫各一欄）、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
+      canShelf() && fxOn('shelfMgmt') ? card('shelf', '架位清單', Object.keys(S.shelves || {}).length, '個', '架位代碼、倉庫、備註、狀態（啟用／停用）。有同樣的架位就更新備註和狀態，沒有就新增。匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變。', () => openExport(dsShelves()), () => openShelfImport()) : null,
       S.isAdmin ? h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 價格策略'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:'價格策略'}), h('span', {class:'hint', text:Object.keys(S.prules).length + ' 條規則・' + Object.keys(S.promos || {}).length + ' 個組合／買送'})), h('p', {class:'hint', style:'margin:4px 0 10px', text:'價格規則（等級價、數量階梯、促銷期間、客戶專屬價）、組合優惠與買送贈品。匯入前會先預覽，確認後才寫入。'}), h('button', {class:'btn', style:'width:100%', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出')) : null,
       S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
     return {body};
@@ -13575,7 +13915,7 @@ function openImport(){
     const row = c => {
       const sel = h('select', {class:'in', style:'height:40px;min-width:0;width:100%', 'aria-label':'欄位對應 ' + c.header, value:c.key || '', onchange:e => { st.map[c.i] = e.target.value; paint(); }},
         h('option', {value:'', text:'（不匯入）'}),
-        Object.entries(PROD_FIELD).map(([k, label]) => { const o = cols.find(x => x.key === k && x.i !== c.i); return h('option', {value:k, text:label + (o ? '（現在是「' + o.header + '」）' : '')}); }));
+        Object.entries(prodFields()).map(([k, label]) => { const o = cols.find(x => x.key === k && x.i !== c.i); return h('option', {value:k, text:label + (o ? '（現在是「' + o.header + '」）' : '')}); }));
       return h('div', {'aria-label':'欄位 ' + c.header, style:'display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:8px;align-items:center;margin:6px 0'},
         h('span', {class:unk.includes(c) ? 'overdue' : '', style:'overflow-wrap:anywhere;font-size:14px', text:c.header}), sel);
     };
@@ -13588,10 +13928,11 @@ function openImport(){
     const pl = st.plan = planImport(st.text, st.mode, st.map);
     if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error + (pl.cols ? '。請在下面的「欄位對應」選好哪一欄是料號、哪一欄是品名。' : '')}), mapPanel(pl)); goBtn.disabled = true; return; }
     const over = docCount() + pl.nNew + (pl.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
-    const renamed = pl.cols.filter(c => c.key && pcNorm(c.header) !== pcNorm(PROD_FIELD[c.key]));
-    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+    const PF = prodFields(), renamed = pl.cols.filter(c => c.key && pcNorm(c.header) !== pcNorm(PF[c.key]));
+    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.whCols.length ? kv('各倉庫安全庫存', pl.nWh + ' 筆要改') : null, pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+      pl.blocked.length ? h('div', {class:'note bad', style:'margin-top:6px', 'aria-label':'不能匯入的欄位'}, h('b', {text:'只有管理員可以匯入各倉庫的安全庫存，這 ' + pl.blocked.length + ' 欄不會匯入：'}), '「' + pl.blocked.map(c => c.header).join('」「') + '」。') : null,
       pl.unknown.length ? h('div', {class:'note warn', 'aria-label':'看不懂的欄位'}, h('b', {text:'有 ' + pl.unknown.length + ' 個欄位看不懂，不會匯入：'}), '「' + pl.unknown.map(c => c.header).join('」「') + '」。要匯入的話，請在下面的「欄位對應」選它要對應到哪一欄。') : null,
-      renamed.length ? h('small', {class:'hint', style:'display:block;margin:8px 0', 'aria-label':'欄位名稱對應', text:'欄位名稱不同，已對應：' + renamed.map(c => '「' + c.header + '」→' + PROD_FIELD[c.key]).join('、')}) : null,
+      renamed.length ? h('small', {class:'hint', style:'display:block;margin:8px 0', 'aria-label':'欄位名稱對應', text:'欄位名稱不同，已對應：' + renamed.map(c => '「' + c.header + '」→' + PF[c.key]).join('、')}) : null,
       mapPanel(pl),
       over ? h('div', {class:'note bad', text:'匯入後會超過資料量上限（' + DOC_LIMIT + '）。'}) : null,
       pl.nUp ? h('div', {style:'margin-top:8px'}, h('b', {text:'會更新的商品（前 5 項）'}), h('ul', null, pl.items.filter(i => i.action === 'update').slice(0, 5).map(i => h('li', null, h('small', {text:i.sku + ' ' + i.name + '：' + prodChangeText(i)}))))) : null,
@@ -13609,8 +13950,9 @@ function openImport(){
       for (let i = 0; i < pl.items.length; i += 5){
         const chunk = pl.items.slice(i, i + 5);
         const write = () => Promise.all(chunk.map(async it => {
-          if (it.action === 'update'){ await S.db.doc('products/' + it.id).update(it.data); return; }
-          const ref = S.db.collection('products').doc(), data = {...it.data};
+          const hasWh = !!(it.wh && Object.keys(it.wh).length);
+          if (it.action === 'update'){ await S.db.doc('products/' + it.id).update({...it.data, ...(hasWh ? {whRules:applyWhSafety((S.products[it.id] || {}).whRules, it.wh)} : {})}); return; }
+          const ref = S.db.collection('products').doc(), data = {...it.data, ...(hasWh ? {whRules:applyWhSafety({}, it.wh)} : {})};
           await ref.set({...data, ...(data.supplierId ? {} : (defaultSupplierId() ? {supplierId:defaultSupplierId()} : {})), active:data.active === false ? false : true, createdBy:S.meId, createdAt:Date.now()});
           if (it.opening > 0) opening.push({pid:ref.id, name:it.name, sku:it.sku, unit:data.unit || '個', qty:it.opening, counted:it.opening, before:0, price:0, cost:data.cost || 0});
         }));
@@ -13623,10 +13965,12 @@ function openImport(){
     goBtn.textContent = '開始匯入';
     if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + ' 項'); sh.forceClose(); } else goBtn.disabled = false;
   });
-  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', '期初庫存', '條碼', '架位', '標籤規格', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態'];
+  const whHead = multiWh() && S.isAdmin ? whActive().map(w => '安全庫存（' + w.name + '）') : [];
+  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', ...whHead, '期初庫存', '條碼', '架位', '標籤規格', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態'];
   /* 範本的範例列照欄位名稱填，不會再因為多一欄、少一欄而錯位 */
   const TPL = [{'料號':'A001', '品名':'礦泉水 600ml', '分類':'飲料', '單位':'瓶', '每箱入數':24, '進價':8, '售價':15, '安全庫存':48, '期初庫存':120, '條碼':'4710000000017', '架位':'A-01', '標籤規格':'600ml × 24 瓶／箱', '供應商':'鑫城實業股份有限公司', '最小採購量':24, '進貨批量':12, '材積（才）':0.02, '採購來源':'國內採購', '狀態':'啟用'},
     {'料號':'A002', '品名':'綠茶 500ml', '分類':'飲料', '單位':'瓶', '進價':12, '售價':25, '安全庫存':24, '期初庫存':60, '採購來源':'國內採購', '狀態':'啟用'}];
+  whHead.forEach((k, i) => { TPL[0][k] = [30, 20, 10][i % 3]; });
   put(sh.bodyEl,
     h('div', {class:'sec-h', style:'margin-top:0'}, h('h2', {text:'匯出'})),
     h('p', {class:'note', text:'把全部商品的基本資料匯出成 Excel、PDF 或 CSV。要修改後再匯入，請選 CSV：欄位和下面的匯入完全一樣。'}),
@@ -13635,7 +13979,7 @@ function openImport(){
     h('p', {class:'note', text:'CSV 第一列是欄位名稱。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD, ...TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : r[k]))]))}, icon('down'), '下載範本')),
     fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
   sh.footEl.append(goBtn);
 }
 
