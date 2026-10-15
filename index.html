@@ -11362,7 +11362,10 @@ function openBatchEdit(){
   const cats = () => [...new Set(Object.values(S.products).map(p => p.category).filter(Boolean))].sort();
   const sups = () => Object.values(S.partners).filter(p => p.type === 'supplier').sort(cmpName);
   const scoped = () => Object.values(S.products).filter(p => st.scope === 'all' || (st.scope === 'cat' && p.category === st.cat) || (st.scope === 'sup' && (p.supplierId || '') === st.sup) || (st.scope === 'src' && (p.procSrc || 'buy') === st.src));
-  const ACTS = {price_pct:'售價調整（%）', cost_pct:'進價調整（%）', set_cat:'設定產品大類', set_sup:'設定預設進貨廠商', set_moq:'設定最小採購量／批量', set_src:'設定採購來源', set_unit:'設定基本單位', off:'停用商品', on:'啟用商品'};
+  const ACTS = {price_pct:'售價調整（%）', cost_pct:'進價調整（%）', set_cat:'設定產品大類', set_sup:'設定預設進貨廠商', set_moq:'設定最小採購量／批量', set_src:'設定採購來源', set_unit:'設定基本單位', clear_bc:'刪除條碼', off:'停用商品', on:'啟用商品'};
+  /* 預覽用中文欄位名稱和值 */
+  const BE_FLD = {price:'售價', cost:'進價', category:'產品大類', supplierId:'預設進貨廠商', moq:'最小採購量', lot:'採購批量', procSrc:'採購來源', unit:'基本單位', active:'狀態', barcode:'條碼'};
+  const beVal = (k, v) => k === 'supplierId' ? (v ? (S.partners[v] || {}).name || v : '不指定') : k === 'procSrc' ? (v === 'make' ? '自行生產' : '國內採購') : k === 'active' ? (v === false ? '停用' : '啟用') : k === 'barcode' && !v ? '（刪除）' : (v === undefined || v === null || v === '' ? '—' : v);
   const change = p => {
     const n = toNum(st.v1);
     switch (st.act){
@@ -11373,6 +11376,7 @@ function openBatchEdit(){
       case 'set_moq': { const o = {}; if (st.v1.trim() !== '') o.moq = Math.max(toNum(st.v1), 0); if (st.v2.trim() !== '') o.lot = Math.max(toNum(st.v2), 0); return o; }
       case 'set_src': return {procSrc:st.src === 'make' ? 'make' : 'buy'};
       case 'set_unit': return {unit:st.unit};
+      case 'clear_bc': return {barcode:''};
       case 'off': return {active:false}; case 'on': return {active:true};
     } return {};
   };
@@ -11392,17 +11396,17 @@ function openBatchEdit(){
     st.act === 'set_src' ? sel([['buy', '國內採購'], ['make', '自行生產']], st.src, v => { st.src = v; paintPrev(); }, '新採購來源') : null,
     st.act === 'set_unit' ? sel(UNITS.map(u => [u, u]), st.unit, v => { st.unit = v; paintPrev(); }, '新單位') : null);
   const paintPrev = () => { const d = diffs(); setKids(prevBox, h('div', {class:'panel pad', style:'margin-top:10px'}, kv('範圍內商品', scoped().length + ' 項'), kv('會被修改', d.length + ' 項'),
-    ...d.slice(0, 5).map(([p, c]) => h('small', {class:'hint', style:'display:block', text:p.sku + ' ' + p.name + '：' + Object.entries(c).map(([k, v]) => k + ' ' + (p[k] === undefined ? '—' : p[k]) + ' → ' + v).join('，')})))); goBtn.disabled = !d.length; };
+    ...d.slice(0, 5).map(([p, c]) => h('small', {class:'hint', style:'display:block', text:p.sku + ' ' + p.name + '：' + Object.entries(c).map(([k, v]) => (BE_FLD[k] || k) + ' ' + beVal(k, p[k]) + ' → ' + beVal(k, v)).join('，')})), st.act === 'clear_bc' ? h('small', {class:'hint', 'aria-label':'刪除條碼說明', style:'display:block;margin-top:6px', text:'只會清空條碼，料號、品名、庫存都不會動；沒有條碼的商品不算在內。刪除後，掃商品上的原廠條碼會找不到商品，系統印的料號 QR Code 標籤照常可以掃。只要刪除幾個商品的條碼，也可以用「產品基本資料匯出與匯入」，在條碼欄寫「清除」。'}) : null)); goBtn.disabled = !d.length; };
   const goBtn = h('button', {class:'btn grow', onclick:async () => {
     const d = diffs(); if (!d.length) return;
     if (st.act === 'set_cat' && !st.txt.trim()) return toast('請輸入新的產品大類');
     if (['price_pct', 'cost_pct'].includes(st.act) && !(st.v1.trim() !== '' && isFinite(toNum(st.v1)))) return toast('請輸入調整百分比');
-    if (!await dialog({title:'修改 ' + d.length + ' 項商品？', msg:'「' + ACTS[st.act] + '」會直接寫入商品資料，無法一鍵復原，建議先做資料庫備份。', ok:'開始修改', danger:true})) return;
+    if (!await dialog(st.act === 'clear_bc' ? {title:'刪除 ' + d.length + ' 項商品的條碼？', msg:'這 ' + d.length + ' 項商品的條碼會被清空，無法一鍵復原，建議先做資料庫備份（或先匯出產品基本資料留底）。刪除後，掃商品上的原廠條碼會找不到商品；系統印的料號 QR Code 標籤不受影響。', ok:'刪除條碼', danger:true} : {title:'修改 ' + d.length + ' 項商品？', msg:'「' + ACTS[st.act] + '」會直接寫入商品資料，無法一鍵復原，建議先做資料庫備份。', ok:'開始修改', danger:true})) return;
     goBtn.disabled = true;
     const ok = await run(async () => { for (let i = 0; i < d.length; i += 8){ const chunk = d.slice(i, i + 8); const w = () => Promise.all(chunk.map(([p, c]) => S.db.doc('products/' + p.id).update(c))); try { await w(); } catch (e) { if (e && e.code === 'resource_exhausted'){ await new Promise(r => setTimeout(r, 1200)); await w(); } else throw e; } goBtn.textContent = '修改中 ' + Math.min(i + 8, d.length) + ' / ' + d.length; } return true; });
     goBtn.textContent = '執行修改'; if (ok){ toast('已修改 ' + d.length + ' 項商品'); sh.forceClose(); } else goBtn.disabled = false;
   }}, '執行修改');
-  put(sh.bodyEl, h('p', {class:'note', text:'一次修改多個商品：選範圍、選修改內容、看預覽再執行。適合全面調價、換分類、統一設定最小採購量與批量。'}),
+  put(sh.bodyEl, h('p', {class:'note', text:'一次修改多個商品：選範圍、選修改內容、看預覽再執行。適合全面調價、換分類、統一設定最小採購量與批量、整批刪除條碼。'}),
     h('div', {class:'f'}, h('label', {text:'範圍'}), scopeBox), h('div', {class:'f'}, h('label', {text:'修改內容'}), argBox), prevBox);
   sh.footEl.append(goBtn); paintScope(); paintArg(); paintPrev();
 }
@@ -11474,7 +11478,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-br';
+const APP_VERSION = '2026.10.11-bs';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -11555,7 +11559,7 @@ const FN = {
   buSettings:{l:'事業部設定', kw:'事業部 網路事業部'},
   lineSettings:{l:'LINE 通知設定', kw:'line 通知 賴 推播'},
   guard:{l:'費用保護', kw:'費用 用量 保護 暫停'},
-  batchEdit:{l:'整批修改作業', kw:'整批 批次 修改 調價 停用', d:'一次調整一批商品的售價、進價、分類、供應商、單位或啟用狀態'},
+  batchEdit:{l:'整批修改作業', kw:'整批 批次 修改 調價 停用 條碼 刪除條碼 清除條碼 清空條碼', d:'一次調整一批商品的售價、進價、分類、供應商、單位、啟用狀態，或整批刪除條碼'},
   backup:{l:'資料庫備份', kw:'備份 下載 還原 資料', d:'下載全部資料的備份檔，也可以從備份還原'},
   progBackup:{l:'程式備份', kw:'備份 程式 html', d:'把目前的系統程式存成 .html 檔留存'},
   wipe:{l:'清除所有資料', kw:'清除 刪除 重設 初始化'},
@@ -11659,7 +11663,7 @@ function regroupMenu(raw){
   const rest = flat.filter(i => !used.has(i) && !FN[i.id]); if (rest.length) out.push(['其他', rest]);
   return out;
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {fnForTest:{FN, FN_CATS, FN_ACTS, ACT_KEYS, FN_LABEL, fxPerms, fxForced, fxFromDef, defFromSt, fnVisible, fnAvail, fnCountOf, fxOn, myFx, fxOrderOk, menuHit, shortAct, tabAllowed:k => tabAllowed(k), menuGroups:() => menuGroups(), menuFlat:() => menuFlat(), openRoles:() => openRoles(), openRoleForm:k => openRoleForm(k), openUserPerms:(u, n) => openUserPerms(u, n), openFnOverview:() => openFnOverview(), homeTiles:() => homeTiles(), canReviewPerm:() => canReviewPerm(), openPalette:() => openPalette(), menuPins:() => menuPins(), menuRecents:() => menuRecents(), moreTypesList:() => moreTypesList()}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {fnForTest:{openBatchEdit:() => openBatchEdit(), FN, FN_CATS, FN_ACTS, ACT_KEYS, FN_LABEL, fxPerms, fxForced, fxFromDef, defFromSt, fnVisible, fnAvail, fnCountOf, fxOn, myFx, fxOrderOk, menuHit, shortAct, tabAllowed:k => tabAllowed(k), menuGroups:() => menuGroups(), menuFlat:() => menuFlat(), openRoles:() => openRoles(), openRoleForm:k => openRoleForm(k), openUserPerms:(u, n) => openUserPerms(u, n), openFnOverview:() => openFnOverview(), homeTiles:() => homeTiles(), canReviewPerm:() => canReviewPerm(), openPalette:() => openPalette(), menuPins:() => menuPins(), menuRecents:() => menuRecents(), moreTypesList:() => moreTypesList()}}); } catch (_) {}
 function menuGroups(){
   const goTab = (tab, ui) => () => { S.tab = tab; if (ui) Object.assign(S.ui, ui); window.scrollTo(0, 0); draw(); };
   const M = (label, ok, fn, desc) => ({label, ok:!!ok, fn, desc:desc || ''});
@@ -14148,7 +14152,7 @@ function openImport(){
     h('p', {class:'note', text:'選 Excel 檔（.xlsx，讀第一個工作表）或 CSV 檔，第一列是欄位名稱（系統匯出的 Excel 檔上面的標題列會自動略過）。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.xlsx', xlsxBuild(tplDs()))}, icon('down'), '下載範本（Excel）')),
     fld('選擇檔案（Excel .xlsx 或 CSV）', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：直接匯入 Excel 檔（.xlsx）最保險；用這裡匯出的 CSV 修改也不會有這個問題（料號、條碼會保持原樣）；自己做的 CSV，請先把料號、條碼欄設成「文字」格式再輸入。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'})))] : null);
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」（要一次刪除全部或整個大類的條碼，用「整批修改作業」→「刪除條碼」更快）。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：直接匯入 Excel 檔（.xlsx）最保險；用這裡匯出的 CSV 修改也不會有這個問題（料號、條碼會保持原樣）；自己做的 CSV，請先把料號、條碼欄設成「文字」格式再輸入。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'})))] : null);
   if (canImp) sh.footEl.append(goBtn);
 }
 
