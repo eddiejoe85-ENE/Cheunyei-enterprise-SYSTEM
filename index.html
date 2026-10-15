@@ -1055,7 +1055,7 @@ function pInv(){
         can('stock') && (fxOn('assembly') || fxOn('disassembly')) ? h('button', {class:'btn ghost sm', onclick:() => openBomOp(fxOn('assembly') ? 'assembly' : 'disassembly')}, fxOn('assembly') && fxOn('disassembly') ? '組成／拆解' : (fxOn('assembly') ? '組成' : '拆解')) : null,
         can('print') && fxOn('labels') ? h('button', {class:'btn ghost sm', onclick:() => openLabelPrint()}, '標籤') : null,
         exportBtn(dsInventory),
-        S.isAdmin ? h('button', {class:'btn ghost sm', onclick:openImport}, '匯入') : null,
+        S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'產品基本資料匯入匯出', onclick:openImport}, '匯入／匯出') : null,
         S.isAdmin ? h('button', {class:'btn sm', onclick:() => openProductForm()}, icon('plus'), '新增商品') : null)),
     Object.values(S.counts).some(c => c.status === 'open') && can('stock') && fxOn('stocktake') ? h('button', {class:'note', onclick:openStocktakes}, '進行中的盤點：' + Object.values(S.counts).filter(c => c.status === 'open').map(c => c.name).join('、') + '，點此查看') : null,
     h('label', {class:'search'}, icon('search'),
@@ -2113,6 +2113,7 @@ function openPartnerForm(id, type){
 function csvText(rows){
   const cell = c => {
     if (c == null) return '';
+    if (typeof c === 'object' && c.xlText !== undefined){ const f = '="' + String(c.xlText).replace(/"/g, '') + '"'; return '"' + f.replace(/"/g, '""') + '"'; }
     let s = String(c);
     if (typeof c === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -7918,10 +7919,114 @@ function shelfImportWh(cell, defWh){
   return {id:w.id};
 }
 /* 檔案內容 → 文字。Excel 檔（.xlsx／.xls）讀不了，直接說明怎麼存成 CSV */
+/* ================= 讀 Excel 檔（.xlsx）：解壓縮（ZIP＋Deflate）→ 第一個工作表 → 一列一列的文字 =================
+   匯入產品基本資料、架位清單時，可以直接選系統匯出的 Excel 檔，不用另存 CSV；料號、條碼存成文字，不會被 Excel 改掉。 */
+function inflateRaw(src){
+  let ip = 0, tag = 0, cnt = 0, out = new Uint8Array(Math.max(4096, src.length * 4)), op = 0;
+  const grow = n => { if (op + n <= out.length) return; let m = out.length * 2; while (m < op + n) m *= 2; const o = new Uint8Array(m); o.set(out.subarray(0, op)); out = o; };
+  const bit = () => { if (!cnt--){ if (ip >= src.length) throw new Error('資料不完整'); tag = src[ip++]; cnt = 7; } const b = tag & 1; tag >>>= 1; return b; };
+  const bits = (n, base) => { let v = 0; for (let m = 1, i = 0; i < n; i++, m <<= 1) if (bit()) v += m; return v + base; };
+  const Tree = () => ({t:new Uint16Array(16), s:new Uint16Array(320)});
+  const build = (tr, len, off, num) => { const offs = new Uint16Array(16); tr.t.fill(0); for (let i = 0; i < num; i++) tr.t[len[off + i]]++; tr.t[0] = 0; for (let sum = 0, i = 0; i < 16; i++){ offs[i] = sum; sum += tr.t[i]; } for (let i = 0; i < num; i++) if (len[off + i]) tr.s[offs[len[off + i]]++] = i; };
+  const sym = tr => { let sum = 0, cur = 0, len = 0; do { cur = 2 * cur + bit(); len++; if (len > 15) throw new Error('資料錯誤'); sum += tr.t[len]; cur -= tr.t[len]; } while (cur >= 0); return tr.s[sum + cur]; };
+  const lb = new Uint8Array(30), lbase = new Uint16Array(30), db = new Uint8Array(30), dbase = new Uint16Array(30);
+  const bb = (b, base, delta, first) => { for (let i = 0; i < delta; i++) b[i] = 0; for (let i = 0; i < 30 - delta; i++) b[i + delta] = (i / delta) | 0; for (let sum = first, i = 0; i < 30; i++){ base[i] = sum; sum += 1 << b[i]; } };
+  bb(lb, lbase, 4, 3); bb(db, dbase, 2, 1); lb[28] = 0; lbase[28] = 258;
+  const fl = Tree(), fd = Tree(); { const l = new Uint8Array(288); l.fill(8, 0, 144); l.fill(9, 144, 256); l.fill(7, 256, 280); l.fill(8, 280, 288); build(fl, l, 0, 288); build(fd, new Uint8Array(30).fill(5), 0, 30); }
+  const ORD = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  const dyn = (lt, dt) => {
+    const hlit = bits(5, 257), hdist = bits(5, 1), hclen = bits(4, 4), len = new Uint8Array(288 + 32), ct = Tree();
+    for (let i = 0; i < hclen; i++) len[ORD[i]] = bits(3, 0);
+    build(ct, len, 0, 19); len.fill(0, 0, 19);
+    for (let n = 0; n < hlit + hdist;){
+      const s = sym(ct);
+      if (s === 16){ const prev = len[n - 1]; for (let k = bits(2, 3); k; k--) len[n++] = prev; }
+      else if (s === 17){ for (let k = bits(3, 3); k; k--) len[n++] = 0; }
+      else if (s === 18){ for (let k = bits(7, 11); k; k--) len[n++] = 0; }
+      else len[n++] = s;
+    }
+    build(lt, len, 0, hlit); build(dt, len, hlit, hdist);
+  };
+  const block = (lt, dt) => {
+    for (;;){
+      let s = sym(lt);
+      if (s === 256) return;
+      if (s < 256){ grow(1); out[op++] = s; continue; }
+      s -= 257; const n = bits(lb[s], lbase[s]), d = sym(dt), from = op - bits(db[d], dbase[d]);
+      if (from < 0) throw new Error('資料錯誤');
+      grow(n); for (let i = 0; i < n; i++) out[op++] = out[from + i];
+    }
+  };
+  let last;
+  do {
+    last = bit(); const type = bits(2, 0);
+    if (type === 0){ cnt = 0; const n = src[ip] | (src[ip + 1] << 8); ip += 4; if (ip + n > src.length) throw new Error('資料不完整'); grow(n); out.set(src.subarray(ip, ip + n), op); op += n; ip += n; }
+    else if (type === 1) block(fl, fd);
+    else if (type === 2){ const lt = Tree(), dt = Tree(); dyn(lt, dt); block(lt, dt); }
+    else throw new Error('資料錯誤');
+  } while (!last);
+  return out.subarray(0, op);
+}
+/* ZIP：用檔案最後的目錄找到每個檔案，回傳 {names, read(name) → 文字（UTF-8）或 null} */
+function unzipText(u8){
+  let e = -1; for (let i = u8.length - 22; i >= 0 && i >= u8.length - 65600; i--) if (u8[i] === 0x50 && u8[i + 1] === 0x4b && u8[i + 2] === 5 && u8[i + 3] === 6){ e = i; break; }
+  if (e < 0) throw new Error('不是完整的 Excel 檔');
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), n = dv.getUint16(e + 10, true), files = {};
+  let p = dv.getUint32(e + 16, true);
+  for (let k = 0; k < n && p + 46 <= u8.length; k++){
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+    const name = new TextDecoder('utf-8').decode(u8.subarray(p + 46, p + 46 + nl)).replace(/\\/g, '/'), start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    files[name] = {method, data:u8.subarray(start, start + size)};
+    p += 46 + nl + el + cl;
+  }
+  const find = name => files[name] || files[Object.keys(files).find(x => x.toLowerCase() === name.toLowerCase())];
+  return {names:Object.keys(files), has:name => !!find(name), read:name => { const f = find(name); if (!f) return null; if (f.method !== 0 && f.method !== 8) throw new Error('壓縮方式不支援'); return new TextDecoder('utf-8').decode(f.method === 8 ? inflateRaw(f.data) : f.data); }};
+}
+/* 第一個（看得到的）工作表 → 二維陣列（每格都是文字；公式用算好的值；數字照存的值，例如 4710000000017） */
+function xlsxRows(u8){
+  const z = unzipText(u8), P = new DOMParser(), xml = n => { const t = z.read(n); return t == null ? null : P.parseFromString(t, 'application/xml'); };
+  const all = (node, tag) => node ? [...node.getElementsByTagNameNS('*', tag)] : [];
+  const ss = all(xml('xl/sharedStrings.xml'), 'si').map(si => all(si, 't').filter(t => !(t.parentNode && t.parentNode.localName === 'rPh')).map(t => t.textContent).join(''));
+  const wb = xml('xl/workbook.xml'), rels = xml('xl/_rels/workbook.xml.rels'), sheets = all(wb, 'sheet'), sh = sheets.find(x => (x.getAttribute('state') || 'visible') === 'visible') || sheets[0];
+  let path = '';
+  if (sh && rels){ const rid = sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || sh.getAttribute('r:id'), rel = all(rels, 'Relationship').find(r => r.getAttribute('Id') === rid);
+    if (rel){ const tg = String(rel.getAttribute('Target') || '').replace(/^\.\//, ''); path = tg.startsWith('/') ? tg.slice(1) : (tg.startsWith('xl/') ? tg : 'xl/' + tg); } }
+  if (!path || !z.has(path)) path = z.names.filter(n => /^xl\/worksheets\/[^/]+\.xml$/i.test(n)).sort()[0] || '';
+  const doc = path ? xml(path) : null; if (!doc) throw new Error('找不到工作表');
+  const col = s => { let n = 0; for (const ch of s.toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+  const num = v => { const n = Number(v); if (!isFinite(n)) return String(v); const r = Number(n.toPrecision(15)); return Math.abs(r) < 1e21 ? String(r) : String(v); };
+  const rows = [];
+  for (const row of all(doc, 'row')){
+    const ri = Number(row.getAttribute('r')) || rows.length + 1, arr = []; let ci = 0;
+    for (const c of all(row, 'c')){
+      const ref = /^([A-Z]+)\d*$/i.exec(c.getAttribute('r') || ''); if (ref) ci = col(ref[1]);
+      const t = c.getAttribute('t') || 'n', vEl = all(c, 'v')[0], v = vEl ? vEl.textContent : null;
+      arr[ci] = t === 's' ? (ss[Number(v)] || '') : t === 'inlineStr' ? all(c, 't').map(x => x.textContent).join('') : t === 'b' ? (v === '1' ? 'TRUE' : v == null ? '' : 'FALSE') : t === 'e' || v == null ? '' : t === 'str' ? v : num(v);
+      ci++;
+    }
+    rows[ri - 1] = arr;
+  }
+  const out = [];
+  for (let i = 0; i < rows.length; i++){ const r = rows[i] || []; const a = []; for (let j = 0; j < r.length; j++) a.push(r[j] == null ? '' : String(r[j])); out.push(a); }
+  while (out.length && !out[out.length - 1].some(x => x.trim() !== '')) out.pop();
+  /* 系統匯出的 Excel 檔上面有標題、說明列（只有一格），後面才是欄位名稱：把前面只有一格的列拿掉 */
+  const filled = r => r.filter(x => x.trim() !== '').length, first = out.findIndex(r => filled(r) >= 2);
+  const res = first > 0 && first <= 6 && out.slice(0, first).every(r => filled(r) <= 1) ? out.slice(first) : out;
+  Object.defineProperty(res, 'skip', {value:res === out ? 0 : first});   // 略過了幾列（匯入時列號要加回去）
+  return res;
+}
+const rowsToCsv = rows => rows.map(r => r.map(x => /[",\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x).join(',')).join('\n');
+const XLSX_SAVE = '請在 Excel 選「檔案 → 另存新檔」，存成「Excel 活頁簿（.xlsx）」或「CSV UTF-8（逗號分隔）」，再選一次。';
+function xlsxText(u8){
+  try { const rows = xlsxRows(u8); if (!rows.some(r => r.some(x => x.trim() !== ''))) return {error:'這個 Excel 檔的第一個工作表是空的'}; return {text:'\n'.repeat(rows.skip || 0) + rowsToCsv(rows), xlsx:true}; }
+  catch (e) { return {error:'這個 Excel 檔讀不出來（' + ((e && e.message) || '格式不對') + '，可能已損壞或有設密碼）。' + XLSX_SAVE}; }
+}
 function shelfImportDecode(buf){
   const u = new Uint8Array(buf);
   if (!u.length) return {error:'檔案是空的，沒有資料列'};
-  if ((u[0] === 0x50 && u[1] === 0x4b && u[2] === 0x03 && u[3] === 0x04) || (u[0] === 0xd0 && u[1] === 0xcf && u[2] === 0x11 && u[3] === 0xe0)) return {error:'這是 Excel 檔（.xlsx／.xls），系統讀不了。請在 Excel 選「檔案 → 另存新檔」，存檔類型選「CSV UTF-8（逗號分隔）」，再選擇存好的 .csv 檔。'};
+  if (u[0] === 0x50 && u[1] === 0x4b && u[2] === 0x03 && u[3] === 0x04) return xlsxText(u);
+  if (u[0] === 0xd0 && u[1] === 0xcf && u[2] === 0x11 && u[3] === 0xe0) return {error:'這是舊版 Excel 檔（.xls），系統讀不了。' + XLSX_SAVE};
   try {
     if (u[0] === 0xff && u[1] === 0xfe) return {text:new TextDecoder('utf-16le').decode(u.subarray(2))};
     if (u[0] === 0xfe && u[1] === 0xff) return {text:new TextDecoder('utf-16be').decode(u.subarray(2))};
@@ -7953,7 +8058,7 @@ function planShelfImport(text, mode, defWh){
   const seen = new Set(), items = [], skipped = [], issues = [], whCount = {};
   let nNew = 0, nUp = 0, nSame = 0, nWarn = 0;
   body.forEach((r, n) => {
-    const line = n + (hasHead ? 2 : 1), g = k => idx[k] >= 0 ? shelfCell(r[idx[k]]) : '';
+    const line = r.no || n + (hasHead ? 2 : 1), g = k => idx[k] >= 0 ? shelfCell(r[idx[k]]) : '';
     const code = normShelf(g('code'));
     if (!code){ skipped.push('第 ' + line + ' 列：沒有填架位代碼'); return; }
     const lbl = '第 ' + line + ' 列「' + (code.length > 20 ? code.slice(0, 20) + '…' : code) + '」';
@@ -8042,7 +8147,7 @@ function openShelfImport(opt){
       pl.ignored.length ? h('div', {class:'hint', style:'margin-top:8px', 'aria-label':'忽略的欄位'}, '不認得的欄位會忽略：' + pl.ignored.join('、') + '（認得的欄位：架位、倉庫、備註、狀態）') : null);
     goBtn.disabled = !(pl.nNew + pl.nUp) || over;
   };
-  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt,text/plain', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => {
+  const file = h('input', {type:'file', accept:'.xlsx,.csv,.txt,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
     const rd = new FileReader();
     rd.onload = () => { const r = shelfImportDecode(rd.result); st.text = r.error ? null : r.text; st.err = r.error || ''; paint(); };
@@ -8070,10 +8175,10 @@ function openShelfImport(opt){
     if (r.fail) paint(); else sh.forceClose();
   });
   put(sh.bodyEl,
-    h('p', {class:'note', text:'一次建立或更新很多架位：把架位清單放在 Excel，存成 CSV（UTF-8）後選擇檔案，先看預覽，確認再匯入。欄位和「匯出架位清單」一樣，所以也可以先匯出、在 Excel 改好備註或狀態，再匯入回來。'}),
+    h('p', {class:'note', text:'一次建立或更新很多架位：把架位清單放在 Excel，直接選 Excel 檔（.xlsx）或 CSV 檔，先看預覽，確認再匯入。欄位和「匯出架位清單」一樣，所以也可以先匯出 Excel、改好備註或狀態，直接匯入回來。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載架位匯入範本', onclick:tpl}, icon('down'), '下載範本')),
     whSel ? fld('預設倉庫（檔案沒有「倉庫」欄，或那一格空白時使用）', whSel) : null,
-    fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的架位'}), modeChips), info,
+    fld('選擇檔案（Excel .xlsx 或 CSV）', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的架位'}), modeChips), info,
     h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'},
       h('small', {class:'hint', style:'display:block', text:'第一列是欄位名稱：架位（必填）、倉庫、備註、狀態。只有一欄的清單（一行一個架位代碼，不用欄位名稱）也可以匯入。'}),
       h('small', {class:'hint', style:'display:block;margin-top:6px', text:'架位代碼最多 ' + SHELF_MAXLEN + ' 個字，不能有「|」；全形半形、大小寫視為同一個（A-03 和 a-03 是同一個架位）。'}),
@@ -9646,7 +9751,7 @@ function openPalette(){
   const all = menuFlat(), fill = q => {
     q = q.trim().toLowerCase(); const byLabel = l => all.find(i => i.label === l);
     list = q ? all.filter(i => menuHit(i, i.group, q)).sort((a, b) => (b.label.toLowerCase().includes(q) ? 1 : 0) - (a.label.toLowerCase().includes(q) ? 1 : 0)) : [...new Set([...menuPins(), ...menuRecents()])].map(byLabel).filter(Boolean).slice(0, 12);
-    setKids(box, list.length ? h('div', {class:'panel'}, list.map(i => h('button', {class:'row', 'aria-label':'功能 ' + i.label, onclick:() => { sh.forceClose(); runMenu(i); }}, h('span', {style:'text-align:left;min-width:0'}, h('b', {text:i.label}), h('br'), h('small', {text:i.group + (i.sub ? '・' + i.sub : '') + (i.desc ? '　' + i.desc : '')})), menuPins().includes(i.label) ? h('small', {text:'★'}) : h('small', {class:'chev', text:'›'})))) : h('div', {class:'panel empty', text:q ? '找不到「' + q + '」' : '輸入功能名稱，例如：銷貨、揀貨、考勤、票據。釘選或最近用過的功能會顯示在這裡。'}));
+    setKids(box, list.length ? h('div', {class:'panel'}, list.map(i => h('button', {class:'row', 'aria-label':'功能 ' + i.label, onclick:() => { sh.forceClose(); runMenu(i); }}, h('span', {style:'text-align:left;min-width:0'}, h('b', {text:i.label}), h('br'), h('span', {class:'mtag', 'aria-label':'分類 ' + i.group + (i.sub ? ' ' + i.sub : ''), text:i.group + (i.sub ? ' › ' + i.sub : '')}), i.desc ? h('small', {class:'mtag-d', text:i.desc}) : null), menuPins().includes(i.label) ? h('small', {text:'★'}) : h('small', {class:'chev', text:'›'})))) : h('div', {class:'panel empty', text:q ? '找不到「' + q + '」' : '輸入功能名稱，例如：銷貨、揀貨、考勤、票據。釘選或最近用過的功能會顯示在這裡。'}));
   };
   const inp = h('input', {type:'search', placeholder:'輸入功能名稱…', autocomplete:'off', 'aria-label':'搜尋功能', oninput:e => fill(e.target.value), 'data-enter':'own', onkeydown:e => { if (e.key === 'Enter' && list[0]){ sh.forceClose(); runMenu(list[0]); } }});
   put(sh.bodyEl, h('label', {class:'search'}, icon('search'), inp), h('div', {style:'height:8px'}), box); fill(''); setTimeout(() => inp.focus(), 50);
@@ -9968,11 +10073,12 @@ function openFnOverview(){
     const box = h('div');
     const fill = () => { const ws = U.q.trim().toLowerCase().split(/\s+/).filter(Boolean), out = [];
       for (const [cat, , subs] of FN_CATS){ const rows = [];
-        for (const [sub, ids] of subs) for (const id of ids){ if (av[id] !== 'yes' && av[id] !== 'admin') continue; if (ws.length && !ws.every(w => [fnLabel(id), FN[id].kw || '', cat, sub].join(' ').toLowerCase().includes(w))) continue;
+        for (const [sub, ids] of subs){ let subOn = false; for (const id of ids){ if (av[id] !== 'yes' && av[id] !== 'admin') continue; if (ws.length && !ws.every(w => [fnLabel(id), FN[id].kw || '', cat, sub].join(' ').toLowerCase().includes(w))) continue;
+          if (!subOn){ rows.push(h('div', {class:'msub', text:sub})); subOn = true; }
           const rs = av[id] === 'admin' ? [] : Object.keys(defs).filter(k => vis[k].has(id)), cs = av[id] === 'admin' ? [] : custom.filter(c => c.set.has(id)), withP = rs.filter(k => nIn(k) > 0), noP = rs.filter(k => !nIn(k));
           rows.push(h('div', {class:'row', 'aria-label':'誰可以用 ' + fnLabel(id), style:'grid-template-columns:1fr;gap:4px'}, h('b', {text:fnLabel(id)}),
             av[id] === 'admin' ? h('small', {class:'hint', text:'只有管理員'}) : [withP.length || cs.length ? h('div', {style:'display:flex;gap:6px;flex-wrap:wrap'}, ...withP.map(k => h('span', {class:'pill', style:'background:var(--brands);color:var(--brand)', text:defs[k].name + ' ' + nIn(k) + ' 人'})), ...cs.map(c => h('span', {class:'pill', text:c.name + '（個別）'}))) : h('small', {class:'hint', text:'目前沒有人可以用（只有管理員）'}),
-              noP.length ? h('small', {class:'hint', text:'目前沒有人的分類也可以用：' + noP.map(k => defs[k].name).join('、')}) : null])); }
+              noP.length ? h('small', {class:'hint', text:'目前沒有人的分類也可以用：' + noP.map(k => defs[k].name).join('、')}) : null])); } }
         if (rows.length) out.push(h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:cat})), h('div', {class:'panel'}, rows)); }
       setKids(box, out.length ? out : h('div', {class:'panel empty', text:'找不到「' + U.q + '」'})); };
     const body = h('div', null, h('p', {class:'note', text:'每個功能列出可以使用的使用者分類（後面是這一類目前在職的人數）和個別設定的人（橘色）；目前沒有人的分類列在下一行。管理員可以用全部功能，沒有列出來。'}),
@@ -11368,7 +11474,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bo';
+const APP_VERSION = '2026.10.11-br';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -11403,6 +11509,7 @@ const FN = {
   whRules:{l:'倉庫庫存規則', kw:'安全庫存 進貨批量 最小進貨量 倉庫 規則 營業所'},
   closing:{l:'庫存關帳作業', kw:'關帳 月結 結帳 鎖定', d:'鎖定關帳日以前的單據，避免帳被改掉'},
   products:{l:'產品基本資料', kw:'商品 產品 品項 料號 查庫存 庫存 條碼', need:[]},
+  prodIO:{l:'產品基本資料匯出與匯入', kw:'匯入 匯出 產品 商品 Excel xlsx CSV 條碼 售價 進價 安全庫存 批次 更新 主檔', need:['export']},
   newProduct:{l:'新增產品', kw:'新增商品 建立商品 新品 開新料號'},
   labels:{l:'產品標籤列印', kw:'標籤 貼紙 QR 條碼 列印 自黏', need:['print']},
   assembly:{l:'產品組裝作業', kw:'組裝 組成 BOM 生產 加工 組合', need:['stock']},
@@ -11462,7 +11569,7 @@ const FN_CATS = [
   ['銷售與訂單', 'doc', [['開單', ['sale', 'sale_return']], ['報價與訂單', ['quote', 'corder', 'lineOrders']], ['查詢與售後', ['docs', 'returns']], ['價格設定', ['priceLevels', 'priceIO']]]],
   ['採購與進貨', 'cart', [['採購', ['purchaseSug', 'porder']], ['進貨', ['purchase', 'purchase_return']], ['成本', ['costPage']]]],
   ['庫存與倉儲', 'box', [['庫存作業', ['stocktake', 'cycleCount', 'adjust', 'transfer', 'replenish']], ['揀貨與架位', ['picking', 'shelfAdjust', 'shelfMgmt', 'shelfEditor']], ['規則與關帳', ['whRules', 'closing']]]],
-  ['商品與組裝', 'tag', [['商品資料', ['products', 'newProduct', 'labels']], ['組裝與拆解', ['assembly', 'disassembly', 'disPlans']]]],
+  ['商品與組裝', 'tag', [['商品資料', ['products', 'prodIO', 'newProduct', 'labels']], ['組裝與拆解', ['assembly', 'disassembly', 'disPlans']]]],
   ['配送與車輛', 'truck', [['出車與送貨', ['driverRun', 'dispatch', 'deliveryList']], ['車輛', ['vehicles', 'fuelCards']], ['績效', ['tripStats']]]],
   ['收款與帳款', 'wallet', [['應收帳款', ['ar', 'settle', 'batchSettle']], ['外務收款', ['fieldPay', 'handover', 'fieldQueue', 'collectSum']], ['應付帳款', ['ap']], ['帳款報表', ['arReport', 'arReturn']]]],
   ['票據與現金', 'lock', [['票據', ['notes', 'collections']], ['現金與保管', ['cash', 'custody']]]],
@@ -11557,7 +11664,7 @@ function menuGroups(){
   const goTab = (tab, ui) => () => { S.tab = tab; if (ui) Object.assign(S.ui, ui); window.scrollTo(0, 0); draw(); };
   const M = (label, ok, fn, desc) => ({label, ok:!!ok, fn, desc:desc || ''});
   const raw = [
-    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
+    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品基本資料匯出與匯入', S.isAdmin || see('export'), openImport, '把全部商品匯出成 Excel，改好直接匯入，一次新增或更新商品（條碼、售價、安全庫存…）'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
     ['訂購', [M('國內報價作業', can('sale'), goTab('buy', {buySeg:'qt'}), '報價單，可轉客戶訂單'), M('國內訂單作業', can('sale'), goTab('buy', {buySeg:'co'}), '客戶訂單、未交查詢'), M('採購建議作業', can('purchase'), goTab('buy', {buySeg:'sug'}), '依安全庫存與最小量自動建議'), M('國內採購單', can('purchase'), goTab('buy', {buySeg:'po'}), '採購單、收貨進貨')]],
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
@@ -13389,13 +13496,14 @@ function sheetXml(sec, ds){
   const cell = (v, c, i, row, style) => {
     const ref = colName(i) + row;
     if (v === null || v === undefined || v === '') return '';
+    if (c && c.code && style !== 7) return txt(ref, String(v), 9);   // 料號、條碼：文字格式（在 Excel 改了也不會去掉開頭的 0、不會變成科學記號）
     if (typeof v === 'number' && isFinite(v)) return '<c r="' + ref + '" s="' + (style || numStyle(c.type)) + '"><v>' + v + '</v></c>';
     return txt(ref, v, style === 7 ? 8 : 0);
   };
   for (const rw of sec.rows){ rows.push('<row r="' + r + '">' + rw.map((v, i) => cell(v, sec.cols[i], i, r)).join('') + '</row>'); r++; }
   const last = r - 1;
   if (sec.foot){ rows.push('<row r="' + r + '">' + sec.foot.map((v, i) => cell(v, sec.cols[i], i, r, 7)).join('') + '</row>'); r++; }
-  const cols = '<cols>' + sec.cols.map((c, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (c.w || (c.type === 'text' ? 18 : 13)) + '" customWidth="1"/>').join('') + '</cols>';
+  const cols = '<cols>' + sec.cols.map((c, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (c.w || (c.type === 'text' ? 18 : 13)) + '" customWidth="1"' + (c.code ? ' style="9"' : '') + '/>').join('') + '</cols>';
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="' + hr + '" topLeftCell="A' + (hr + 1) + '" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="16"/>' +
     cols + '<sheetData>' + rows.join('') + '</sheetData>' + (last > hr ? '<autoFilter ref="A' + hr + ':' + colName(sec.cols.length - 1) + last + '"/>' : '') + '</worksheet>';
 }
@@ -13406,7 +13514,7 @@ function xlsxBuild(ds){
     '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCE6EE"/><bgColor indexed="64"/></patternFill></fill></fills>' +
     '<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color auto="1"/></bottom><diagonal/></border><border><left/><right/><top style="thin"><color auto="1"/></top><bottom/><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="9">' +
+    '<cellXfs count="10">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
     '<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
@@ -13415,7 +13523,8 @@ function xlsxBuild(ds){
     '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
     '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '<xf numFmtId="3" fontId="1" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>' +
-    '<xf numFmtId="0" fontId="1" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1"/></cellXfs>' +
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1"/>' +
+    '<xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
   const used = new Set();
   const names = ds.sections.map((sec, i) => { let n = String(sec.name || ds.title || 'Sheet' + (i + 1)).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31) || 'Sheet' + (i + 1); while (used.has(n.toLowerCase())) n = n.slice(0, 28) + (i + 1); used.add(n.toLowerCase()); return n; });
@@ -13547,7 +13656,7 @@ function dsToCsv(ds){
   const out = [];
   ds.sections.forEach((sec, i) => {
     if (i) out.push([]); if (ds.sections.length > 1) out.push([sec.name]);
-    out.push(sec.cols.map(c => c.label)); sec.rows.forEach(r => out.push(r)); if (sec.foot) out.push(sec.foot);
+    out.push(sec.cols.map(c => c.label)); sec.rows.forEach(r => out.push(sec.cols.some(c => c.code) ? r.map((v, j) => sec.cols[j] && sec.cols[j].code ? xlCode(v) : v) : r)); if (sec.foot) out.push(sec.foot);
   });
   return csvText(out);
 }
@@ -13598,7 +13707,7 @@ function invFilterText(){
 }
 function dsInventory(){
   const items = invItems(), whs = multiWh() ? whActive() : [], costOk = see('cost');
-  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 8), XC('標籤規格', 'text', 18), XC('架位', 'text', 12), ...whs.map(w => XC(w.name, 'qty', 12)), XC('庫存合計', 'qty', 12), XC('安全庫存', 'qty', 12), XC('狀態', 'text', 8), ...(costOk ? [XC('進價', 'money', 10), XC('庫存價值', 'money', 13)] : []), XC('售價', 'money', 10)];
+  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 8), XC('標籤規格', 'text', 18), XC('架位', 'text', 12), ...whs.map(w => XC(w.name, 'qty', 12)), XC('庫存合計', 'qty', 12), XC('安全庫存', 'qty', 12), XC('狀態', 'text', 8), ...(costOk ? [XC('進價', 'money', 10), XC('庫存價值', 'money', 13)] : []), XC('售價', 'money', 10)];
   const rows = items.map(p => {
     const s = stockOf(p.id);
     return [p.sku, p.barcode || '', p.name, p.category || '', p.unit || '', p.labelSpec || '', p.shelf || '', ...whs.map(w => stockAt(p.id, w.id)), s, p.safety || 0, p.active === false ? '停用' : ({ok:'充足', low:'偏低', zero:'缺貨'})[level(p)], ...(costOk ? [p.cost || 0, mInt(Math.max(s, 0) * (p.cost || 0))] : []), p.price || 0];
@@ -13733,7 +13842,7 @@ function dsStatement(pid){
    檔案裡看不懂的欄位，預覽會列出來，也可以自己選要對應到哪一欄 ---- */
 const COLS = {
   sku:['料號', 'sku', '編號', '產品編號', '商品編號', '貨號', '品號', '產品代號', '商品代號', '產品料號', '商品料號', '品項編號', 'itemno', 'itemcode', 'productcode', 'partno'],
-  barcode:['條碼', 'barcode', 'ean', 'upc', '國際條碼', '商品條碼', '產品條碼', 'ean13', 'jan'],
+  barcode:['條碼', 'barcode', 'ean', 'upc', '國際條碼', '商品條碼', '產品條碼', 'ean13', 'jan', '條碼編號', '條碼號碼', '原廠條碼', '國際條碼編號', 'ean碼', 'upc碼', 'gtin', '條形碼', '条码', '貨品條碼', '品項條碼'],
   name:['品名', 'name', '名稱', '商品名稱', '產品名稱', '品項名稱', '產品品名', '商品品名', 'productname', 'itemname'],
   category:['分類', 'category', '類別', '商品分類', '產品分類', '商品類別', '產品類別', '大類'],
   unit:['單位', 'unit', '基本單位', '計量單位', '庫存單位'],
@@ -13750,13 +13859,24 @@ const COLS = {
   lot:['進貨批量', '採購批量', '批量', 'lot', '進貨倍數', '採購倍數', '訂購倍數'],
   volume:['材積', '材積（才）', '才數', 'volume', '單位材積'],
   procSrc:['採購來源', '來源', '進貨來源', '補貨來源', '採購方式'],
-  status:['狀態', '停用', '啟用狀態', '使用狀態', '是否啟用', '商品狀態', '產品狀態']};
+  status:['狀態', '停用', '啟用狀態', '使用狀態', '是否啟用', '商品狀態', '產品狀態'],
+  note:['備註', 'note', '附註', '商品備註', '產品備註', 'remark', 'remarks', 'memo']};
 /* 每個欄位在畫面上的名稱（欄位對應的下拉選單用）；「目前庫存（參考）」是匯出才有的參考欄，匯入時不用，也不算看不懂 */
-const PROD_FIELD = {sku:'料號', barcode:'條碼', name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', opening:'期初庫存', supplier:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積（才）', procSrc:'採購來源', status:'狀態'};
+const PROD_FIELD = {sku:'料號', barcode:'條碼', name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', opening:'期初庫存', supplier:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積（才）', procSrc:'採購來源', status:'狀態', note:'備註'};
 const PROD_IGNORE = ['目前庫存'];
 const pcNorm = t => String(t == null ? '' : t).normalize('NFKC').toLowerCase().replace(/[\s_\-.]/g, '').replace(/^[*＊※#]+/, '').replace(/[*＊※:：]+$/, '');
 const pcBare = t => pcNorm(t).replace(/[(\[{【〔「][^)\]}】〕」]*[)\]}】〕」]/g, '');
 /* 數字：全形數字、千分位逗號、前後空白、$ 和「元」都可以；加了單位（48箱）、負數、亂填都算不是數字 */
+/* 料號、條碼：去掉 Excel 的公式外殼（="0471…"）、開頭的單引號，全形轉半形；條碼另外去掉中間的空白 */
+const pcSku = v => { let t = String(v == null ? '' : v).normalize('NFKC').trim(); const m = /^=\s*"(.*)"$/.exec(t); if (m) t = m[1].trim(); return t.replace(/^'/, '').trim(); };
+const pcCode = v => pcSku(v).replace(/\s+/g, '');
+const skuKey = v => String(v == null ? '' : v).normalize('NFKC').trim().toLowerCase();
+/* 4.71E+12：Excel 把很長的數字改成科學記號，存檔時後面的數字已經不見了 */
+const pcSci = v => /^\d+([.,]\d+)?e\+?\d+$/i.test(String(v == null ? '' : v).trim());
+const BC_CLEAR = /^(清除|刪除|無|沒有|none|-|—|－)$/i;
+/* 匯出 CSV 時，Excel 會改掉的值（開頭是 0、12 位以上的數字、像日期或科學記號、小數）寫成 ="…"，用 Excel 打開仍保持原樣 */
+const xlRisk = v => { const t = String(v == null ? '' : v); return /^0\d+$/.test(t) || /^\d{12,}$/.test(t) || /^\d+(\.\d+)?e[+-]?\d+$/i.test(t) || /^\d{1,4}[-/]\d{1,2}([-/]\d{1,4})?$/.test(t) || /^\d*\.\d+$/.test(t); };
+const xlCode = v => xlRisk(v) ? {xlText:String(v)} : v;
 const pcNum = v => { const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,\s$元]/g, ''); return /^(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null; };
 /* 分隔符號：第一列裡 Tab、分號比逗號多就用 Tab、分號（Excel 的「Unicode 文字」是 Tab 分隔） */
 const prodSep = t => { const first = (String(t == null ? '' : t).slice(0, 4000).replace(/^﻿/, '').split(/\r\n|\r|\n/).find(l => l.trim() !== '')) || '', n = ch => first.split(ch).length - 1, c = n(','), tab = n('\t'), semi = n(';'); return tab > 0 && tab >= c && tab >= semi ? '\t' : (semi > c ? ';' : ','); };
@@ -13793,13 +13913,13 @@ function matchProdCols(head, override){
   return cols;
 }
 /* 預覽「會更新的商品」：欄位名稱＋（原本→新的），一眼看出安全庫存等數字會變成多少 */
-const PROD_KEY_LABEL = {name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態'};
+const PROD_KEY_LABEL = {name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態', note:'備註'};
 const prodChangeText = it => [...Object.keys(it.data).map(k => {
   const lb = PROD_KEY_LABEL[k] || k; if (['name', 'supplierId', 'procSrc', 'active'].includes(k)) return lb;
   const f = x => PROD_NUM.includes(k) ? num(Number(x) || 0) : (x == null || x === '' ? '空' : String(x));
   return lb + '（' + f(it.old && it.old[k]) + '→' + f(it.data[k]) + '）';
 }), ...Object.entries(it.wh || {}).map(([wid, c]) => whName(wid) + '安全庫存（' + num(c.from) + '→' + (c.to === null ? '沿用全公司 ' + num(c.cw) : num(c.to)) + '）')].join('、');
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{inflateRaw, unzipText, xlsxRows, xlsxText, xlsxBuild, shelfImportDecode, pcSku, pcCode, skuKey, pcSci, xlRisk, xlCode, csvText, matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
 function parseCSV(t, sep){
   sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
@@ -13813,6 +13933,7 @@ function parseCSV(t, sep){
     else cur += c;
   }
   if (cur !== '' || row.length){ row.push(cur); rows.push(row); }
+  rows.forEach((r, i) => Object.defineProperty(r, 'no', {value:i + 1, writable:true, configurable:true}));   // 檔案裡的第幾列（含空白列），匯入的提醒用
   return rows.filter(r => r.some(x => String(x).trim() !== ''));
 }
 const piSup = t => { t = String(t || '').trim(); if (!t) return ''; const sup = Object.values(S.partners).find(x => x.type === 'supplier' && [x.name, x.shortName, x.code].some(v => v && String(v).trim() === t)); return sup ? sup.id : null; };
@@ -13821,7 +13942,9 @@ const piActive = t => { t = String(t || '').replace(/[\s　]/g, ''); if (!t) ret
 const PROD_NUM = ['cost', 'price', 'safety', 'moq', 'lot', 'volume', 'cartonQty'];
 function planImport(text, mode, override){
   mode = mode || 'upsert';
-  const rows = parseCSV(text, prodSep(text));
+  let rows = parseCSV(text, prodSep(text));
+  /* 系統匯出的 Excel 檔另存成 CSV：上面有標題、說明列（只有一格），後面才是欄位名稱 → 略過 */
+  { const fl = r => r.filter(x => String(x).trim() !== '').length, hi = rows.findIndex(r => fl(r) >= 2); if (hi > 0 && hi <= 6 && rows.slice(0, hi).every(r => fl(r) <= 1)) rows = rows.slice(hi); }
   if (rows.length < 2) return {error:'檔案沒有資料列'};
   const cols = matchProdCols(rows[0], override), idx = {};
   if (!S.isAdmin) cols.forEach(c => { if (c.key.startsWith('safety@')){ c.key = ''; c.how = 'blocked'; } });   // 各倉庫的安全庫存只有管理員可以改（和「倉庫庫存規則」一樣）
@@ -13830,17 +13953,34 @@ function planImport(text, mode, override){
   const blocked = cols.filter(c => c.how === 'blocked');
   const unknown = cols.filter(c => c.header && !c.key && c.how !== 'manual' && c.how !== 'blocked' && !PROD_IGNORE.includes(pcBare(c.header)));
   if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」', cols, unknown, blocked};
-  const bySku = new Map(Object.values(S.products).map(p => [String(p.sku).toLowerCase(), p]));
+  const bySku = new Map(Object.values(S.products).map(p => [skuKey(p.sku), p])), byNum = new Map(), byBc = new Map();
+  for (const p of Object.values(S.products)){
+    const k = skuKey(p.sku); if (/^\d+$/.test(k)){ const z = k.replace(/^0+(?=\d)/, ''); byNum.set(z, byNum.has(z) && byNum.get(z) !== p ? null : p); }
+    const b = skuKey(pcCode(p.barcode)); if (b) byBc.set(b, byBc.has(b) && byBc.get(b) !== p ? null : p);
+  }
   const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0, nWh = 0;
   rows.slice(1).forEach((r, n) => {
-    const line = n + 2, g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
-    const bc = g('barcode'), sku = g('sku') || bc, name = g('name');
+    const line = r.no || n + 2, g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
+    const rawBc = g('barcode'), bcIn = pcCode(rawBc), name = g('name'), warn = [];
+    let sku = pcSku(g('sku')), ex = null, bcWant;   // bcWant：undefined＝不改條碼；''＝清除；其他＝照檔案更新
+    if (bcIn){ if (BC_CLEAR.test(bcIn)) bcWant = ''; else if (pcSci(bcIn)) warn.push('條碼「' + rawBc + '」被 Excel 改成科學記號（後面的數字已經不見了），這一格不會匯入；請直接匯入 Excel 檔（.xlsx），或先把條碼欄設成「文字」格式再輸入'); else bcWant = bcIn; }
+    if (sku && pcSci(sku)){ skipped.push('第 ' + line + ' 列：料號「' + sku + '」被 Excel 改成科學記號（後面的數字已經不見了），已略過'); return; }
+    if (sku){
+      ex = bySku.get(skuKey(sku)) || null;
+      if (!ex && /^\d+$/.test(skuKey(sku))){ const m = byNum.get(skuKey(sku).replace(/^0+(?=\d)/, ''));
+        if (m === null){ skipped.push('第 ' + line + ' 列：料號「' + sku + '」找不到；去掉開頭的 0 以後對到好幾個商品，已略過（請確認料號）'); return; }
+        if (m){ warn.push('檔案的料號是「' + sku + '」，系統裡是「' + m.sku + '」（Excel 會去掉開頭的 0），已當作同一個商品更新'); ex = m; sku = m.sku; } }
+    } else if (bcWant){   // 沒有料號：用條碼找既有的商品；找不到就用條碼當新商品的料號
+      const m = byBc.get(skuKey(bcWant));
+      if (m === null){ skipped.push('第 ' + line + ' 列：沒有料號，條碼「' + bcWant + '」對到好幾個商品，已略過'); return; }
+      if (m){ ex = m; sku = m.sku; } else sku = bcWant;
+    }
     if (!sku || !name){ skipped.push('第 ' + line + ' 列：缺少料號或品名'); return; }
-    if (seen.has(sku.toLowerCase())){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 在檔案中重複'); return; }
-    seen.add(sku.toLowerCase());
-    const data = {}, warn = [];
-    for (const k of ['category', 'unit', 'shelf', 'labelSpec', 'family']){ const v = g(k); if (v) data[k] = v; }
-    if (bc && bc !== sku) data.barcode = bc;
+    if (seen.has(skuKey(sku))){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 在檔案中重複'); return; }
+    seen.add(skuKey(sku));
+    const data = {};
+    for (const k of ['category', 'unit', 'shelf', 'labelSpec', 'family', 'note']){ const v = g(k); if (v) data[k] = v; }
+    if (bcWant !== undefined) data.barcode = bcWant;
     for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const x = pcNum(v); if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字（只填數字，不要加單位），已略過'); } }
     if (data.cartonQty > 0 && data.cartonQty <= 1){ warn.push(COLS.cartonQty[0] + '「' + g('cartonQty') + '」要大於 1（沒有外箱請留空或填 0），已略過'); delete data.cartonQty; }
     const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
@@ -13853,7 +13993,6 @@ function planImport(text, mode, override){
       if (WH_RESET.test(v.replace(/[\s　]/g, ''))){ whWant[wid] = null; continue; }
       const x = pcNum(v); if (x !== null) whWant[wid] = x; else warn.push('安全庫存（' + whName(wid) + '）「' + v + '」不是有效的數字（只填數字；要改回沿用全公司請寫「沿用」），已略過');
     }
-    const ex = bySku.get(sku.toLowerCase());
     if (warn.length){ nWarn += warn.length; warn.forEach(w => issues.push('第 ' + line + ' 列「' + sku + '」：' + w)); }
     if (ex){
       if (mode === 'add'){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 已存在，略過'); return; }
@@ -13867,22 +14006,45 @@ function planImport(text, mode, override){
         if (own.length){ nWarn++; issues.push('第 ' + line + ' 列「' + sku + '」：安全庫存已改成全公司的 ' + num(patch.safety) + '，但 ' + own.map(([w, r]) => whName(w) + ' 另外設定了 ' + num(r.safety)).join('、') + '，那些倉庫仍照自己的設定'); }
       }
       nWh += Object.keys(wh).length;
-      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]])), wh}); nUp++;
+      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]])), wh, bcSet:patch.barcode !== undefined}); nUp++;
     } else {
       if (data.cartonQty === 0) delete data.cartonQty;
       const dN = {sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, cwN = Number(dN.safety) || 0, wh = {};
       for (const [wid, x] of Object.entries(whWant)) if (x !== null && x !== cwN) wh[wid] = {from:cwN, to:x, cw:cwN};
       nWh += Object.keys(wh).length;
-      items.push({line, action:'new', sku, name, data:dN, wh, opening:Math.max(pcNum(g('opening')) || 0, 0)}); nNew++;
+      items.push({line, action:'new', sku, name, data:dN, wh, opening:Math.max(pcNum(g('opening')) || 0, 0), bcSet:!!dN.barcode}); nNew++;
     }
   });
-  return {items, skipped, issues, nNew, nUp, nSame, nWarn, nWh, whCols:Object.keys(whIdx), cols, unknown, blocked};
+  /* 同一個條碼只能給一個商品，也不能和別的商品的料號一樣（掃描時分不清）：照檔案改完會重複的，那一格不匯入。
+     比的是「匯入以後」的樣子，所以兩個商品互換條碼、或把條碼從 A 移到 B 都可以。 */
+  const want = new Map(items.filter(it => it.bcSet).map(it => [skuKey(it.sku), it]));
+  const ownerTxt = k => { const it = items.find(x => skuKey(x.sku) === k), p = bySku.get(k); return (p ? p.sku + ' ' + p.name : it ? it.sku + ' ' + it.name : k); };
+  for (let round = 0; round < 60 && want.size; round++){
+    const own = new Map(), add = (code, o) => { const c = skuKey(code); if (!c) return; if (!own.has(c)) own.set(c, []); own.get(c).push(o); };
+    for (const p of Object.values(S.products)){ const k = skuKey(p.sku), it = want.get(k); add(it ? it.data.barcode : p.barcode, {k, it, bc:true}); add(p.sku, {k, it:null, bc:false}); }
+    for (const [k, it] of want) if (it.action === 'new'){ add(it.data.barcode, {k, it, bc:true}); add(it.sku, {k, it:null, bc:false}); }
+    let dropped = false;
+    for (const [code, os] of own){
+      if (new Set(os.map(o => o.k)).size < 2) continue;   // 自己的料號＝自己的條碼沒關係
+      const movers = os.filter(o => o.it && o.bc); if (!movers.length) continue;   // 原本就重複的舊資料，不是這次匯入造成的
+      const fixed = os.filter(o => !(o.it && o.bc)), keep = fixed.length ? null : movers.slice().sort((a, b) => a.it.line - b.it.line)[0];
+      for (const m of movers){ if (m === keep || !m.it.bcSet) continue;   // 同一個項目只處理一次（舊資料有重複料號時會出現兩次）
+        const other = os.find(o => o.k !== m.k && !(o.it && o.bc)) || os.find(o => o.k !== m.k), it = m.it;
+        nWarn++; issues.push('第 ' + it.line + ' 列「' + it.sku + '」：條碼「' + it.data.barcode + '」' + (other.it && other.bc ? '和第 ' + other.it.line + ' 列「' + other.it.sku + '」要改成的條碼一樣' : '已經是「' + ownerTxt(other.k) + '」的' + (other.bc ? '條碼' : '料號')) + '，同一個條碼只能給一個商品，這一格不匯入');
+        if (it.action === 'new') it.data.barcode = ''; else { delete it.data.barcode; delete it.old.barcode; }
+        it.bcSet = false; want.delete(m.k); dropped = true;
+        if (it.action === 'update' && !Object.keys(it.data).length && !Object.keys(it.wh || {}).length){ items.splice(items.indexOf(it), 1); nUp--; nSame++; } }
+    }
+    if (!dropped) break;
+  }
+  const nBc = items.filter(it => it.bcSet).length;
+  return {items, skipped, issues, nNew, nUp, nSame, nWarn, nWh, nBc, hasBc:idx.barcode >= 0, whCols:Object.keys(whIdx), cols, unknown, blocked};
 }
 const dsProductMaster = () => {
   const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '', whs = multiWh() ? whActive() : [];
-  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
-  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', stockOf(p.id)]);
-  return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和「匯入商品」相同，修改後存成 CSV 再匯入，就會依料號更新' + (whs.length ? '。「安全庫存（倉庫名稱）」是那個倉庫現在實際使用的數字：改了數字就是幫那個倉庫單獨設定，沒改的不會動，要改回沿用全公司的安全庫存請寫「沿用」' : ''), filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
+  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('備註', 'text', 24), XC('目前庫存（參考）', 'number', 14)];
+  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', p.note || '', stockOf(p.id)]);
+  return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和匯入相同：修改後直接匯入這個 Excel 檔（或存成 CSV 再匯入），就會依料號更新' + (whs.length ? '。「安全庫存（倉庫名稱）」是那個倉庫現在實際使用的數字：改了數字就是幫那個倉庫單獨設定，沒改的不會動，要改回沿用全公司的安全庫存請寫「沿用」' : ''), filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
 };
 /* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
 function openDataHub(){
@@ -13893,12 +14055,12 @@ function openDataHub(){
     const card = (key, title, n, unit, desc, exp, imp) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 ' + title},
       h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:title}), h('span', {class:'hint', text:n + ' ' + unit})),
       h('p', {class:'hint', style:'margin:4px 0 10px', text:desc}),
-      h('div', {class:'btns'}, see('export') ? h('button', {class:'btn', style:'flex:1', 'aria-label':'匯出' + title, onclick:exp}, icon('down'), '匯出') : null, can('partner') || S.isAdmin ? h('button', {class:'btn ghost', style:'flex:1', 'aria-label':'匯入' + title, onclick:imp}, '匯入／更新') : null));
+      h('div', {class:'btns'}, see('export') ? h('button', {class:'btn', style:'flex:1', 'aria-label':'匯出' + title, onclick:exp}, icon('down'), '匯出') : null, imp && (can('partner') || S.isAdmin) ? h('button', {class:'btn ghost', style:'flex:1', 'aria-label':'匯入' + title, onclick:imp}, '匯入／更新') : null));
     const body = h('div', null,
       h('div', {class:'note', style:'margin-top:0', text:'匯出的 CSV，欄位和匯入完全一樣：先匯出、在 Excel 改好，再匯入，就能批次更新。匯入時，檔案裡空白的欄位不會清掉原本的資料。'}),
       card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
       card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
-      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存（有多個倉庫時，每個倉庫各一欄）、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態。有同料號就更新，沒有就新增。', () => openExport(dsProductMaster()), openImport),
+      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存（有多個倉庫時，每個倉庫各一欄）、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態、備註。匯出的 Excel 檔改好可以直接匯入；有同料號就更新，沒有就新增' + (S.isAdmin ? '。' : '（匯入只有管理員可以做）。'), () => openExport(dsProductMaster()), S.isAdmin ? openImport : null),
       canShelf() && fxOn('shelfMgmt') ? card('shelf', '架位清單', Object.keys(S.shelves || {}).length, '個', '架位代碼、倉庫、備註、狀態（啟用／停用）。有同樣的架位就更新備註和狀態，沒有就新增。匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變。', () => openExport(dsShelves()), () => openShelfImport()) : null,
       S.isAdmin ? h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 價格策略'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:'價格策略'}), h('span', {class:'hint', text:Object.keys(S.prules).length + ' 條規則・' + Object.keys(S.promos || {}).length + ' 個組合／買送'})), h('p', {class:'hint', style:'margin:4px 0 10px', text:'價格規則（等級價、數量階梯、促銷期間、客戶專屬價）、組合優惠與買送贈品。匯入前會先預覽，確認後才寫入。'}), h('button', {class:'btn', style:'width:100%', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出')) : null,
       S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
@@ -13906,7 +14068,10 @@ function openDataHub(){
   });
 }
 function openImport(){
-  const sh = sheet({title:'產品基本資料匯入／匯出'});
+  if (!fxGate('prodIO')) return;
+  if (!S.isAdmin && !see('export')) return toast('你的角色沒有這項操作的權限');
+  const canImp = S.isAdmin;
+  const sh = sheet({title:canImp ? '產品基本資料匯入／匯出' : '產品基本資料匯出'});
   const st = {mode:'upsert', text:null, plan:null, err:'', map:{}, mapOpen:undefined}, info = h('div'), goBtn = h('button', {class:'btn grow', disabled:true}, '開始匯入');
   /* 欄位對應：檔案裡每一欄要匯入成哪個欄位。認得的先選好，看不懂的是「不匯入」，每一欄都可以自己改 */
   const mapPanel = pl => {
@@ -13929,7 +14094,7 @@ function openImport(){
     if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error + (pl.cols ? '。請在下面的「欄位對應」選好哪一欄是料號、哪一欄是品名。' : '')}), mapPanel(pl)); goBtn.disabled = true; return; }
     const over = docCount() + pl.nNew + (pl.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
     const PF = prodFields(), renamed = pl.cols.filter(c => c.key && pcNorm(c.header) !== pcNorm(PF[c.key]));
-    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.whCols.length ? kv('各倉庫安全庫存', pl.nWh + ' 筆要改') : null, pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.whCols.length ? kv('各倉庫安全庫存', pl.nWh + ' 筆要改') : null, pl.hasBc ? kv('條碼', pl.nBc + ' 筆要改') : null, pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
       pl.blocked.length ? h('div', {class:'note bad', style:'margin-top:6px', 'aria-label':'不能匯入的欄位'}, h('b', {text:'只有管理員可以匯入各倉庫的安全庫存，這 ' + pl.blocked.length + ' 欄不會匯入：'}), '「' + pl.blocked.map(c => c.header).join('」「') + '」。') : null,
       pl.unknown.length ? h('div', {class:'note warn', 'aria-label':'看不懂的欄位'}, h('b', {text:'有 ' + pl.unknown.length + ' 個欄位看不懂，不會匯入：'}), '「' + pl.unknown.map(c => c.header).join('」「') + '」。要匯入的話，請在下面的「欄位對應」選它要對應到哪一欄。') : null,
       renamed.length ? h('small', {class:'hint', style:'display:block;margin:8px 0', 'aria-label':'欄位名稱對應', text:'欄位名稱不同，已對應：' + renamed.map(c => '「' + c.header + '」→' + PF[c.key]).join('、')}) : null,
@@ -13939,7 +14104,7 @@ function openImport(){
       (pl.issues.length || pl.skipped.length) ? h('div', {style:'margin-top:8px'}, h('b', {text:'注意事項'}), h('ul', null, [...pl.issues, ...pl.skipped].slice(0, 8).map(t => h('li', null, h('small', {text:t}))), pl.issues.length + pl.skipped.length > 8 ? h('li', null, h('small', {text:'…還有 ' + (pl.issues.length + pl.skipped.length - 8) + ' 項'})) : null)) : null);
     goBtn.disabled = !(pl.nNew + pl.nUp) || over;
   };
-  const file = h('input', {type:'file', accept:'.csv,text/csv,.txt', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const r = shelfImportDecode(rd.result); st.text = r.error ? null : r.text; st.err = r.error || ''; st.map = {}; st.mapOpen = undefined; paint(); }; rd.onerror = () => { st.text = null; st.err = '讀不到這個檔案，請重新選擇'; paint(); }; rd.readAsArrayBuffer(f); }});
+  const file = h('input', {type:'file', accept:'.xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'aria-label':'選擇 CSV 檔', class:'in', style:'padding-top:9px', onchange:e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { const r = shelfImportDecode(rd.result); st.text = r.error ? null : r.text; st.err = r.error || ''; st.map = {}; st.mapOpen = undefined; paint(); }; rd.onerror = () => { st.text = null; st.err = '讀不到這個檔案，請重新選擇'; paint(); }; rd.readAsArrayBuffer(f); }});
   const modeChips = h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, [['upsert', '新增，並更新已存在的（依料號）'], ['add', '只新增，已存在的略過']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.mode === k, 'aria-label':'匯入方式 ' + t, onclick:e => { st.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   goBtn.addEventListener('click', async () => {
     const pl = st.plan; if (!pl || !(pl.nNew + pl.nUp)) return;
@@ -13966,21 +14131,25 @@ function openImport(){
     if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + ' 項'); sh.forceClose(); } else goBtn.disabled = false;
   });
   const whHead = multiWh() && S.isAdmin ? whActive().map(w => '安全庫存（' + w.name + '）') : [];
-  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', ...whHead, '期初庫存', '條碼', '架位', '標籤規格', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態'];
+  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', ...whHead, '期初庫存', '條碼', '架位', '標籤規格', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態', '備註'];
   /* 範本的範例列照欄位名稱填，不會再因為多一欄、少一欄而錯位 */
   const TPL = [{'料號':'A001', '品名':'礦泉水 600ml', '分類':'飲料', '單位':'瓶', '每箱入數':24, '進價':8, '售價':15, '安全庫存':48, '期初庫存':120, '條碼':'4710000000017', '架位':'A-01', '標籤規格':'600ml × 24 瓶／箱', '供應商':'鑫城實業股份有限公司', '最小採購量':24, '進貨批量':12, '材積（才）':0.02, '採購來源':'國內採購', '狀態':'啟用'},
     {'料號':'A002', '品名':'綠茶 500ml', '分類':'飲料', '單位':'瓶', '進價':12, '售價':25, '安全庫存':24, '期初庫存':60, '採購來源':'國內採購', '狀態':'啟用'}];
   whHead.forEach((k, i) => { TPL[0][k] = [30, 20, 10][i % 3]; });
+  /* 範本是 Excel 檔：欄位格式和匯出的一樣（料號、條碼是文字格式），填好直接匯入 */
+  const tplDs = () => { const pm = new Map(dsProductMaster().sections[0].cols.map(c => [c.label, c]));
+    return {title:'商品匯入範本', sub:'第 5 列起是範例，請改成自己的商品（不要的整列刪掉）。料號、品名必填，其他欄位可以空白；改好存檔後，直接選這個 Excel 檔匯入。', sections:[{name:'商品匯入範本', cols:HEAD.map(k => pm.get(k) || XC(k, 'number', 10)), rows:TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : r[k]))}]}; };
   put(sh.bodyEl,
     h('div', {class:'sec-h', style:'margin-top:0'}, h('h2', {text:'匯出'})),
-    h('p', {class:'note', text:'把全部商品的基本資料匯出成 Excel、PDF 或 CSV。要修改後再匯入，請選 CSV：欄位和下面的匯入完全一樣。'}),
+    h('p', {class:'note', text:'把全部商品的基本資料匯出成 Excel、PDF 或 CSV。要修改後再匯入，選 Excel（.xlsx）或 CSV：欄位和下面的匯入完全一樣，Excel 檔改好可以直接匯入。'}),
     see('export') ? h('button', {class:'btn ghost', style:'width:100%;margin-bottom:14px', 'aria-label':'匯出產品基本資料', onclick:() => openExport(dsProductMaster())}, icon('down'), '匯出產品基本資料（' + Object.keys(S.products).length + ' 項）') : null,
-    h('div', {class:'sec-h'}, h('h2', {text:'匯入'})),
-    h('p', {class:'note', text:'CSV 第一列是欄位名稱。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
-    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD, ...TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : r[k]))]))}, icon('down'), '下載範本')),
-    fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
-  sh.footEl.append(goBtn);
+    canImp ? null : h('div', {class:'note', 'aria-label':'匯入只有管理員', text:'匯入、更新商品資料只有管理員（在分享選單設為「可編輯」的人）可以做：商品主檔只有管理員能改。要改資料，請把改好的檔案交給管理員匯入。'}),
+    canImp ? [h('div', {class:'sec-h'}, h('h2', {text:'匯入'})),
+    h('p', {class:'note', text:'選 Excel 檔（.xlsx，讀第一個工作表）或 CSV 檔，第一列是欄位名稱（系統匯出的 Excel 檔上面的標題列會自動略過）。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
+    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.xlsx', xlsxBuild(tplDs()))}, icon('down'), '下載範本（Excel）')),
+    fld('選擇檔案（Excel .xlsx 或 CSV）', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：直接匯入 Excel 檔（.xlsx）最保險；用這裡匯出的 CSV 修改也不會有這個問題（料號、條碼會保持原樣）；自己做的 CSV，請先把料號、條碼欄設成「文字」格式再輸入。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'})))] : null);
+  if (canImp) sh.footEl.append(goBtn);
 }
 
 /* ================= 啟動 ================= */
