@@ -2113,7 +2113,6 @@ function openPartnerForm(id, type){
 function csvText(rows){
   const cell = c => {
     if (c == null) return '';
-    if (typeof c === 'object' && c.xlText !== undefined){ const f = '="' + String(c.xlText).replace(/"/g, '') + '"'; return '"' + f.replace(/"/g, '""') + '"'; }
     let s = String(c);
     if (typeof c === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -11369,7 +11368,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bp';
+const APP_VERSION = '2026.10.11-bo';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -13548,7 +13547,7 @@ function dsToCsv(ds){
   const out = [];
   ds.sections.forEach((sec, i) => {
     if (i) out.push([]); if (ds.sections.length > 1) out.push([sec.name]);
-    out.push(sec.cols.map(c => c.label)); sec.rows.forEach(r => out.push(sec.cols.some(c => c.code) ? r.map((v, j) => sec.cols[j] && sec.cols[j].code ? xlCode(v) : v) : r)); if (sec.foot) out.push(sec.foot);
+    out.push(sec.cols.map(c => c.label)); sec.rows.forEach(r => out.push(r)); if (sec.foot) out.push(sec.foot);
   });
   return csvText(out);
 }
@@ -13599,7 +13598,7 @@ function invFilterText(){
 }
 function dsInventory(){
   const items = invItems(), whs = multiWh() ? whActive() : [], costOk = see('cost');
-  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 8), XC('標籤規格', 'text', 18), XC('架位', 'text', 12), ...whs.map(w => XC(w.name, 'qty', 12)), XC('庫存合計', 'qty', 12), XC('安全庫存', 'qty', 12), XC('狀態', 'text', 8), ...(costOk ? [XC('進價', 'money', 10), XC('庫存價值', 'money', 13)] : []), XC('售價', 'money', 10)];
+  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 8), XC('標籤規格', 'text', 18), XC('架位', 'text', 12), ...whs.map(w => XC(w.name, 'qty', 12)), XC('庫存合計', 'qty', 12), XC('安全庫存', 'qty', 12), XC('狀態', 'text', 8), ...(costOk ? [XC('進價', 'money', 10), XC('庫存價值', 'money', 13)] : []), XC('售價', 'money', 10)];
   const rows = items.map(p => {
     const s = stockOf(p.id);
     return [p.sku, p.barcode || '', p.name, p.category || '', p.unit || '', p.labelSpec || '', p.shelf || '', ...whs.map(w => stockAt(p.id, w.id)), s, p.safety || 0, p.active === false ? '停用' : ({ok:'充足', low:'偏低', zero:'缺貨'})[level(p)], ...(costOk ? [p.cost || 0, mInt(Math.max(s, 0) * (p.cost || 0))] : []), p.price || 0];
@@ -13734,7 +13733,7 @@ function dsStatement(pid){
    檔案裡看不懂的欄位，預覽會列出來，也可以自己選要對應到哪一欄 ---- */
 const COLS = {
   sku:['料號', 'sku', '編號', '產品編號', '商品編號', '貨號', '品號', '產品代號', '商品代號', '產品料號', '商品料號', '品項編號', 'itemno', 'itemcode', 'productcode', 'partno'],
-  barcode:['條碼', 'barcode', 'ean', 'upc', '國際條碼', '商品條碼', '產品條碼', 'ean13', 'jan', '條碼編號', '條碼號碼', '原廠條碼', '國際條碼編號', 'ean碼', 'upc碼', 'gtin', '條形碼', '条码', '貨品條碼', '品項條碼'],
+  barcode:['條碼', 'barcode', 'ean', 'upc', '國際條碼', '商品條碼', '產品條碼', 'ean13', 'jan'],
   name:['品名', 'name', '名稱', '商品名稱', '產品名稱', '品項名稱', '產品品名', '商品品名', 'productname', 'itemname'],
   category:['分類', 'category', '類別', '商品分類', '產品分類', '商品類別', '產品類別', '大類'],
   unit:['單位', 'unit', '基本單位', '計量單位', '庫存單位'],
@@ -13758,16 +13757,6 @@ const PROD_IGNORE = ['目前庫存'];
 const pcNorm = t => String(t == null ? '' : t).normalize('NFKC').toLowerCase().replace(/[\s_\-.]/g, '').replace(/^[*＊※#]+/, '').replace(/[*＊※:：]+$/, '');
 const pcBare = t => pcNorm(t).replace(/[(\[{【〔「][^)\]}】〕」]*[)\]}】〕」]/g, '');
 /* 數字：全形數字、千分位逗號、前後空白、$ 和「元」都可以；加了單位（48箱）、負數、亂填都算不是數字 */
-/* 料號、條碼：去掉 Excel 的公式外殼（="0471…"）、開頭的單引號，全形轉半形；條碼另外去掉中間的空白 */
-const pcSku = v => { let t = String(v == null ? '' : v).normalize('NFKC').trim(); const m = /^=\s*"(.*)"$/.exec(t); if (m) t = m[1].trim(); return t.replace(/^'/, '').trim(); };
-const pcCode = v => pcSku(v).replace(/\s+/g, '');
-const skuKey = v => String(v == null ? '' : v).normalize('NFKC').trim().toLowerCase();
-/* 4.71E+12：Excel 把很長的數字改成科學記號，存檔時後面的數字已經不見了 */
-const pcSci = v => /^\d+([.,]\d+)?e\+?\d+$/i.test(String(v == null ? '' : v).trim());
-const BC_CLEAR = /^(清除|刪除|無|沒有|none|-|—|－)$/i;
-/* 匯出 CSV 時，Excel 會改掉的值（開頭是 0、12 位以上的數字、像日期或科學記號、小數）寫成 ="…"，用 Excel 打開仍保持原樣 */
-const xlRisk = v => { const t = String(v == null ? '' : v); return /^0\d+$/.test(t) || /^\d{12,}$/.test(t) || /^\d+(\.\d+)?e[+-]?\d+$/i.test(t) || /^\d{1,4}[-/]\d{1,2}([-/]\d{1,4})?$/.test(t) || /^\d*\.\d+$/.test(t); };
-const xlCode = v => xlRisk(v) ? {xlText:String(v)} : v;
 const pcNum = v => { const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,\s$元]/g, ''); return /^(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null; };
 /* 分隔符號：第一列裡 Tab、分號比逗號多就用 Tab、分號（Excel 的「Unicode 文字」是 Tab 分隔） */
 const prodSep = t => { const first = (String(t == null ? '' : t).slice(0, 4000).replace(/^﻿/, '').split(/\r\n|\r|\n/).find(l => l.trim() !== '')) || '', n = ch => first.split(ch).length - 1, c = n(','), tab = n('\t'), semi = n(';'); return tab > 0 && tab >= c && tab >= semi ? '\t' : (semi > c ? ';' : ','); };
@@ -13810,7 +13799,7 @@ const prodChangeText = it => [...Object.keys(it.data).map(k => {
   const f = x => PROD_NUM.includes(k) ? num(Number(x) || 0) : (x == null || x === '' ? '空' : String(x));
   return lb + '（' + f(it.old && it.old[k]) + '→' + f(it.data[k]) + '）';
 }), ...Object.entries(it.wh || {}).map(([wid, c]) => whName(wid) + '安全庫存（' + num(c.from) + '→' + (c.to === null ? '沿用全公司 ' + num(c.cw) : num(c.to)) + '）')].join('、');
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{pcSku, pcCode, skuKey, pcSci, xlRisk, xlCode, csvText, matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
 function parseCSV(t, sep){
   sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
@@ -13841,34 +13830,17 @@ function planImport(text, mode, override){
   const blocked = cols.filter(c => c.how === 'blocked');
   const unknown = cols.filter(c => c.header && !c.key && c.how !== 'manual' && c.how !== 'blocked' && !PROD_IGNORE.includes(pcBare(c.header)));
   if ((idx.sku < 0 && idx.barcode < 0) || idx.name < 0) return {error:'找不到必要欄位「料號」與「品名」', cols, unknown, blocked};
-  const bySku = new Map(Object.values(S.products).map(p => [skuKey(p.sku), p])), byNum = new Map(), byBc = new Map();
-  for (const p of Object.values(S.products)){
-    const k = skuKey(p.sku); if (/^\d+$/.test(k)){ const z = k.replace(/^0+(?=\d)/, ''); byNum.set(z, byNum.has(z) && byNum.get(z) !== p ? null : p); }
-    const b = skuKey(pcCode(p.barcode)); if (b) byBc.set(b, byBc.has(b) && byBc.get(b) !== p ? null : p);
-  }
+  const bySku = new Map(Object.values(S.products).map(p => [String(p.sku).toLowerCase(), p]));
   const seen = new Set(), items = [], skipped = [], issues = []; let nNew = 0, nUp = 0, nSame = 0, nWarn = 0, nWh = 0;
   rows.slice(1).forEach((r, n) => {
     const line = n + 2, g = k => idx[k] >= 0 ? String(r[idx[k]] == null ? '' : r[idx[k]]).trim() : '';
-    const rawBc = g('barcode'), bcIn = pcCode(rawBc), name = g('name'), warn = [];
-    let sku = pcSku(g('sku')), ex = null, bcWant;   // bcWant：undefined＝不改條碼；''＝清除；其他＝照檔案更新
-    if (bcIn){ if (BC_CLEAR.test(bcIn)) bcWant = ''; else if (pcSci(bcIn)) warn.push('條碼「' + rawBc + '」被 Excel 改成科學記號（後面的數字已經不見了），這一格不會匯入；請用系統匯出的 CSV 修改，或先把條碼欄設成「文字」格式再輸入'); else bcWant = bcIn; }
-    if (sku && pcSci(sku)){ skipped.push('第 ' + line + ' 列：料號「' + sku + '」被 Excel 改成科學記號（後面的數字已經不見了），已略過'); return; }
-    if (sku){
-      ex = bySku.get(skuKey(sku)) || null;
-      if (!ex && /^\d+$/.test(skuKey(sku))){ const m = byNum.get(skuKey(sku).replace(/^0+(?=\d)/, ''));
-        if (m === null){ skipped.push('第 ' + line + ' 列：料號「' + sku + '」找不到；去掉開頭的 0 以後對到好幾個商品，已略過（請確認料號）'); return; }
-        if (m){ warn.push('檔案的料號是「' + sku + '」，系統裡是「' + m.sku + '」（Excel 會去掉開頭的 0），已當作同一個商品更新'); ex = m; sku = m.sku; } }
-    } else if (bcWant){   // 沒有料號：用條碼找既有的商品；找不到就用條碼當新商品的料號
-      const m = byBc.get(skuKey(bcWant));
-      if (m === null){ skipped.push('第 ' + line + ' 列：沒有料號，條碼「' + bcWant + '」對到好幾個商品，已略過'); return; }
-      if (m){ ex = m; sku = m.sku; } else sku = bcWant;
-    }
+    const bc = g('barcode'), sku = g('sku') || bc, name = g('name');
     if (!sku || !name){ skipped.push('第 ' + line + ' 列：缺少料號或品名'); return; }
-    if (seen.has(skuKey(sku))){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 在檔案中重複'); return; }
-    seen.add(skuKey(sku));
-    const data = {};
+    if (seen.has(sku.toLowerCase())){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 在檔案中重複'); return; }
+    seen.add(sku.toLowerCase());
+    const data = {}, warn = [];
     for (const k of ['category', 'unit', 'shelf', 'labelSpec', 'family']){ const v = g(k); if (v) data[k] = v; }
-    if (bcWant !== undefined) data.barcode = bcWant;
+    if (bc && bc !== sku) data.barcode = bc;
     for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const x = pcNum(v); if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字（只填數字，不要加單位），已略過'); } }
     if (data.cartonQty > 0 && data.cartonQty <= 1){ warn.push(COLS.cartonQty[0] + '「' + g('cartonQty') + '」要大於 1（沒有外箱請留空或填 0），已略過'); delete data.cartonQty; }
     const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
@@ -13881,6 +13853,7 @@ function planImport(text, mode, override){
       if (WH_RESET.test(v.replace(/[\s　]/g, ''))){ whWant[wid] = null; continue; }
       const x = pcNum(v); if (x !== null) whWant[wid] = x; else warn.push('安全庫存（' + whName(wid) + '）「' + v + '」不是有效的數字（只填數字；要改回沿用全公司請寫「沿用」），已略過');
     }
+    const ex = bySku.get(sku.toLowerCase());
     if (warn.length){ nWarn += warn.length; warn.forEach(w => issues.push('第 ' + line + ' 列「' + sku + '」：' + w)); }
     if (ex){
       if (mode === 'add'){ skipped.push('第 ' + line + ' 列：料號 ' + sku + ' 已存在，略過'); return; }
@@ -13894,43 +13867,20 @@ function planImport(text, mode, override){
         if (own.length){ nWarn++; issues.push('第 ' + line + ' 列「' + sku + '」：安全庫存已改成全公司的 ' + num(patch.safety) + '，但 ' + own.map(([w, r]) => whName(w) + ' 另外設定了 ' + num(r.safety)).join('、') + '，那些倉庫仍照自己的設定'); }
       }
       nWh += Object.keys(wh).length;
-      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]])), wh, bcSet:patch.barcode !== undefined}); nUp++;
+      items.push({line, action:'update', id:ex.id, sku, name:ex.name, data:patch, old:Object.fromEntries(Object.keys(patch).map(k => [k, ex[k]])), wh}); nUp++;
     } else {
       if (data.cartonQty === 0) delete data.cartonQty;
       const dN = {sku, name, barcode:'', category:'', unit:'個', cost:0, price:0, safety:0, shelf:'', labelSpec:'', family:'', ...data}, cwN = Number(dN.safety) || 0, wh = {};
       for (const [wid, x] of Object.entries(whWant)) if (x !== null && x !== cwN) wh[wid] = {from:cwN, to:x, cw:cwN};
       nWh += Object.keys(wh).length;
-      items.push({line, action:'new', sku, name, data:dN, wh, opening:Math.max(pcNum(g('opening')) || 0, 0), bcSet:!!dN.barcode}); nNew++;
+      items.push({line, action:'new', sku, name, data:dN, wh, opening:Math.max(pcNum(g('opening')) || 0, 0)}); nNew++;
     }
   });
-  /* 同一個條碼只能給一個商品，也不能和別的商品的料號一樣（掃描時分不清）：照檔案改完會重複的，那一格不匯入。
-     比的是「匯入以後」的樣子，所以兩個商品互換條碼、或把條碼從 A 移到 B 都可以。 */
-  const want = new Map(items.filter(it => it.bcSet).map(it => [skuKey(it.sku), it]));
-  const ownerTxt = k => { const it = items.find(x => skuKey(x.sku) === k), p = bySku.get(k); return (p ? p.sku + ' ' + p.name : it ? it.sku + ' ' + it.name : k); };
-  for (let round = 0; round < 60 && want.size; round++){
-    const own = new Map(), add = (code, o) => { const c = skuKey(code); if (!c) return; if (!own.has(c)) own.set(c, []); own.get(c).push(o); };
-    for (const p of Object.values(S.products)){ const k = skuKey(p.sku), it = want.get(k); add(it ? it.data.barcode : p.barcode, {k, it, bc:true}); add(p.sku, {k, it:null, bc:false}); }
-    for (const [k, it] of want) if (it.action === 'new'){ add(it.data.barcode, {k, it, bc:true}); add(it.sku, {k, it:null, bc:false}); }
-    let dropped = false;
-    for (const [code, os] of own){
-      if (new Set(os.map(o => o.k)).size < 2) continue;   // 自己的料號＝自己的條碼沒關係
-      const movers = os.filter(o => o.it && o.bc); if (!movers.length) continue;   // 原本就重複的舊資料，不是這次匯入造成的
-      const fixed = os.filter(o => !(o.it && o.bc)), keep = fixed.length ? null : movers.slice().sort((a, b) => a.it.line - b.it.line)[0];
-      for (const m of movers){ if (m === keep || !m.it.bcSet) continue;   // 同一個項目只處理一次（舊資料有重複料號時會出現兩次）
-        const other = os.find(o => o.k !== m.k && !(o.it && o.bc)) || os.find(o => o.k !== m.k), it = m.it;
-        nWarn++; issues.push('第 ' + it.line + ' 列「' + it.sku + '」：條碼「' + it.data.barcode + '」' + (other.it && other.bc ? '和第 ' + other.it.line + ' 列「' + other.it.sku + '」要改成的條碼一樣' : '已經是「' + ownerTxt(other.k) + '」的' + (other.bc ? '條碼' : '料號')) + '，同一個條碼只能給一個商品，這一格不匯入');
-        if (it.action === 'new') it.data.barcode = ''; else { delete it.data.barcode; delete it.old.barcode; }
-        it.bcSet = false; want.delete(m.k); dropped = true;
-        if (it.action === 'update' && !Object.keys(it.data).length && !Object.keys(it.wh || {}).length){ items.splice(items.indexOf(it), 1); nUp--; nSame++; } }
-    }
-    if (!dropped) break;
-  }
-  const nBc = items.filter(it => it.bcSet).length;
-  return {items, skipped, issues, nNew, nUp, nSame, nWarn, nWh, nBc, hasBc:idx.barcode >= 0, whCols:Object.keys(whIdx), cols, unknown, blocked};
+  return {items, skipped, issues, nNew, nUp, nSame, nWarn, nWh, whCols:Object.keys(whIdx), cols, unknown, blocked};
 }
 const dsProductMaster = () => {
   const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '', whs = multiWh() ? whActive() : [];
-  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
+  const cols = [XC('料號', 'text', 14), XC('條碼', 'text', 16), XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('目前庫存（參考）', 'number', 14)];
   const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', stockOf(p.id)]);
   return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和「匯入商品」相同，修改後存成 CSV 再匯入，就會依料號更新' + (whs.length ? '。「安全庫存（倉庫名稱）」是那個倉庫現在實際使用的數字：改了數字就是幫那個倉庫單獨設定，沒改的不會動，要改回沿用全公司的安全庫存請寫「沿用」' : ''), filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
 };
@@ -13979,7 +13929,7 @@ function openImport(){
     if (pl.error){ setKids(info, h('div', {class:'note bad', text:pl.error + (pl.cols ? '。請在下面的「欄位對應」選好哪一欄是料號、哪一欄是品名。' : '')}), mapPanel(pl)); goBtn.disabled = true; return; }
     const over = docCount() + pl.nNew + (pl.items.some(i => i.opening > 0) ? 1 : 0) > DOC_LIMIT;
     const PF = prodFields(), renamed = pl.cols.filter(c => c.key && pcNorm(c.header) !== pcNorm(PF[c.key]));
-    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.whCols.length ? kv('各倉庫安全庫存', pl.nWh + ' 筆要改') : null, pl.hasBc ? kv('條碼', pl.nBc + ' 筆要改') : null, pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
+    setKids(info, h('div', {class:'panel pad', 'aria-label':'匯入預覽'}, kv('新增商品', pl.nNew + ' 項'), kv('更新既有商品', pl.nUp + ' 項'), kv('沒有變動', pl.nSame + ' 項'), kv('略過', pl.skipped.length + ' 列'), pl.whCols.length ? kv('各倉庫安全庫存', pl.nWh + ' 筆要改') : null, pl.nWarn ? kv('提醒', pl.nWarn + ' 項') : null),
       pl.blocked.length ? h('div', {class:'note bad', style:'margin-top:6px', 'aria-label':'不能匯入的欄位'}, h('b', {text:'只有管理員可以匯入各倉庫的安全庫存，這 ' + pl.blocked.length + ' 欄不會匯入：'}), '「' + pl.blocked.map(c => c.header).join('」「') + '」。') : null,
       pl.unknown.length ? h('div', {class:'note warn', 'aria-label':'看不懂的欄位'}, h('b', {text:'有 ' + pl.unknown.length + ' 個欄位看不懂，不會匯入：'}), '「' + pl.unknown.map(c => c.header).join('」「') + '」。要匯入的話，請在下面的「欄位對應」選它要對應到哪一欄。') : null,
       renamed.length ? h('small', {class:'hint', style:'display:block;margin:8px 0', 'aria-label':'欄位名稱對應', text:'欄位名稱不同，已對應：' + renamed.map(c => '「' + c.header + '」→' + PF[c.key]).join('、')}) : null,
@@ -14027,9 +13977,9 @@ function openImport(){
     see('export') ? h('button', {class:'btn ghost', style:'width:100%;margin-bottom:14px', 'aria-label':'匯出產品基本資料', onclick:() => openExport(dsProductMaster())}, icon('down'), '匯出產品基本資料（' + Object.keys(S.products).length + ' 項）') : null,
     h('div', {class:'sec-h'}, h('h2', {text:'匯入'})),
     h('p', {class:'note', text:'CSV 第一列是欄位名稱。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
-    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD, ...TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : (k === '料號' || k === '條碼' ? xlCode(r[k]) : r[k])))]))}, icon('down'), '下載範本')),
+    h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.csv', csvText([HEAD, ...TPL.map(r => HEAD.map(k => r[k] === undefined ? '' : r[k]))]))}, icon('down'), '下載範本')),
     fld('選擇 CSV 檔', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：用這裡匯出的 CSV 修改不會有這個問題（料號、條碼會保持原樣）；自己做的檔案，請先把料號、條碼欄設成「文字」格式再輸入。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'}))));
   sh.footEl.append(goBtn);
 }
 
