@@ -4266,7 +4266,7 @@ const SLIPFORMS = {
     fields:[[['type', '單據類別'], ['code', '商號代碼']], [['short', '商號簡稱'], ['tel', '電話']], [['ship', '送貨地點']], [['maker', '製單員'], ['carrier', '承運人員']], [['inv', '發票號碼']]]}
 };
 
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, stationOffset:(...x) => stationOffset(...x), printNow:(...x) => printNow(...x), openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
 function openSlipFormLayout(id, reset){
   id = id || 'north'; const tp = layoutTp(id);
   const L = clone(reset ? tp.def : slipFormLayout(id)), local = slipFormLocal(id), smp = tp.sample();
@@ -4339,7 +4339,7 @@ function openSlipFormLayout(id, reset){
     h('button', {class:'btn ghost', onclick:async () => { if (!await dialog({title:'還原預設位置？', msg:'會回到依你提供的套表量測的預設值（尚未儲存前不影響已存的版面）。', ok:'還原', danger:true})) return; sh.forceClose(); openSlipFormLayout(id, true); }}, '還原'),
     h('button', {class:'btn grow', onclick:async () => {
       const moved = layoutDiffs(id, L, saved0, 2), off = layoutDiffs(id, L);
-      if (moved.length && !await dialog({title:'儲存 ' + moved.length + ' 個欄位的新位置？', msg:'這次移動了：' + moved.slice(0, 8).map(layoutDiffTxt).join('、') + (moved.length > 8 ? '…' : '') + '。' + (off.length ? '儲存後有 ' + off.length + ' 個欄位和標準位置差 3mm 以上，印出來可能對不準。' : '') + '如果只是整張印偏，請改用列印視窗裡「這台電腦的位置微調」（整體右移／下移），不要移動個別欄位。', ok:'儲存'})) return;
+      if (moved.length && !await dialog({title:'儲存 ' + moved.length + ' 個欄位的新位置？', msg:'這次移動了：' + moved.slice(0, 8).map(layoutDiffTxt).join('、') + (moved.length > 8 ? '…' : '') + '。' + (off.length ? '儲存後有 ' + off.length + ' 個欄位和標準位置差 3mm 以上，印出來可能對不準。' : '') + '如果只是整張印偏，請改用列印視窗的「列印位置補正」（往左／往右、往上／往下），不要移動個別欄位。', ok:'儲存'})) return;
       const ok = await run(async () => { if (tp.save) await tp.save(L); else await S.db.doc(tp.doc).set({layout:L}); return true; });
       if (ok){ toast('已儲存套表版面'); sh.forceClose(); }
     }}, '儲存版面'));
@@ -4354,7 +4354,8 @@ function openPrint(ref){
   if (!SLIPFORMS[P.form]) P.form = 'north';
   let tp = SLIPFORMS[P.form], F = tp.fromOrder(o), local = slipFormLocal(tp.id);
   const sh = sheet({title:'列印' + T.label});
-  const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'});
+  const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'}), pvNote = h('small', {class:'hint', 'aria-label':'預覽說明', style:'display:block;margin-top:6px'});
+  const offTxt = (ox, oy) => [ox ? (ox < 0 ? '往左 ' : '往右 ') + num(Math.abs(ox)) + ' mm' : '', oy ? (oy < 0 ? '往上 ' : '往下 ') + num(Math.abs(oy)) + ' mm' : ''].filter(Boolean).join('、') || '沒有補正';
   let fr = null;
   const formOn = () => isSale && P.mode !== 'full' && P.mode !== 'ref';
   const paint = () => {
@@ -4367,7 +4368,8 @@ function openPrint(ref){
       try { const hgt = fr.contentDocument.documentElement.scrollHeight; fr.style.height = hgt + 'px'; pvBox.style.height = Math.ceil(hgt * sc) + 'px'; } catch (_) {}
     });
     pvBox.style.height = Math.ceil((on ? SL.h * 3.7795 : 400) * sc) + 'px';
-    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, P) : slipHTML(o, P, false)));
+    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, P) : slipHTML(o, P, false)));
+    { const ox = toNum(local.ox), oy = toNum(local.oy); pvNote.textContent = on && (ox || oy) ? '預覽顯示對準套表的位置；列印時會再' + offTxt(ox, oy) + '（這台電腦的列印位置補正）。' : ''; }
     setKids(pvBox, fr);
   };
   const soon = () => { clearTimeout(soon.t); soon.t = setTimeout(paint, 250); };
@@ -4412,6 +4414,27 @@ function openPrint(ref){
       S.isAdmin ? h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn sm', 'aria-label':'還原標準位置', onclick:restoreStd}, '還原標準位置'), h('button', {class:'btn ghost sm', 'aria-label':'打開版面校準', onclick:() => openSlipFormLayout(tp.id)}, '打開版面校準'))
         : h('small', {class:'hint', style:'display:block;margin-top:6px', text:'請管理員在列印視窗按「還原標準位置」，或到「版面校準」調整。'})); };
   const inch = mm => Math.round(mm / 25.4 * 100) / 100, cm = mm => Math.round(mm * 10) / 100;
+  /* 列印位置補正（只影響這台電腦）：印出來整張偏了，往反方向補（例：往右偏 10mm → 往左 10） */
+  const offPanel = () => {
+    const box = h('div', {class:'panel pad', 'aria-label':'列印位置補正', style:'margin:8px 0'}), st0 = stationPref(), dirs = {};   // dirs：數字還是 0 時，先記住選的方向
+    const draw2 = () => {
+      const ox = Math.round(toNum(local.ox) * 10) / 10, oy = Math.round(toNum(local.oy) * 10) / 10;
+      const setV = (k, v) => { local[k] = Math.round((Number(v) || 0) * 10) / 10 || 0; saveSlipFormLocal(local, tp.id); draw2(); paint(); };
+      const row = (k, lab, neg, pos) => { const v = k === 'ox' ? ox : oy;
+        const sel = h('select', {class:'in', style:'height:40px', 'aria-label':lab + '方向', onchange:e => { dirs[k] = e.target.value; setV(k, (e.target.value === 'neg' ? -1 : 1) * Math.abs(v)); }}, h('option', {value:'neg', text:neg}), h('option', {value:'pos', text:pos}));
+        sel.value = v < 0 ? 'neg' : v > 0 ? 'pos' : (dirs[k] || 'pos');
+        const inp = h('input', {class:'in', type:'text', inputmode:'decimal', value:v ? String(Math.abs(v)) : '', placeholder:'0', 'aria-label':lab + ' mm', style:'height:40px', onchange:e => setV(k, (sel.value === 'neg' ? -1 : 1) * Math.abs(toNum(e.target.value)))});
+        return h('div', {style:'display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:8px'}, h('span', {style:'font-size:14px;color:var(--ink2)', text:lab}), sel, inp, h('span', {style:'font-size:14px;color:var(--ink3)', text:'mm'}));
+      };
+      setKids(box, h('div', {style:'display:flex;justify-content:space-between;gap:4px 8px;align-items:baseline;flex-wrap:wrap'}, h('b', {text:'列印位置補正（這台電腦）'}), h('small', {'aria-label':'目前的補正', style:'color:var(--ink2)', text:'目前：' + offTxt(ox, oy)})),
+        row('ox', '左右', '往左', '往右'), row('oy', '上下', '往上', '往下'),
+        h('div', {class:'btns', style:'margin-top:8px;flex-wrap:wrap'}, [['←', 'ox', -0.5], ['→', 'ox', 0.5], ['↑', 'oy', -0.5], ['↓', 'oy', 0.5]].map(([t, k, dv]) => h('button', {class:'btn ghost sm', 'aria-label':'補正 ' + t + ' 0.5mm', onclick:() => setV(k, (k === 'ox' ? ox : oy) + dv)}, t + ' 0.5')),
+          ox || oy ? h('button', {class:'btn ghost sm', 'aria-label':'補正歸零', onclick:() => { local.ox = 0; local.oy = 0; saveSlipFormLocal(local, tp.id); draw2(); paint(); }}, '歸零') : null),
+        h('small', {class:'hint', style:'display:block;margin-top:6px', text:'印出來整張往右偏 10 mm，就選「往左」填 10；往下偏 2 mm，就選「往上」填 2。每張偏得一樣才用這裡；一張比一張偏，請看「印出來一張比一張往下偏？」。'}),
+        st0 ? h('small', {class:'hint', 'aria-label':'列印站補正說明', style:'display:block;margin-top:6px;color:var(--low)', text:'這台裝置的列印會送到列印站「' + st0 + '」：送過去的套印單據，以列印站那台電腦的補正為準，請在那台電腦設定。'}) : null);
+    };
+    draw2(); return box;
+  };
   const driftHelp = () => { const L0 = slipFormLayout(tp.id);
     return h('details', {class:'fold', 'aria-label':'一張比一張偏'}, h('summary', {text:'印出來一張比一張往下（或往上）偏？'}), h('div', {class:'fold-b'},
       h('p', {class:'hint', style:'margin:0 0 6px', text:'這是印表機的「紙張長度」和套表不一樣：每印一張就多走（或少走）一點，越印越偏。網頁沒辦法替你改，要在電腦的印表機設定改。套表一張是寬 ' + inch(L0.w) + ' 吋（' + cm(L0.w) + ' 公分）、高 ' + inch(L0.h) + ' 吋（' + cm(L0.h) + ' 公分）。'}),
@@ -4419,8 +4442,8 @@ function openPrint(ref){
         h('li', {text:'Windows「設定 → 藍牙與裝置 → 印表機與掃描器」最下方「列印伺服器內容」→「格式」，找到套表用的格式（例如「中一刀」），確認寬 ' + cm(L0.w) + ' 公分、高 ' + cm(L0.h) + ' 公分；高度不對（例如設成 6 吋／15.24 公分）就改正，按「儲存格式」。'}),
         h('li', {text:'EPSON LQ-690C →「列印喜好設定」→ 紙張大小選這個格式。'}),
         h('li', {text:'瀏覽器的列印視窗 →「更多設定」→ 紙張大小也選這個格式；邊界「無」、縮放「預設」（100%）。'}),
-        h('li', {text:'按下面的「連續 3 張測試頁」，放空白報表紙或套表印出來：3 張的線都在同一個位置就對了。'})),
-      h('button', {class:'btn ghost sm', 'aria-label':'印連續 3 張測試頁', onclick:() => printNow(driftTestHTML(tp.id, local), '連續列印測試頁.html', () => driftTestHTML(tp.id, local, true))}, '連續 3 張測試頁'))); };
+        h('li', {text:'按下面的「連續 3 張測試頁」，放空白報表紙或套表印出來：3 張的線都在同一個位置就對了（3 張一樣、只是整張一起偏，再用「列印位置補正」）。'})),
+      h('button', {class:'btn ghost sm', 'aria-label':'印連續 3 張測試頁', onclick:() => printNow(driftTestHTML(tp.id, local), '連續列印測試頁.html', () => driftTestHTML(tp.id, local, true), {form:tp.id})}, '連續 3 張測試頁'))); };
   const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; };
   function buildForm(){
     const ftxt = (key, label) => fld(label, h('input', {class:'in', value:F[key] || '', 'aria-label':label, autocomplete:'off', oninput:e => { F[key] = e.target.value; soon(); }}));
@@ -4429,7 +4452,7 @@ function openPrint(ref){
         tp = SLIPFORMS[k]; P.form = k; F = tp.fromOrder(o); local = slipFormLocal(k); buildForm(); syncVis(); })),
       h('div', {class:'f'}, h('label', {text:'字體大小（這台電腦；每一級加大 1 pt，太長的欄位會自動縮小）'}), fchips([['0', '標準'], ['1', '大 1 級'], ['2', '大 2 級'], ['3', '大 3 級']], () => String(fsUpOf(local)), k => { local.fsUp = Number(k); saveSlipFormLocal(local, tp.id); })),
       h('p', {class:'note', text:'只印資料，套在你手上的「' + tp.full + '」預印套表上（複寫給後面幾聯）。紙張規格：' + tp.paper + '（' + tp.paperMm + '）。'}),
-      layoutWarn(), driftHelp(),
+      layoutWarn(), offPanel(), driftHelp(),
       tp.fields.map(row => row.length === 1 ? ftxt(row[0][0], row[0][1]) : h('div', {class:'f2'}, row.map(([k, l]) => ftxt(k, l)))),
       tp.id === 'north' ? h('div', {class:'f'}, h('label', {text:'交貨方式'}), fchips([['-1', '不勾'], ['0', '送貨'], ['1', '郵寄'], ['2', '自取'], ['3', '貨運']], () => String(F.dm), k => { F.dm = Number(k); })) : null,
       tp.id === 'south' ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!F.brandSku, onchange:e => { F.brandSku = e.target.checked; paint(); }}), '「廠牌」欄印商品料號（取消則留空）') : null,
@@ -4437,9 +4460,7 @@ function openPrint(ref){
         fchips([['excl', '單據金額是未稅價'], ['incl', '單據金額是含稅價']], () => F.mode, k => { F.mode = k; })),
       ftxt('note', '備註'),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:F.bg !== false, onchange:e => { F.bg = e.target.checked; paint(); }}), '預覽顯示套表底圖（只用於預覽，不會印出）'),
-      h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'這台電腦的位置微調（mm）與紙張設定'}),
-        h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px'},
-          ...[['ox', '整體右移'], ['oy', '整體下移']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k], 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { local[k] = toNum(e.target.value); saveSlipFormLocal(local, tp.id); paint(); }})))),
+      h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'其他列印設定（這台電腦）：戳章、QR Code 位置與紙張設定'}),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['sx', '郵戳 X（mm）'], ['sy', '郵戳 Y（mm）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + (k === 'sx' ? slipFormLayout(tp.id).stamp.x : slipFormLayout(tp.id).stamp.y), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['ux', '早一點郵戳 X（mm，左邊緣，在日期右邊）'], ['uy', '早一點郵戳 Y（mm，垂直中心）']].map(([k, t]) => { const f2 = slipFormLayout(tp.id).f || {}, dflt = f2.year && f2.day ? (k === 'ux' ? Math.round((f2.day.xr + ((slipFormLayout(tp.id).w || 241) < 200 ? 4.6 : 5.8)) * 100) / 100 : Math.round((f2.day.y + 0.5) * 100) / 100) : ''; return h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設（日期正下方）' + (dflt !== '' ? ' ' + dflt : ''), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})); })),
         h('label', {class:'check', style:'margin-top:10px'}, h('input', {type:'checkbox', checked:local.qr !== false, 'aria-label':'套表印單號QR', onchange:e => { if (e.target.checked) delete local.qr; else local.qr = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'),
@@ -4450,7 +4471,7 @@ function openPrint(ref){
         h('ol', {style:'margin:10px 0 0 18px;font-size:14px;color:var(--ink2)'},
           h('li', {text:'Windows「印表機與掃描器」→ 列印伺服器內容 → 建立新格式（例如「' + tp.name + '」），尺寸 ' + tp.paperMm + '；LQ-690C 的列印喜好設定選這個紙張，進紙來源選後方拖曳進紙，導入紙張讓第一行對齊列印頭。'}),
           h('li', {text:'瀏覽器列印視窗：印表機選 EPSON LQ-690C、邊界選「無」、比例 100%，取消頁首頁尾與背景圖形。'}),
-          h('li', {text:'第一次先在空白報表紙上試印，再和套表疊在一起對光看，位置有偏就用上面的位移，或請管理員按「版面校準」。'}),
+          h('li', {text:'第一次先在空白報表紙上試印，再和套表疊在一起對光看：整張一起偏，用上面的「列印位置補正」；只有某些欄位偏，才請管理員按「版面校準」。'}),
           h('li', {text:'品項超過表單行數時，會自動分成多張，每張印小計，最後一張印營業稅與合計。'}))));
   }
   buildForm();
@@ -4468,11 +4489,11 @@ function openPrint(ref){
         h('li', {text:'回到 EPSON LQ-690C 的「列印喜好設定」，紙張大小選「中一刀」，進紙來源選後方拖曳進紙。'}),
         h('li', {text:'瀏覽器的列印視窗：印表機選 EPSON LQ-690C、邊界選「無」、比例 100%，取消「頁首及頁尾」和「背景圖形」。'}),
         h('li', {text:'網頁無法替你指定或切換印表機，是由作業系統的預設印表機和瀏覽器列印視窗決定。'}))),
-    h('div', {class:'sec-h', style:'margin-top:8px'}, h('h2', {text:'預覽'})), pvBox);
+    h('div', {class:'sec-h', style:'margin-top:8px'}, h('h2', {text:'預覽'})), pvBox, pvNote);
   sh.footEl.append(
     h('button', {class:'btn ghost', 'aria-label':'下載列印檔', onclick:() => saveFile((formOn() ? '銷貨單套印' : T.label) + '_' + o.no + '.html', html(true))}, icon('down'), '下載'),
     adminBtn,
-    h('button', {class:'btn grow', onclick:() => printNow(html(false), (formOn() ? '銷貨單套印' : T.label) + '_' + o.no + '.html', () => html(true))}, '列印'));
+    h('button', {class:'btn grow', onclick:() => printNow(html(false), (formOn() ? '銷貨單套印' : T.label) + '_' + o.no + '.html', () => html(true), formOn() ? {form:tp.id} : null)}, '列印'));
   paint();
 }
 
@@ -4682,7 +4703,7 @@ function printDirect(ref){
   if (!SLIPFORMS[P.form]) P.form = 'north';
   const tp = SLIPFORMS[P.form], F = tp.fromOrder(o), local = slipFormLocal(tp.id), on = isSale && P.mode !== 'full';
   const mk = standalone => on ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone}) : slipHTML(o, P, standalone);
-  printNow(mk(false), (on ? '銷貨單套印' : (TYPES[o.type] || TYPES.sale).label) + '_' + o.no + '.html', () => mk(true));
+  printNow(mk(false), (on ? '銷貨單套印' : (TYPES[o.type] || TYPES.sale).label) + '_' + o.no + '.html', () => mk(true), on ? {form:tp.id} : null);
 }
 function firePrint(fr){
   const cw = fr && fr.contentWindow;
@@ -4791,7 +4812,7 @@ function openInvoice(ref){
     h('button', {class:'btn ghost', 'aria-label':'下載列印檔', onclick:() => { if (chk()) saveFile('發票套印_' + o.no + '.html', invoiceHTML(cx(), invLayout(), local, {standalone:true})); }}, icon('down'), '下載'),
     can('print') ? h('button', {class:'btn ghost', onclick:rec}, '記錄號碼') : null,
     S.isAdmin ? h('button', {class:'btn ghost', onclick:openInvoiceLayout}, '版面校準') : null,
-    h('button', {class:'btn grow', onclick:() => { if (chk()) printNow(invoiceHTML(cx(), invLayout(), local, {}), '發票套印_' + o.no + '.html', () => invoiceHTML(cx(), invLayout(), local, {standalone:true})); }}, '列印'));
+    h('button', {class:'btn grow', onclick:() => { if (chk()) printNow(invoiceHTML(cx(), invLayout(), local, {}), '發票套印_' + o.no + '.html', () => invoiceHTML(cx(), invLayout(), local, {standalone:true}), {form:'invoice'}); }}, '列印'));
   paint();
 }
 
@@ -9610,14 +9631,19 @@ const canExport = () => see('export') || S.isAdmin;
 const PS_PREF = 'printStation1', PS_NAME = 'stationName1';
 const stationPref = () => { try { return localStorage.getItem(PS_PREF) || ''; } catch (_) { return ''; } };
 const stationId = n => 'ps_' + String(n).replace(/[^\w\u4e00-\u9fff-]/g, '_');
-function printNow(html, fname, standaloneFn){
+function printNow(html, fname, standaloneFn, meta){
   const st = stationPref();
-  if (st) return sendPrintJob(html, fname || '列印', st);
+  if (st) return sendPrintJob(html, fname || '列印', st, meta);
   return printLocal(html, fname, standaloneFn);
 }
-async function sendPrintJob(html, title, station){
+/* 套印單據送到列印站：印表機的位置補正以列印站那台電腦為準（換掉送出那台裝置的位移） */
+function stationOffset(html, form){
+  const lo = slipFormLocal(form);
+  return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;/, '.in{position:absolute;left:' + (toNum(lo.ox) || 0) + 'mm;top:' + (toNum(lo.oy) || 0) + 'mm;');
+}
+async function sendPrintJob(html, title, station, meta){
   if (String(html).length > 900000) return toast('內容太大，不能送到列印站（請改用本機列印）');
-  const ok = await run(async () => { await S.db.collection('printjobs').doc().set({station, title:String(title || '列印').slice(0, 80), html:String(html), status:'queued', by:S.meId || null, byName:myName(), at:Date.now()}); return true; });
+  const ok = await run(async () => { await S.db.collection('printjobs').doc().set({station, title:String(title || '列印').slice(0, 80), html:String(html), status:'queued', by:S.meId || null, byName:myName(), at:Date.now(), ...(meta && meta.form ? {form:String(meta.form)} : {})}); return true; });
   if (ok) toast('已送到列印站「' + station + '」，電腦會自動列印');
 }
 function openPrintStation(){
@@ -9630,7 +9656,7 @@ function openPrintStation(){
   const gap = () => (typeof window.__stationGap === 'number' ? window.__stationGap : 6000);
   const handle = j => { chain = chain.then(async () => {
     const L = {title:j.title, by:j.byName || '', t:Date.now(), st:'printing'}; log.unshift(L); paint();
-    try { await S.db.doc('printjobs/' + j.id).update({status:'printing', startedAt:Date.now()}); printLocal(j.html, (j.title || '列印') + '.html'); await new Promise(r => setTimeout(r, gap())); await S.db.doc('printjobs/' + j.id).update({status:'done', doneAt:Date.now()}); L.st = 'done'; }
+    try { await S.db.doc('printjobs/' + j.id).update({status:'printing', startedAt:Date.now()}); printLocal(j.form ? stationOffset(j.html, j.form) : j.html, (j.title || '列印') + '.html'); await new Promise(r => setTimeout(r, gap())); await S.db.doc('printjobs/' + j.id).update({status:'done', doneAt:Date.now()}); L.st = 'done'; }
     catch (e) { L.st = 'error'; try { await S.db.doc('printjobs/' + j.id).update({status:'error', error:String((e && e.message) || e).slice(0, 200)}); } catch (_) {} }
     paint(); }); };
   const start = () => { name = nameIn.value.trim(); if (!name) return toast('請輸入列印站名稱'); try { localStorage.setItem(PS_NAME, name); } catch (_) {} running = true; beat(); hb = setInterval(beat, 30000);
@@ -11541,7 +11567,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bu';
+const APP_VERSION = '2026.10.11-bv';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
