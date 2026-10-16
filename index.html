@@ -3966,6 +3966,34 @@ const SLIPFORM_SOUTH_DEFAULT = {
 };
 const layoutTp = id => SLIPFORMS[id || 'north'] || INV_TP;
 const slipFormLayout = (id) => { const tp = layoutTp(id); return deepMerge(tp.def, (S[tp.cfg] && S[tp.cfg].layout) || {}); };
+/* 套表版面和標準位置比較（校準時不小心拖到、或以前存下來的位置）：回傳差 min mm 以上的欄位 */
+function layoutDiffs(id, L, base, min){
+  const tp = layoutTp(id); min = min === undefined ? 3 : min;
+  const a = tp.chips(clone(base || tp.def)), b = tp.chips(L || slipFormLayout(id)), out = [];
+  for (const cb of b){
+    const ca = a.find(x => x.id === cb.id); if (!ca) continue;
+    const p = ca.get(), q = cb.get(), dx = Math.round(((Number(q.x) || 0) - (Number(p.x) || 0)) * 10) / 10, dy = cb.lockY ? 0 : Math.round(((Number(q.y) || 0) - (Number(p.y) || 0)) * 10) / 10;
+    if (Math.abs(dx) >= min || Math.abs(dy) >= min) out.push({id:cb.id, t:cb.t, dx, dy});
+  }
+  return out;
+}
+const layoutDiffTxt = d => d.t + ' ' + [d.dy ? (d.dy < 0 ? '往上 ' : '往下 ') + num(Math.abs(d.dy)) + 'mm' : '', d.dx ? (d.dx < 0 ? '往左 ' : '往右 ') + num(Math.abs(d.dx)) + 'mm' : ''].filter(Boolean).join('、');
+/* 連續 3 張測試頁：每張在「客戶代號」和「合計」那一行畫線；一張比一張偏，就是印表機的紙張長度設錯 */
+function driftTestHTML(id, local, standalone){
+  const tp = layoutTp(id), L = slipFormLayout(id), f = L.f || {}, rd = v => Math.round(v * 100) / 100;
+  const env = slipEnv(L, local || {ox:0, oy:0}, {standalone, noBump:true}, 11, '連續列印測試頁');
+  const rows = [[f.code && f.code.y, tp.id === 'south' ? '商號代碼' : '客戶代號'], [f.tot && f.tot.y, tp.id === 'south' ? '總計' : '合計']].filter(r => r[0]);
+  const line = (x, y, w) => '<div style="position:absolute;left:' + rd(x) + 'mm;top:' + rd(y) + 'mm;width:' + rd(w) + 'mm;height:0;border-top:.35mm solid #000"></div>';
+  const page = n => {
+    let h = '';
+    for (const [y, t] of rows) h += line(12, y, L.w - 24) + '<div class="f" style="left:14mm;top:' + rd(y - 2.4) + 'mm;font-size:9pt">第 ' + n + ' 張：這條線要剛好在「' + t + '」那一行</div>';
+    h += line(12, 1, 25) + line(L.w - 37, 1, 25) + line(12, L.h - 1, 25) + line(L.w - 37, L.h - 1, 25);
+    h += '<div class="f" style="left:' + rd(L.w / 2 - 60) + 'mm;top:' + rd(L.h * 0.42) + 'mm;width:120mm;text-align:center;font-size:15pt">連續列印測試　第 ' + n + ' / 3 張</div>';
+    h += '<div class="f nt" style="left:' + rd(L.w / 2 - 75) + 'mm;top:' + rd(L.h * 0.42 + 6) + 'mm;width:150mm;text-align:center;font-size:9pt;line-height:1.5">3 張的線都在同一個位置 → 紙張長度正確。一張比一張低 → 印表機的紙張長度設太長；一張比一張高 → 設太短（請到印表機的紙張格式改成 ' + rd(L.w) + ' × ' + rd(L.h) + ' mm）。</div>';
+    return '<div class="form"><div class="in">' + h + '</div></div>';
+  };
+  return env.shell(page(1) + page(2) + page(3));
+}
 function slipFormLocal(id){ const k = layoutTp(id).localKey; try { return {ox:0, oy:0, ...JSON.parse(localStorage.getItem(k) || '{}')}; } catch (_) { return {ox:0, oy:0}; } }
 function saveSlipFormLocal(v, id){ try { localStorage.setItem(layoutTp(id).localKey, JSON.stringify(v)); } catch (_) {} }
 
@@ -4238,6 +4266,7 @@ const SLIPFORMS = {
     fields:[[['type', '單據類別'], ['code', '商號代碼']], [['short', '商號簡稱'], ['tel', '電話']], [['ship', '送貨地點']], [['maker', '製單員'], ['carrier', '承運人員']], [['inv', '發票號碼']]]}
 };
 
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
 function openSlipFormLayout(id, reset){
   id = id || 'north'; const tp = layoutTp(id);
   const L = clone(reset ? tp.def : slipFormLayout(id)), local = slipFormLocal(id), smp = tp.sample();
@@ -4252,13 +4281,23 @@ function openSlipFormLayout(id, reset){
   const xIn = h('input', {class:'in', type:'text', inputmode:'decimal', 'aria-label':'X（mm）', style:'height:38px'}), yIn = h('input', {class:'in', type:'text', inputmode:'decimal', 'aria-label':'Y（mm）', style:'height:38px'});
   const apply = (c, x, y) => c.set(r1(x), r1(y));
   const refreshSoon = () => { clearTimeout(tmr); tmr = setTimeout(paintFrame, 150); };
-  const chipEls = {};
+  const chipEls = {}, saved0 = clone(reset ? slipFormLayout(id) : L), devBox = h('div', {'aria-label':'和標準位置不同的欄位', style:'margin-top:8px'});
+  const stdOf = c => { const d = tp.chips(clone(tp.def)).find(x => x.id === c.id); return d ? d.get() : null; };
+  const paintDev = dv => {
+    const d = layoutDiffs(id, L), selDev = sel && dv.has(sel.id);
+    setKids(devBox, d.length ? h('small', {class:'hint', style:'display:block', text:'黃色標籤＝和標準位置差 3mm 以上（' + d.length + ' 個）：' + d.slice(0, 5).map(layoutDiffTxt).join('、') + (d.length > 5 ? '…' : '')}) : h('small', {class:'hint', style:'display:block', text:'所有欄位都在標準位置附近（差不到 3mm）。'}),
+      selDev ? h('button', {class:'btn ghost sm', style:'margin-top:6px', 'aria-label':'放回標準位置', onclick:() => { const p0 = stdOf(sel); if (!p0) return; apply(sel, p0.x, p0.y); place(); refreshSoon(); }}, '把「' + sel.t + '」放回標準位置') : null);
+  };
   const place = () => {
+    const dv = new Set(layoutDiffs(id, L).map(d => d.id));
     for (const c of chips){
       const p = c.get(), el = chipEls[c.id];
       el.style.left = (p.x * MM * sc) + 'px'; el.style.top = (p.y * MM * sc) + 'px';
       el.style.outline = sel === c ? '2px solid var(--brand)' : 'none'; el.style.zIndex = sel === c ? 3 : 2;
+      el.style.background = dv.has(c.id) ? 'rgba(240,176,0,.96)' : 'rgba(220,40,40,.85)'; el.style.color = dv.has(c.id) ? '#1d1500' : '#fff';
+      el.style.touchAction = sel === c ? 'none' : 'pan-y'; el.style.cursor = sel === c ? 'grab' : 'pointer';
     }
+    paintDev(dv);
     if (sel){ const p = sel.get(); xIn.value = r1(p.x); yIn.value = r1(p.y); if (info.firstChild) info.firstChild.textContent = '選取：' + sel.t + (sel.lockY ? '（只能左右移動，上下跟「第1行」一起）' : '') + ((/年|月|日|數量|單價|金額|小計|營業稅|合計|總計|項/.test(sel.t) && !/單據|類別/.test(sel.t)) ? '　標籤位置＝文字的右邊緣' : ''); }
   };
   function paintFrame(){
@@ -4273,17 +4312,18 @@ function openSlipFormLayout(id, reset){
   for (const c of chips){
     const el = h('div', {style:'position:absolute;transform:translate(-4px,-4px);padding:0 4px;height:15px;line-height:15px;font-size:10.5px;font-weight:600;background:rgba(220,40,40,.85);color:#fff;border-radius:3px;cursor:grab;touch-action:none;white-space:nowrap;user-select:none', text:c.t});
     let drag = null;
-    el.addEventListener('pointerdown', ev => { sel = c; drag = {x:ev.clientX, y:ev.clientY, p:{...c.get()}}; try { el.setPointerCapture(ev.pointerId); } catch (_) {} place(); ev.preventDefault(); });
-    el.addEventListener('pointermove', ev => { if (!drag) return; apply(c, drag.p.x + (ev.clientX - drag.x) / (MM * sc), drag.p.y + (ev.clientY - drag.y) / (MM * sc)); place(); refreshSoon(); });
+    /* 先點一下選取，選取後才能拖曳：用手指捲動畫面時，不會不小心把欄位拖走 */
+    el.addEventListener('pointerdown', ev => { if (sel !== c){ sel = c; drag = null; place(); return; } drag = {x:ev.clientX, y:ev.clientY, p:{...c.get()}, on:false}; try { el.setPointerCapture(ev.pointerId); } catch (_) {} ev.preventDefault(); });
+    el.addEventListener('pointermove', ev => { if (!drag) return; if (!drag.on && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4) return; drag.on = true; apply(c, drag.p.x + (ev.clientX - drag.x) / (MM * sc), drag.p.y + (ev.clientY - drag.y) / (MM * sc)); place(); refreshSoon(); });
     const up = () => { drag = null; }; el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
     chipEls[c.id] = el; stage.append(el);
   }
   const nudge = (dx, dy) => { if (!sel) return; const p = sel.get(); apply(sel, p.x + dx, p.y + dy); place(); refreshSoon(); };
   const setXY = () => { if (!sel) return; apply(sel, toNum(xIn.value), toNum(yIn.value)); place(); refreshSoon(); };
   xIn.addEventListener('change', setXY); yIn.addEventListener('change', setXY);
-  setKids(info, h('div', {style:'font-weight:600;margin-bottom:8px', text:'點一個紅色標籤，再拖曳或用下方數字微調'}),
+  setKids(info, h('div', {style:'font-weight:600;margin-bottom:8px', text:'先點一下紅色標籤選取，再拖曳或用下方按鈕微調（沒選取的標籤不會被拖動）'}),
     h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px'}, h('div', null, h('label', {style:'font-size:12px;color:var(--ink3)', text:'X（mm，距紙張左邊）'}), xIn), h('div', null, h('label', {style:'font-size:12px;color:var(--ink3)', text:'Y（mm，文字垂直中心距上緣）'}), yIn)),
-    h('div', {class:'btns', style:'margin-top:8px'}, [['←', -0.5, 0], ['→', 0.5, 0], ['↑', 0, -0.5], ['↓', 0, 0.5]].map(([t, dx, dy]) => h('button', {class:'btn ghost sm', 'aria-label':'微調 ' + t + ' 0.5mm', onclick:() => nudge(dx, dy)}, t + ' 0.5'))));
+    h('div', {class:'btns', style:'margin-top:8px'}, [['←', -0.5, 0], ['→', 0.5, 0], ['↑', 0, -0.5], ['↓', 0, 0.5]].map(([t, dx, dy]) => h('button', {class:'btn ghost sm', 'aria-label':'微調 ' + t + ' 0.5mm', onclick:() => nudge(dx, dy)}, t + ' 0.5'))), devBox);
   const numIn = (label, get, set) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:label}),
     h('input', {class:'in', type:'text', inputmode:'decimal', value:get(), 'aria-label':label, style:'height:38px', onchange:e => { set(toNum(e.target.value)); paintFrame(); }}));
   const g4 = 'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px';
@@ -4298,6 +4338,8 @@ function openSlipFormLayout(id, reset){
     h('button', {class:'btn ghost', 'aria-label':'下載測試頁', onclick:() => saveFile('套表校準測試頁.html', tp.html(smp.o, smp.F, L, local, {grid:true, standalone:true, noLocal:true}))}, icon('down'), '測試頁'),
     h('button', {class:'btn ghost', onclick:async () => { if (!await dialog({title:'還原預設位置？', msg:'會回到依你提供的套表量測的預設值（尚未儲存前不影響已存的版面）。', ok:'還原', danger:true})) return; sh.forceClose(); openSlipFormLayout(id, true); }}, '還原'),
     h('button', {class:'btn grow', onclick:async () => {
+      const moved = layoutDiffs(id, L, saved0, 2), off = layoutDiffs(id, L);
+      if (moved.length && !await dialog({title:'儲存 ' + moved.length + ' 個欄位的新位置？', msg:'這次移動了：' + moved.slice(0, 8).map(layoutDiffTxt).join('、') + (moved.length > 8 ? '…' : '') + '。' + (off.length ? '儲存後有 ' + off.length + ' 個欄位和標準位置差 3mm 以上，印出來可能對不準。' : '') + '如果只是整張印偏，請改用列印視窗裡「這台電腦的位置微調」（整體右移／下移），不要移動個別欄位。', ok:'儲存'})) return;
       const ok = await run(async () => { if (tp.save) await tp.save(L); else await S.db.doc(tp.doc).set({layout:L}); return true; });
       if (ok){ toast('已儲存套表版面'); sh.forceClose(); }
     }}, '儲存版面'));
@@ -4359,6 +4401,26 @@ function openPrint(ref){
   const fchips = (list, cur, on) => h('div', {class:'chips', style:'padding-top:0'}, list.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur() === k, onclick:e => { on(k); [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); paint(); }}, t)));
   const formCtl = h('div');
   const adminBtn = h('button', {class:'btn ghost', onclick:() => openSlipFormLayout(tp.id)}, '版面校準');
+  /* 套表版面被移動過（和標準位置差 3mm 以上）：列出來，管理員可以一鍵還原 */
+  const restoreStd = async () => {
+    if (!await dialog({title:'還原標準位置？', msg:'「' + tp.name + '」所有欄位回到依你們的套表量好的標準位置。這台電腦的整體位移、字體大小不受影響。', ok:'還原'})) return;
+    const ok = await run(async () => { await S.db.doc(tp.doc).set({layout:{}}); return true; });
+    if (ok){ S[tp.cfg] = {...(S[tp.cfg] || {}), layout:{}}; toast('已還原標準位置'); buildForm(); paint(); }
+  };
+  const layoutWarn = () => { const d = layoutDiffs(tp.id); if (!d.length) return null;
+    return h('div', {class:'note warn', 'aria-label':'套表版面和標準位置不同'}, h('b', {text:'套表版面有 ' + d.length + ' 個欄位和標準位置差 3mm 以上：'}), d.slice(0, 6).map(layoutDiffTxt).join('、') + (d.length > 6 ? '…' : '') + '。印出來這些欄位會對不準。',
+      S.isAdmin ? h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn sm', 'aria-label':'還原標準位置', onclick:restoreStd}, '還原標準位置'), h('button', {class:'btn ghost sm', 'aria-label':'打開版面校準', onclick:() => openSlipFormLayout(tp.id)}, '打開版面校準'))
+        : h('small', {class:'hint', style:'display:block;margin-top:6px', text:'請管理員在列印視窗按「還原標準位置」，或到「版面校準」調整。'})); };
+  const inch = mm => Math.round(mm / 25.4 * 100) / 100, cm = mm => Math.round(mm * 10) / 100;
+  const driftHelp = () => { const L0 = slipFormLayout(tp.id);
+    return h('details', {class:'fold', 'aria-label':'一張比一張偏'}, h('summary', {text:'印出來一張比一張往下（或往上）偏？'}), h('div', {class:'fold-b'},
+      h('p', {class:'hint', style:'margin:0 0 6px', text:'這是印表機的「紙張長度」和套表不一樣：每印一張就多走（或少走）一點，越印越偏。網頁沒辦法替你改，要在電腦的印表機設定改。套表一張是寬 ' + inch(L0.w) + ' 吋（' + cm(L0.w) + ' 公分）、高 ' + inch(L0.h) + ' 吋（' + cm(L0.h) + ' 公分）。'}),
+      h('ol', {style:'margin:0 0 8px 18px;font-size:14px;color:var(--ink2)'},
+        h('li', {text:'Windows「設定 → 藍牙與裝置 → 印表機與掃描器」最下方「列印伺服器內容」→「格式」，找到套表用的格式（例如「中一刀」），確認寬 ' + cm(L0.w) + ' 公分、高 ' + cm(L0.h) + ' 公分；高度不對（例如設成 6 吋／15.24 公分）就改正，按「儲存格式」。'}),
+        h('li', {text:'EPSON LQ-690C →「列印喜好設定」→ 紙張大小選這個格式。'}),
+        h('li', {text:'瀏覽器的列印視窗 →「更多設定」→ 紙張大小也選這個格式；邊界「無」、縮放「預設」（100%）。'}),
+        h('li', {text:'按下面的「連續 3 張測試頁」，放空白報表紙或套表印出來：3 張的線都在同一個位置就對了。'})),
+      h('button', {class:'btn ghost sm', 'aria-label':'印連續 3 張測試頁', onclick:() => printNow(driftTestHTML(tp.id, local), '連續列印測試頁.html', () => driftTestHTML(tp.id, local, true))}, '連續 3 張測試頁'))); };
   const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; };
   function buildForm(){
     const ftxt = (key, label) => fld(label, h('input', {class:'in', value:F[key] || '', 'aria-label':label, autocomplete:'off', oninput:e => { F[key] = e.target.value; soon(); }}));
@@ -4367,6 +4429,7 @@ function openPrint(ref){
         tp = SLIPFORMS[k]; P.form = k; F = tp.fromOrder(o); local = slipFormLocal(k); buildForm(); syncVis(); })),
       h('div', {class:'f'}, h('label', {text:'字體大小（這台電腦；每一級加大 1 pt，太長的欄位會自動縮小）'}), fchips([['0', '標準'], ['1', '大 1 級'], ['2', '大 2 級'], ['3', '大 3 級']], () => String(fsUpOf(local)), k => { local.fsUp = Number(k); saveSlipFormLocal(local, tp.id); })),
       h('p', {class:'note', text:'只印資料，套在你手上的「' + tp.full + '」預印套表上（複寫給後面幾聯）。紙張規格：' + tp.paper + '（' + tp.paperMm + '）。'}),
+      layoutWarn(), driftHelp(),
       tp.fields.map(row => row.length === 1 ? ftxt(row[0][0], row[0][1]) : h('div', {class:'f2'}, row.map(([k, l]) => ftxt(k, l)))),
       tp.id === 'north' ? h('div', {class:'f'}, h('label', {text:'交貨方式'}), fchips([['-1', '不勾'], ['0', '送貨'], ['1', '郵寄'], ['2', '自取'], ['3', '貨運']], () => String(F.dm), k => { F.dm = Number(k); })) : null,
       tp.id === 'south' ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!F.brandSku, onchange:e => { F.brandSku = e.target.checked; paint(); }}), '「廠牌」欄印商品料號（取消則留空）') : null,
@@ -11478,7 +11541,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bt';
+const APP_VERSION = '2026.10.11-bu';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
