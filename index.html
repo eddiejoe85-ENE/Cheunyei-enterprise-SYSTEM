@@ -1487,7 +1487,7 @@ function openOrder(type, pre){
     if (!shipBox) return; const sp = st.ship;
     const mk = (key, ph, aria) => h('input', {class:'in', value:sp[key], placeholder:ph, 'aria-label':aria, autocomplete:'off', oninput:e => { sp[key] = e.target.value; sp.touched[key] = true; }});
     const addrIn = mk('addr', '送貨地址', '送貨地址'), spIn = mk('special', '指送特別地址（選填：填了，它就取代上面的送貨地址）', '指送特別地址'), spNote = h('small', {class:'hint', style:'display:block;margin-top:2px'});
-    const onlyBox = h('label', {class:'check', style:'margin:6px 0 0'}, h('input', {type:'checkbox', checked:!!sp.only, 'aria-label':'只送特別地址', onchange:e => { sp.only = e.target.checked; }}), '只送特別地址（不能送到原本的送貨地址，列印時蓋「只送」戳章）');
+    const onlyBox = h('label', {class:'check', style:'margin:6px 0 0'}, h('input', {type:'checkbox', checked:!!sp.only, 'aria-label':'只能送到特別地址', onchange:e => { sp.only = e.target.checked; }}), '只能送到特別地址（不能送到原本的送貨地址；列印一樣蓋「指送」戳章）');
     const syncSp = () => { const on = !!String(sp.special || '').trim(); addrIn.disabled = on; addrIn.style.opacity = on ? '.45' : ''; spNote.textContent = on ? '✓ 已由「指送特別地址」取代原本的送貨地址（列印、送貨清單都用特別地址；原本的地址仍保留，清空特別地址就恢復）' : ''; onlyBox.style.display = on ? '' : 'none'; };
     spIn.addEventListener('input', syncSp); syncSp();
     setKids(shipBox, h('label', {text:'送貨資訊（預設帶入客戶資料，請確認）'}), (st.store && Object.keys(storeInfoOf(partnerOf(), st.store)).length ? h('small', {class:'hint', style:'display:block;margin-bottom:4px', text:'✓ 已帶入「' + st.store + '」的送貨地址、聯絡人和電話'}) : null), h('div', {class:'f', style:'margin:4px 0 8px'}, h('label', {text:'預計送貨日期'}), h('input', {class:'in', type:'date', value:st.deliv, 'aria-label':'預計送貨日期', onchange:e => { st.deliv = e.target.value || st.date; st.delivTouched = true; }})), addrIn, spNote, h('div', {style:'margin-top:6px'}, spIn), onlyBox, h('div', {style:'margin-top:6px'}, mk('spot', '指送地點備註（選填，例：後門卸貨區、請先電話聯絡）', '指送地點')),
@@ -1841,7 +1841,7 @@ function openOrderDetail(id){
         (o.type === 'sale' && !isVoid && see('print')) ? kv('統一發票', o.invNo ? h('button', {style:'text-decoration:underline', onclick:() => openInvoice(id)}, o.invNo) : h('button', {class:'btn ghost sm', onclick:() => openInvoice(id)}, '套印發票')) : null,
         (o.type === 'sale' && !isVoid && can('sale') && pt && pt.lineUserId && LINE().on) ? kv('LINE 通知客戶', h('span', {style:'display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end'}, o.lineSlipAt ? h('small', {class:'hint', 'aria-label':'LINE 通知狀態', text:'已通知 ' + lineTimeTxt(o.lineSlipAt)}) : null, h('button', {class:'btn ghost sm', 'aria-label':'通知商品數量', onclick:() => openLineSlipNotify(o)}, o.lineSlipAt ? '再通知一次' : '通知商品數量'))) : null,
         o.srcNo ? (o.srcKind === 'sale' ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => S.orders[o.srcId] && openOrderDetail(o.srcId)}, o.srcNo)) : kv('來源' + (o.srcKind === 'co' ? '訂單' : '採購單'), h('button', {style:'text-decoration:underline', onclick:() => S[DOCS[o.srcKind].coll][o.srcId] && openDocDetail(o.srcKind, o.srcId)}, o.srcNo))) : null,
-        o.type === 'sale' && (o.shipAddress || o.shipSpecial || o.shipContact || o.shipPhone || o.shipMethod) ? kv('送貨', [o.shipMethod, o.shipSpecial || o.shipAddress].filter(Boolean).join('　')) : null, o.type === 'sale' && o.shipSpecial ? kv(o.shipOnly ? '只送特別地址' : '指送特別地址', o.shipSpecial + (o.shipOnly ? '（不送原本的送貨地址' + (o.shipAddress ? '：' + o.shipAddress : '') + '）' : (o.shipAddress ? '（取代原本的 ' + o.shipAddress + '）' : ''))) : null, o.type === 'sale' && o.shipSpot ? kv('指送特別地點', o.shipSpot) : null, o.type === 'sale' && o.urgent ? kv('早一點', '是（列印會蓋「早一點」郵戳）') : null, o.type === 'sale' && o.store ? kv('叫貨店面', o.store) : null, o.type === 'sale' && o.driver ? kv('送貨員', o.driver) : null, o.type === 'sale' ? kv('預計送貨日', deliveryOf(o)) : null, o.type === 'sale' && o.truckPlate ? kv('派車', o.truckPlate + '　' + truckSlotTxt(o) + (o.truckSeq ? '　第 ' + o.truckSeq + ' 站' : '') + (o.truckMerged ? '（中午不回公司）' : '') + (o.driver ? '　駕駛 ' + o.driver : '')) : null, (() => { const tr = o.type === 'sale' ? tripOfOrder(o.id) : null; return tr ? kv('出車', tr.date + ' ' + SLOTS[tr.slot] + '　' + vehLabel(S.vehicles[tr.vehicleId]) + (tr.driver ? '（' + tr.driver + '）' : '') + (tr.outTime ? '　' + tr.outTime + '→' + (tr.backTime || '--:--') : '')) : null; })(),
+        o.type === 'sale' && (o.shipAddress || o.shipSpecial || o.shipContact || o.shipPhone || o.shipMethod) ? kv('送貨', [o.shipMethod, o.shipSpecial || o.shipAddress].filter(Boolean).join('　')) : null, o.type === 'sale' && o.shipSpecial ? kv('指送特別地址', o.shipSpecial + (o.shipOnly ? '（只能送這裡，不送原本的送貨地址' + (o.shipAddress ? '：' + o.shipAddress : '') + '）' : (o.shipAddress ? '（取代原本的 ' + o.shipAddress + '）' : ''))) : null, o.type === 'sale' && o.shipSpot ? kv('指送特別地點', o.shipSpot) : null, o.type === 'sale' && o.urgent ? kv('早一點', '是（列印會蓋「早一點」郵戳）') : null, o.type === 'sale' && o.store ? kv('叫貨店面', o.store) : null, o.type === 'sale' && o.driver ? kv('送貨員', o.driver) : null, o.type === 'sale' ? kv('預計送貨日', deliveryOf(o)) : null, o.type === 'sale' && o.truckPlate ? kv('派車', o.truckPlate + '　' + truckSlotTxt(o) + (o.truckSeq ? '　第 ' + o.truckSeq + ' 站' : '') + (o.truckMerged ? '（中午不回公司）' : '') + (o.driver ? '　駕駛 ' + o.driver : '')) : null, (() => { const tr = o.type === 'sale' ? tripOfOrder(o.id) : null; return tr ? kv('出車', tr.date + ' ' + SLOTS[tr.slot] + '　' + vehLabel(S.vehicles[tr.vehicleId]) + (tr.driver ? '（' + tr.driver + '）' : '') + (tr.outTime ? '　' + tr.outTime + '→' + (tr.backTime || '--:--') : '')) : null; })(),
         o.type === 'sale' && (o.shipContact || o.shipPhone) ? kv('送貨聯絡', [o.shipContact, o.shipPhone].filter(Boolean).join('　')) : null,
         o.note ? kv('備註', o.note) : null),
       h('div', {class:'panel', style:'margin-bottom:14px'}, (o.lines || []).map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
@@ -3850,7 +3850,7 @@ function refSlipHTML(o, standalone, P){
       '<div class="box"><div class="g">' +
         '<div>客戶名稱: ' + e(pt.name || '散客') + '</div><div class="r2">統一編號: ' + e(pt.taxId || '') + '<span class="nt">' + e(S.set.cur || 'NT$') + '</span></div>' +
         '<div>聯絡地址: ' + e(pt.invoiceAddress || pt.address || '') + '</div><div class="r2">發票號碼: ' + e(o.invoiceNo || '') + '</div>' +
-        '<div>送貨地址: ' + e(os.addr || '') + (os.special ? '　<b class="stp2">' + (o.shipOnly ? '只送' : '指送') + '</b>' : '') + '</div><div class="r2">業務姓名: ' + e(salesName) + '</div>' +
+        '<div>送貨地址: ' + e(os.addr || '') + (os.special ? '　<b class="stp2">指送</b>' : '') + '</div><div class="r2">業務姓名: ' + e(salesName) + '</div>' +
         '<div class="two"><span>電話傳真: ' + e(os.phone || pt.phone || '') + '</span><span>聯絡人: ' + e(os.contact || '') + '</span></div><div class="r2">倉 庫 別: ' + e(wh) + '</div></div>' +
       '<table class="it"><thead><tr><th style="width:19%">產品編號</th><th>品 名 規 格</th><th style="width:15%">數 量/單位</th><th style="width:15%">單價</th><th style="width:17%">金 額</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' +
       '<div class="ft"><div class="note"><span class="lab">備<br>註</span><span>' + e(ship) + '</span></div><div class="sum"><div><span>小　計</span><b>' + (last ? n0(net) : '') + '</b></div><div><span>營業稅</span><b>' + (last ? n0(tax) : '') + '</b></div><div><span>合　計</span><b>' + (last ? n0(total) : '') + '</b></div></div></div>' +
@@ -3890,7 +3890,7 @@ function slipHTML(o, P, standalone){
   const kvh = (k, v) => v ? '<span class="i"><span class="k">' + k + '：</span>' + e(v) + (k === '日期' ? urgentBlk : '') + (k === '客戶' ? stIn : '') + '</span>' : '';
   const dueTxt = (due > 0.004 && pt.name && !isRet) ? dueDateOf(o) : '';
   const qrOn = (o.type === 'sale' || o.type === 'sale_return') && P.qr !== false, qsz = Math.min(Math.max(toNum(P.qrSize) > 0 ? toNum(P.qrSize) : (compact ? 9 : 13), 8), 30);
-  const spOn = (o.type === 'sale' || o.type === 'sale_return') && !!os.special && P.spStamp !== false, spIn = spOn ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-4deg);transform-origin:center">' + (o.shipOnly ? '只送' : '指送') + '</span>' : '';
+  const spOn = (o.type === 'sale' || o.type === 'sale_return') && !!os.special && P.spStamp !== false, spIn = spOn ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-4deg);transform-origin:center">指送</span>' : '';
   const stN = P.ss !== false && (o.type === 'sale' || o.type === 'sale_return') ? storeStampName(o) : '', stIn = stN ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9.5pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-3deg);transform-origin:left center">' + e(stN) + '</span>' : '';
   const noQr = qrOn ? '<span class="oqr oqrin" style="display:inline-block;width:' + qsz + 'mm;height:' + qsz + 'mm;vertical-align:middle;margin-left:2mm">' + qrSvg(String(o.no || ''), qsz, 'M') + '</span>' : '';
   const urgentBlk = o.urgent ? '<span class="stp" style="display:inline-block;margin-left:2mm;font-size:9.5pt;padding:0 1.6mm;border-width:.4mm;letter-spacing:.3mm;vertical-align:middle;transform:rotate(-5deg);transform-origin:left center">早一點</span>' : '';
@@ -3948,7 +3948,7 @@ const SLIPFORM_DEFAULT = {
      name:{x:38.2, y:34.7}, addr:{x:38.2, y:38.1}, ship:{x:38.2, y:41.8}, tel:{x:38.2, y:45.6}, contact:{x:105.6, y:45.6},
      tax:{x:167, y:34.7}, inv:{x:167, y:38.1}, sales:{x:167, y:41.8}, wh:{x:167, y:45.6},
      dm:[{x:206.3, y:42}, {x:206.3, y:48}, {x:206.3, y:54.2}, {x:206.3, y:60.3}],
-     note:{x:26.1, y:104.5}, sub:{xr:201.4, y:106}, vat:{xr:201.4, y:110.3}, tot:{xr:201.4, y:114.6}, maker:{x:168, y:121}},
+     note:{x:26.1, y:104.5}, sub:{xr:201.4, y:106}, vat:{xr:201.4, y:110.3}, tot:{xr:201.4, y:114.6}, driver:{x:131, y:121}, maker:{x:168, y:121}},
   item:{y:56.2, pitch:4.5, rows:11},
   stamp:{x:100, y:8},
   col:{sku:{x:21.2, w:28.5}, name:{x:52.5, w:57}, qty:{xr:137.7, w:26}, price:{xr:159.3, w:19}, amt:{xr:201.4, w:24}},
@@ -4059,7 +4059,7 @@ function slipEnv(L, local, opt, fs, title){
     if (!(o.type === 'sale' || o.type === 'sale_return') || !String(o.shipSpecial || '').trim() || (local && local.sp === false) || !at) return '';
     const rd = v => Math.round(v * 100) / 100, txt = shipPrint(o), f0 = at.fs >= 9 ? upFs(at.fs) : at.fs, fz = fitFs(txt, at.w, f0);
     let em = 0; for (const ch of txt) em += ch.charCodeAt(0) > 255 ? 1 : 0.6; const tw = Math.min(em * fz * 0.3528, at.w);
-    return '<div class="stp stp-in" style="position:absolute;left:' + rd(at.x + tw + 3) + 'mm;top:' + rd(at.y - 0.8) + 'mm">' + (o.shipOnly ? '只送' : '指送') + '</div>';
+    return '<div class="stp stp-in" style="position:absolute;left:' + rd(at.x + tw + 3) + 'mm;top:' + rd(at.y - 0.8) + 'mm">指送</div>';
   };
   return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp, storeStamp};
 }
@@ -4108,6 +4108,7 @@ function slipFormHTML(o, F, L, local, opt){
     const pageSum = pr.reduce((a, r) => a + r.amt, 0);
     h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
     if (last){ h += T(f.vat.xr, f.vat.y, n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}); }
+    if (F.driver && f.driver) h += T(f.driver.x, f.driver.y, F.driver, {w:28, fs:hfs});
     if (F.maker) h += T(f.maker.x, f.maker.y, F.maker, {w:34, fs:hfs});
     if (opt.grid) h += env.gridHtml();
     return '<div class="form"><div class="in">' + h + '</div></div>';
@@ -4161,7 +4162,7 @@ function slipSouthHTML(o, F, L, local, opt){
 function slipFormSample(){
   const lines = [{sku:'A1001', name:'礦泉水 600ml 24 入', unit:'箱', qty:12, price:180}, {sku:'A1002', name:'綠茶 500ml 24 入 檸檬口味加大裝', unit:'箱', qty:10, price:250}, {sku:'B2001', name:'蘇打餅乾 家庭號', unit:'包', qty:5, price:320}];
   const total = lines.reduce((a, l) => a + l.qty * l.price, 0);
-  return {o:{no:'SO260921-TEST', date:today(), lines, total, type:'sale'}, F:{code:'C001', name:'測試股份有限公司', addr:'台北市中正區測試路 1 號 5 樓', ship:'台北市內湖區測試路 8 號', tel:'02-1234-5678', contact:'王小姐', tax:'12345678', inv:'AB-12345678', sales:'王小明', wh:'A 倉', dm:0, mode:'excl', taxType:'taxable', note:'週五前送達', maker:'王小明'}};
+  return {o:{no:'SO260921-TEST', date:today(), lines, total, type:'sale'}, F:{code:'C001', name:'測試股份有限公司', addr:'台北市中正區測試路 1 號 5 樓', ship:'台北市內湖區測試路 8 號', tel:'02-1234-5678', contact:'王小姐', tax:'12345678', inv:'AB-12345678', sales:'王小明', wh:'A 倉', dm:0, mode:'excl', taxType:'taxable', note:'週五前送達', driver:'李大哥', maker:'王小明'}};
 }
 function slipSouthSample(){
   const s = slipFormSample();
@@ -4183,7 +4184,7 @@ const storeInfoOf = (pt, name) => (pt && pt.storeInfo && name && pt.storeInfo[na
 const isStoreStamp = t => / 叫貨$/.test(String(t));
 const storeStampName = o => { const nm = o && o.type === 'sale' ? String(o.store || '').trim() : ''; return nm ? nm + ' 叫貨' : ''; };
 function orderShip(o){ const pt = S.partners[o.partnerId] || {}, si = storeInfoOf(pt, o.store), own = !!o.shipAddress, sp = String(o.shipSpecial || '').trim(); return {special:sp, only:!!(sp && o.shipOnly), addr:sp || o.shipAddress || si.addr || pt.shipAddress || pt.address || '', spot:o.shipSpot || (own ? '' : (si.spot || pt.shipSpot || '')), contact:o.shipContact || si.contact || pt.contactName || '', phone:o.shipPhone || si.phone || pt.contactPhone || pt.phone || ''}; }
-const shipLine = o => { const x = orderShip(o); return (x.special ? (x.only ? '【只送】' : '【指送】') : '') + x.addr + (x.spot ? '（指送：' + x.spot + '）' : ''); };
+const shipLine = o => { const x = orderShip(o); return (x.special ? '【指送】' : '') + x.addr + (x.spot ? '（指送：' + x.spot + '）' : ''); };
 const shipPrint = o => { const x = orderShip(o); return x.addr + (x.spot ? '（' + x.spot + '）' : ''); };
 function storeEditor(ex){
   const rows = (ex && Array.isArray(ex.stores) ? ex.stores : []).map(n => ({name:n, ...((ex.storeInfo || {})[n] || {})})); if (!rows.length) rows.push({name:''});
@@ -4206,7 +4207,7 @@ const shipIdx = (o, pt) => { const i = SHIPM.indexOf(o.shipMethod || (pt && pt.s
 function slipFormFromOrder(o){
   const pt = S.partners[o.partnerId] || {}, oo = invOpt();
   return {code:pt.code || '', name:pt.name || '', addr:pt.address || '', ship:shipPrint(o), tel:orderShip(o).phone, contact:orderShip(o).contact, tax:pt.taxId || '', inv:o.invNo || '',
-    sales:pt.salesRep || o.byName || whoName(o.by), wh:multiWh() ? whName(orderWh(o)) : '', dm:shipIdx(o, pt), ...orderTax(o, oo), maker:o.byName || whoName(o.by),
+    sales:pt.salesRep || o.byName || whoName(o.by), wh:multiWh() ? whName(orderWh(o)) : '', dm:shipIdx(o, pt), ...orderTax(o, oo), driver:o.type === 'sale_return' ? '' : (o.driver || ''), maker:o.byName || whoName(o.by),
     note:[slipNoteOf(o), S.set.slipNote || ''].filter(Boolean).join('　'), bg:true};
 }
 const orderTax = (o, oo) => o.taxType !== undefined ? {mode:o.taxMode === 'incl' ? 'incl' : 'excl', taxType:(o.taxType !== 'taxable' || o.taxMode === 'none') ? 'exempt' : 'taxable'} : {mode:oo.mode, taxType:oo.taxType === 'zero' ? 'taxable' : oo.taxType};
@@ -4232,7 +4233,7 @@ function northChips(L){
     slipItemChip('iqty', '數量', () => ({x:L.col.qty.xr, y:L.item.y}), x => { L.col.qty.xr = x; }),
     slipItemChip('iprice', '單價', () => ({x:L.col.price.xr, y:L.item.y}), x => { L.col.price.xr = x; }),
     slipItemChip('iamt', '金額', () => ({x:L.col.amt.xr, y:L.item.y}), x => { L.col.amt.xr = x; }),
-    oc('note', '備註', () => L.f.note), oc('sub', '小計', () => L.f.sub), oc('vat', '營業稅', () => L.f.vat), oc('tot', '合計', () => L.f.tot), oc('maker', '製單', () => L.f.maker)
+    oc('note', '備註', () => L.f.note), oc('sub', '小計', () => L.f.sub), oc('vat', '營業稅', () => L.f.vat), oc('tot', '合計', () => L.f.tot), oc('driver', '送貨', () => L.f.driver), oc('maker', '製單', () => L.f.maker)
   ];
 }
 function southChips(L){
@@ -4260,13 +4261,13 @@ const southNums = L => [['品項行數', () => L.item.rows, v => { L.item.rows =
 const SLIPFORMS = {
   north:{id:'north', name:'北區銷貨單', full:'北區銷貨單（鑫城實業／承益企業）', bg:FORM_BG_NORTH, def:SLIPFORM_DEFAULT, cfg:'slipCfg', doc:'settings/slipform', localKey:'slipFormLocal', html:slipFormHTML, fromOrder:slipFormFromOrder, sample:slipFormSample, chips:northChips, nums:northNums,
     paper:'中一刀 9.5×5.5 吋', paperMm:'241.3 × 139.7 mm',
-    fields:[[['code', '客戶代號'], ['name', '客戶名稱']], [['addr', '公司地址']], [['ship', '送貨地址']], [['tel', '連絡電話'], ['contact', '連絡人']], [['tax', '統一編號'], ['inv', '發票號碼']], [['sales', '業務姓名'], ['wh', '倉庫別']]]},
+    fields:[[['code', '客戶代號'], ['name', '客戶名稱']], [['addr', '公司地址']], [['ship', '送貨地址']], [['tel', '連絡電話'], ['contact', '連絡人']], [['tax', '統一編號'], ['inv', '發票號碼']], [['sales', '業務姓名'], ['wh', '倉庫別']], [['driver', '送貨（配送人員）'], ['maker', '製單']]]},
   south:{id:'south', name:'中南區銷貨單', full:'中南區銷貨單（第一聯：客戶聯 紅）', bg:FORM_BG_SOUTH, def:SLIPFORM_SOUTH_DEFAULT, cfg:'slipCfgS', doc:'settings/slipform_south', localKey:'slipFormLocal_south', html:slipSouthHTML, fromOrder:slipSouthFromOrder, sample:slipSouthSample, chips:southChips, nums:southNums,
     paper:'約 6.8×4 吋', paperMm:'約 172.5 × 101.6 mm',
     fields:[[['type', '單據類別'], ['code', '商號代碼']], [['short', '商號簡稱'], ['tel', '電話']], [['ship', '送貨地點']], [['maker', '製單員'], ['carrier', '承運人員']], [['inv', '發票號碼']]]}
 };
 
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, stationOffset:(...x) => stationOffset(...x), printNow:(...x) => printNow(...x), openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, shipLine:x => shipLine(x), stationOffset:(...x) => stationOffset(...x), printNow:(...x) => printNow(...x), openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
 function openSlipFormLayout(id, reset){
   id = id || 'north'; const tp = layoutTp(id);
   const L = clone(reset ? tp.def : slipFormLayout(id)), local = slipFormLocal(id), smp = tp.sample();
@@ -4393,7 +4394,7 @@ function openPrint(ref){
   const fullCtl = h('div', null,
     h('div', {class:'f2'}, fld('紙張', paperSel), fld('字級', fsSel)),
     customRow,
-    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（勾了「只送特別地址」就蓋「只送」）'), chk('ss', '單據選了叫貨店面時，把「○○店 叫貨」戳章印在客戶名稱後面，不再蓋在右上角'),
+    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章'), chk('ss', '單據選了叫貨店面時，把「○○店 叫貨」戳章印在客戶名稱後面，不再蓋在右上角'),
     h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'進階：邊界與位置微調（mm）'}),
       h('div', {style:'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px'}, num_('mt', '上邊界'), num_('mr', '右邊界'), num_('mb', '下邊界'), num_('ml', '左邊界')),
       h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, num_('ox', '整體右移'), num_('oy', '整體下移')),
@@ -4464,7 +4465,7 @@ function openPrint(ref){
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['sx', '郵戳 X（mm）'], ['sy', '郵戳 Y（mm）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + (k === 'sx' ? slipFormLayout(tp.id).stamp.x : slipFormLayout(tp.id).stamp.y), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['ux', '早一點郵戳 X（mm，左邊緣，在日期右邊）'], ['uy', '早一點郵戳 Y（mm，垂直中心）']].map(([k, t]) => { const f2 = slipFormLayout(tp.id).f || {}, dflt = f2.year && f2.day ? (k === 'ux' ? Math.round((f2.day.xr + ((slipFormLayout(tp.id).w || 241) < 200 ? 4.6 : 5.8)) * 100) / 100 : Math.round((f2.day.y + 0.5) * 100) / 100) : ''; return h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設（日期正下方）' + (dflt !== '' ? ' ' + dflt : ''), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})); })),
         h('label', {class:'check', style:'margin-top:10px'}, h('input', {type:'checkbox', checked:local.qr !== false, 'aria-label':'套表印單號QR', onchange:e => { if (e.target.checked) delete local.qr; else local.qr = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'),
-        h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（勾了「只送特別地址」就蓋「只送」；送貨地址本身一定改印特別地址）'),
+        h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（送貨地址本身一定改印特別地址）'),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ss !== false, 'aria-label':'套表印分店戳章', onchange:e => { if (e.target.checked) delete local.ss; else local.ss = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單據選了叫貨店面時，把「○○店 叫貨」戳章蓋在客戶編號上方（例如「八德店 叫貨」；中南區表單會稍微靠右，避開預印的單據類別）'),
         local.ss !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['ssx', '分店戳章 再往右（mm，可填負數）'], ['ssy', '分店戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
         local.qr !== false ? h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px'}, ...[['qs', 'QR 大小（mm）', (slipFormLayout(tp.id).w || 241) < 200 ? '11' : '12'], ['qdx', 'QR 再往右（mm，可填負數）', '0'], ['qdy', 'QR 再往下（mm，可填負數）', '0']].map(([k, t, d0]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + d0, 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
@@ -11567,7 +11568,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bv';
+const APP_VERSION = '2026.10.11-bw';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
