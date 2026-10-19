@@ -708,7 +708,7 @@ function recompute(){
   const fill = {}, lastSup = {}, lastKey = {};
   for (const o of Object.values(S.orders)){
     if (o.status === 'void') continue;
-    if (o.srcId){ const m = fill[o.srcId] || (fill[o.srcId] = {}); for (const l of o.lines || []) m[l.pid] = r3((m[l.pid] || 0) + Number(l.qty || 0)); }
+    for (const [sid, sm] of Object.entries(srcQtyOf(o))){ const m = fill[sid] || (fill[sid] = {}); for (const pid of Object.keys(sm)) m[pid] = r3((m[pid] || 0) + sm[pid]); }
     if (o.type === 'purchase' && o.partnerId){
       const k = (o.date || '') + '|' + String(o.at || 0).padStart(15, '0');
       for (const l of o.lines || []) if (!lastKey[l.pid] || k > lastKey[l.pid]){ lastKey[l.pid] = k; lastSup[l.pid] = o.partnerId; }
@@ -901,7 +901,7 @@ function pageEl(){
   const banners = [];
   if (S.err) banners.push(h('div', {class:'note bad', text:'資料連線中斷，畫面可能不是最新內容，請重新整理。'}));
   if (docCount() > DOC_LIMIT * 0.8) banners.push(h('div', {class:'note warn', text:'資料量已使用 ' + docCount() + ' / ' + DOC_LIMIT + ' 份文件，接近上限。'}));
-  if (S.isAdmin && bkDue()) banners.push(h('button', {class:'note warn', onclick:async () => { if (await doBackup()) toast('已備份'); }, text:(S.bk && S.bk.last ? '已超過 ' + Math.floor((Date.now() - S.bk.last) / 864e5) + ' 天沒有備份' : '還沒有備份過資料') + '，點這裡立即備份（下載 JSON）。'}));
+  if (S.isAdmin && bkDue() && S.tab !== 'home') banners.push(h('button', {class:'note warn', onclick:async () => { if (await doBackup()) toast('已備份'); }, text:(S.bk && S.bk.last ? '已超過 ' + Math.floor((Date.now() - S.bk.last) / 864e5) + ' 天沒有備份' : '還沒有備份過資料') + '，點這裡立即備份（下載 JSON）。'}));
   const page = ({home:pHome, inv:pInv, buy:pBuy, ord:pOrd, acc:pAcc, veh:pVeh, rep:pRep, more:pMore})[S.tab]();
   page.prepend(...banners);
   return page;
@@ -912,6 +912,30 @@ function gauge(p){
   const s = Math.max(stockOf(p.id), 0);
   const pct = p.safety > 0 ? Math.min(s / (p.safety * 2), 1) : (s > 0 ? 1 : 0);
   return h('span', {class:'gauge ' + level(p), 'aria-hidden':'true'}, h('i', {style:'width:' + Math.round(pct * 100) + '%'}), p.safety > 0 ? h('b', {style:'left:50%'}) : null);
+}
+/* ================= 首頁最上面的待辦事項：要處理的事集中在一張卡片，要馬上處理的排前面 ================= */
+function homeTodo(){
+  const it = [], add = (key, urgent, title, sub, act) => it.push({key, urgent, title, sub, act});
+  const lateN = l => l.filter(d => d.expected && daysBetween(today(), d.expected) < 0).length, go = seg => () => { S.tab = 'buy'; S.ui.buySeg = seg; draw(); };
+  if (S.isAdmin && bkDue()) add('資料備份', true, S.bk && S.bk.last ? '已超過 ' + Math.floor((Date.now() - S.bk.last) / 864e5) + ' 天沒有備份' : '還沒有備份過資料', '點這裡立即備份（下載 JSON）', async () => { if (await doBackup()) toast('已備份'); });
+  if (S.isAdmin){ const al = openAlertList(); if (al.length) add('系統提醒', true, '系統提醒 ' + al.length + ' 則', alertLabel(al[0].type) + '：' + String(al[0].text || '').slice(0, 40) + (al.length > 1 ? '…' : ''), openAlerts); }
+  if ((can('sale') || S.isAdmin) && fxOn('lineOrders')){ const lp = linePending(); if (lp.length) add('LINE 待審核訂單', true, 'LINE 待審核訂單 ' + lp.length + ' 張', '最久已等 ' + lineAgoTxt(lp[0].createdAt) + '，點這裡審核', openLineOrders); }
+  if (canAttMgr() && fxOn('attAdmin')){ const n = pendingPunches().length; if (n) add('打卡待確認', true, '打卡待確認 ' + n + ' 筆', '不在公司範圍、沒有位置或手機時間不準的打卡，請確認', () => openAttAdmin('rev')); }
+  if (reviewOn() && canReviewPerm() && fxOn('review')){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) add('待覆核單據', false, '待覆核單據 ' + pend.length + ' 張', '覆核後單據鎖定，不能再修改或作廢', openReviewQueue); }
+  if (fxOn('corder')){ const l = Object.values(S.corders).filter(d => docProgress('co', d).active); if (l.length){ const late = lateN(l), first = l.map(d => d.expected || '').filter(Boolean).sort()[0]; add('待出貨訂單', late > 0, '待出貨訂單 ' + l.length + ' 張', late ? '逾期 ' + late + ' 張，請盡快出貨' : (first ? '最早交貨日 ' + mdw(first) : ''), go('co')); } }
+  if (fxOn('porder')){ const l = Object.values(S.porders).filter(d => docProgress('po', d).active); if (l.length){ const late = lateN(l); add('待收貨採購單', late > 0, '待收貨採購單 ' + l.length + ' 張', late ? '逾期 ' + late + ' 張未到貨' : '', go('po')); } }
+  if (fxOn('purchaseSug')){ const n = suggestions().length; if (n) add('採購建議', false, '採購建議 ' + n + ' 項', '庫存低於安全庫存，建議採購', go('sug')); }
+  if ((can('pay') || S.isAdmin) && fxOn('handover')){ const todo = handPending(); if (todo.length){ const cash = r2(todo.reduce((a, g) => a + g.cash, 0)), nChk = todo.reduce((a, g) => a + g.checks.length, 0), old = Math.max(...todo.map(g => g.ageDays)); add('外務待簽收', old >= 1, '外務待簽收 ' + todo.length + ' 位', '現金 ' + money(cash) + '　支票 ' + nChk + ' 張' + (old >= 1 ? '　最久 ' + old + ' 天沒交' : ''), openHandover); } }
+  if ((can('sale') || can('stock') || S.isAdmin) && fxOn('returns')){ const open = Object.values(S.returns).filter(rtOpen); if (open.length){ const old = Math.max(...open.map(rtAge)), late = open.filter(r => rtAge(r) >= rtWarnDays()).length; add('待處理退貨', late > 0, '待處理退貨 ' + open.length + ' 筆', late ? late + ' 筆已超過 ' + rtWarnDays() + ' 天沒動（最久 ' + old + ' 天）' : '最久 ' + old + ' 天', openReturnMgmt); } }
+  if (tabAllowed('acc') && fxOn('notes')){ const due = Object.values(S.notes).filter(n => NOTE_OPEN.has(n.status) && daysBetween(today(), n.dueDate) <= 7); if (due.length){ const over = due.filter(n => daysBetween(today(), n.dueDate) < 0).length, first = due.map(n => n.dueDate).sort()[0]; add('近期到期票據', over > 0, '近期到期票據 ' + due.length + ' 張', over ? over + ' 張已過到期日' : '最早 ' + mdw(first) + ' 到期', () => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }); } }
+  if (can('stock') && fxOn('replenish') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) add('調庫補貨提示', false, whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存', '可以依規則從「' + whName(pl.src) + '」調庫補貨', openReplenish); }
+  if ((can('stock') || S.isAdmin) && fxOn('cycleCount')){ const open = Object.values(S.counts).find(x => x.status === 'open' && x.cycle);
+    if (open || Object.values(S.counts).some(x => x.cycle) || Object.keys(S.products).length){ const n = open ? (open.pids || []).length : 0, dn = open ? Object.keys(countTotals(open.id).tot).filter(k => (open.pids || []).includes(k)).length : 0; add('循環盤點', false, open ? '循環盤點進行中：已盤 ' + dn + ' / ' + n + ' 項' : '今天的循環盤點', open ? '點這裡繼續' : '系統已經排好今天要盤的商品', openCycleCount); } }
+  const urg = it.filter(x => x.urgent), rest = it.filter(x => !x.urgent);
+  if (!it.length) return h('section', {class:'sec todo-sec', 'aria-label':'待辦事項'}, h('div', {class:'panel pad todo-none', text:'✓ 目前沒有待辦事項'}));
+  return h('section', {class:'sec todo-sec', 'aria-label':'待辦事項'}, h('div', {class:'sec-h'}, h('h2', null, '待辦事項', h('span', {class:'todo-n' + (urg.length ? '' : ' calm'), 'aria-label':'待辦數', text:String(it.length)}))),
+    h('div', {class:'panel todo'}, [...urg, ...rest].map(x => h('button', {class:'row todo-row' + (x.urgent ? ' urgent' : ''), 'aria-label':x.key, onclick:x.act},
+      h('span', {style:'min-width:0'}, h('b', {text:x.title}), x.sub ? [h('br'), h('small', {class:x.urgent ? 'overdue' : 'hint', text:x.sub})] : null), h('small', {class:'chev', text:'›'})))));
 }
 function orderRow(o){
   const T = TYPES[o.type] || TYPES.adjust, pt = S.partners[o.partnerId];
@@ -926,18 +950,12 @@ function orderRow(o){
 }
 
 function pHome(){
-  const page = h('div', {class:'wrap page'}), qp = quickPunchCard(); if (qp) page.append(qp);
+  const page = h('div', {class:'wrap page'});
+  page.append(homeTodo());   // 待辦事項放最上面：一登入就看得到
+  { const qp = quickPunchCard(); if (qp) page.append(qp); }
   { const dc = driverHomeCard(); if (dc) page.append(dc); }
-  { const ac = alertsHomeCard(); if (ac) page.append(ac); }
-  { const pr = punchReviewCard(); if (pr) page.append(pr); }
   { const sb = salesBoard(); if (sb) page.append(sb); }
-  { const hc = handHomeCard(); if (hc) page.append(hc); }
-  { const rc = rtHomeCard(); if (rc) page.append(rc); }
-  { const cc = cycHomeCard(); if (cc) page.append(cc); }
-  { const lc = lineHomeCard(); if (lc) page.append(lc); }
   page.append(homeTiles()); page.append(homeFavs());
-  if (can('stock') && fxOn('replenish') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'調庫補貨提示', onclick:openReplenish}, h('span', null, h('b', {text:whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存'}), h('br'), h('small', {text:'可以依規則從「' + whName(pl.src) + '」調庫補貨'})), h('small', {class:'chev', text:'›'}))))); }
-  if (reviewOn() && canReviewPerm() && fxOn('review')){ const pend = pendingReviews().filter(x => canReviewDoc(x.k, x.d)); if (pend.length) page.append(h('section', {class:'sec'}, h('div', {class:'panel'}, h('button', {class:'row', 'aria-label':'待覆核單據', onclick:openReviewQueue}, h('span', null, h('b', {text:'待覆核單據 ' + pend.length + ' 張'}), h('br'), h('small', {text:'覆核後單據鎖定，不能再修改或作廢'})), h('small', {class:'chev', text:'›'}))))); }
   if (tabAllowed('acc') && (fxOn('ar') || fxOn('ap'))){
     const sumT = t => r2(Object.entries(S.d.bal).filter(([id]) => S.partners[id] && S.partners[id].type === t).reduce((a, [, b]) => a + b, 0));
     const ar = sumT('customer'), ap = sumT('supplier');
@@ -979,17 +997,6 @@ function pHome(){
       }))));
   }
 
-  const coAct = Object.values(S.corders).filter(d => docProgress('co', d).active), poAct = Object.values(S.porders).filter(d => docProgress('po', d).active);
-  const nSug = suggestions().length;
-  const lateOf2 = l => l.filter(d => d.expected && daysBetween(today(), d.expected) < 0).length;
-  if ((coAct.length && fxOn('corder')) || (poAct.length && fxOn('porder')) || (nSug && fxOn('purchaseSug'))){
-    const go = (seg) => () => { S.tab = 'buy'; S.ui.buySeg = seg; draw(); };
-    page.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'待辦事項'})),
-      h('div', {class:'panel'},
-        coAct.length && fxOn('corder') ? h('button', {class:'row', onclick:go('co')}, h('span', {text:'待出貨訂單'}), h('span', {class:'right'}, h('b', {text:coAct.length + ' 張'}), lateOf2(coAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(coAct)}) : null)) : null,
-        nSug && fxOn('purchaseSug') ? h('button', {class:'row', onclick:go('sug')}, h('span', {text:'採購建議'}), h('b', {text:nSug + ' 項'})) : null,
-        poAct.length && fxOn('porder') ? h('button', {class:'row', onclick:go('po')}, h('span', {text:'待收貨採購單'}), h('span', {class:'right'}, h('b', {text:poAct.length + ' 張'}), lateOf2(poAct) ? h('small', {class:'overdue', text:'　逾期 ' + lateOf2(poAct)}) : null)) : null)));
-  }
   const dueNotes = Object.values(S.notes).filter(n => NOTE_OPEN.has(n.status) && daysBetween(today(), n.dueDate) <= 7).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5);
   if (dueNotes.length) page.append(h('section', {class:'sec'},
     h('div', {class:'sec-h'}, h('h2', {text:'近期到期票據'}), tabAllowed('acc') && fxOn('notes') ? h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }}, '票據管理') : null),
@@ -1364,7 +1371,7 @@ function openOrder(type, pre){
   if (editO){
     st.date = editO.date; st.partnerId = editO.partnerId || ''; st.wh = editO.wh || WH_MAIN; st.note = editO.note || '';
     st.taxType = editO.taxType || 'exempt'; st.taxMode = editO.taxMode === 'incl' ? 'incl' : 'excl';
-    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price)}; });
+    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
     const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
   }
@@ -1377,12 +1384,15 @@ function openOrder(type, pre){
   if (editO && type === 'sale') st.ship = {addr:editO.shipAddress || '', contact:editO.shipContact || '', phone:editO.shipPhone || '', spot:editO.shipSpot || '', special:editO.shipSpecial || '', only:!!editO.shipOnly, method:editO.shipMethod || '', touched:{addr:true, contact:true, phone:true, spot:true, method:true}}; else shipFill();
   st.driver = editO ? (editO.driver || '') : ''; st.driverTouched = !!editO;
   st.deliv = editO ? (editO.deliveryDate || editO.date) : st.date; st.delivTouched = !!(editO && editO.deliveryDate && editO.deliveryDate !== editO.date);
+  if (!editO && pre.deliv && pre.deliv > st.date){ st.deliv = pre.deliv; st.delivTouched = true; }
   st.urgent = !!(editO && editO.urgent); st.store = editO ? (editO.store || '') : '';
   st.srcSale = pre.srcSale || ''; st.srcPO = pre.src && pre.src.kind === 'po' ? pre.src.id : '';
+  const fromCo = type === 'sale' && !editO && !!(pre.src && pre.src.kind === 'co');
+  st.cos = fromCo ? [{id:pre.src.id, no:pre.src.no}] : []; st.noteAuto = fromCo ? st.note : '';   // 帶入的客戶訂單；系統自動寫的備註（使用者改過就不再動）
   if (pre.srcSale && S.orders[pre.srcSale]) st.partnerId = S.orders[pre.srcSale].partnerId || st.partnerId;
   const refs = [];
   const srcMap = {};
-  (pre.lines || []).forEach(l => { if (l.ord != null) srcMap[l.pid] = {ord:l.ord, rem:l.rem}; });
+  if (!fromCo) (pre.lines || []).forEach(l => { if (l.ord != null) srcMap[l.pid] = {ord:l.ord, rem:l.rem}; });
   let saving = false;
 
   const linesBox = h('div');
@@ -1457,6 +1467,9 @@ function openOrder(type, pre){
   }
 
   function onPartner(){
+    if (type === 'sale' && !editO && st.cos.length){ const bad = st.cos.filter(c => S.corders[c.id] && S.corders[c.id].partnerId !== st.partnerId).map(c => c.id);
+      if (bad.length){ st.lines = st.lines.filter(l => !bad.includes(l.co)); st.cos = st.cos.filter(c => !bad.includes(c.id)); setCoNote(); paintLines(); toast('換了客戶，已拿掉原本帶入的訂單品項'); } }
+    if (coBox) paintCo();
     if (!editO && type === 'sale' && !st.payTouched){ st.pay = custPayDefault(partnerOf()); paidIn.style.display = st.pay === 'part' ? '' : 'none'; paintPay(); }
     if (type === 'sale'){ st.store = editO && editO.partnerId === st.partnerId ? st.store : ''; }
     if (type === 'sale' && !editO){ st.ship.special = ''; st.ship.only = false; shipFill(); paintShip(); }
@@ -1466,6 +1479,70 @@ function openOrder(type, pre){
     if (type === 'purchase'){ st.srcPO = ''; for (const k of Object.keys(srcMap)) delete srcMap[k]; paintPO(); }
     payHint.textContent = payHintTxt(); calc();
   }
+  /* ---- 銷貨單帶入客戶訂單：可以一次選好幾張（同一位客戶）；帶入後還可以自己加商品 ---- */
+  const coBox = type === 'sale' && !editO ? h('div', {class:'f', style:'margin-top:8px', 'aria-label':'帶入客戶訂單'}) : null;
+  let noteIn = null;
+  const coActive = () => Object.values(S.corders || {}).filter(d => docProgress('co', d).active);
+  const coPt = d => { const pt = S.partners[d.partnerId] || {}; return pt.shortName || pt.name || '散客'; };
+  function setCoNote(){ if (st.note.trim() && st.note !== st.noteAuto) return; st.note = st.cos.length ? '客戶訂單 ' + st.cos.map(c => c.no).join('、') : ''; st.noteAuto = st.note; if (noteIn) noteIn.value = st.note; }
+  function applyCos(ids){
+    const drop = st.cos.filter(c => !ids.includes(c.id)).map(c => c.id), add = ids.filter(id => !st.cos.some(c => c.id === id)).map(id => S.corders[id]).filter(Boolean);
+    if (drop.length){ st.lines = st.lines.filter(l => !drop.includes(l.co)); st.cos = st.cos.filter(c => !drop.includes(c.id)); }
+    const first = add[0];
+    if (first && first.partnerId && first.partnerId !== st.partnerId){ st.partnerId = first.partnerId; fillPartners(); st.taxType = defTax(); st.taxMode = defMode(); paintTax(); onPartner(); }
+    let n = 0;
+    for (const d of add){
+      st.cos.push({id:d.id, no:d.no});
+      for (const l of docProgress('co', d).lines){
+        const p = S.products[l.pid]; if (l.rem <= 0.0004 || !p || p.active === false) continue;
+        const pr = Number(l.price) || 0, lp = l.listPrice != null ? Number(l.listPrice) : (Number(p.price) || 0);
+        st.lines.push({pid:l.pid, qty:l.rem, counted:'', price:pr, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, pr), co:d.id, coNo:d.no, ord:Number(l.qty) || 0, rem:l.rem}); n++;
+      }
+    }
+    if (add.length && multiWh()){
+      if (add[0].wh && !st.lines.some(l => !l.co)){ st.wh = add[0].wh; if (whSel) whSel.value = st.wh; }
+      const whs = [...new Set(st.cos.map(c => (S.corders[c.id] || {}).wh).filter(Boolean))];
+      if (whs.length > 1) toast('這幾張訂單指定的倉庫不同，這張銷貨單從「' + whName(st.wh) + '」出貨');
+    }
+    setCoNote(); paintCo(); paintLines();
+    if (add.length) toast('已帶入 ' + add.length + ' 張訂單、' + n + ' 項商品' + (add.length && !n ? '（訂單的商品都已出完或已停用）' : ''));
+  }
+  function paintCo(){
+    if (!coBox) return;
+    const act = coActive(), mine = act.filter(d => (!st.partnerId || d.partnerId === st.partnerId) && !st.cos.some(c => c.id === d.id));
+    if (!st.cos.length && !mine.length){ setKids(coBox, st.partnerId && act.length ? h('small', {class:'hint', text:'這位客戶沒有未出貨的客戶訂單。'}) : null); return; }
+    setKids(coBox, h('label', {text:'客戶訂單'}),
+      st.cos.length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:6px;margin-top:4px', 'aria-label':'已帶入的訂單'}, st.cos.map(c => h('span', {class:'mtag', style:'display:inline-flex;align-items:center;gap:4px;margin:0;padding-right:2px;overflow:visible'}, '訂單 ' + c.no,
+        h('button', {class:'ic sm', type:'button', style:'width:22px;height:22px;min-width:22px', 'aria-label':'拿掉訂單 ' + c.no, onclick:() => applyCos(st.cos.filter(x => x.id !== c.id).map(x => x.id))}, icon('x'))))) : null,
+      h('button', {class:'btn ghost sm', type:'button', style:'margin-top:6px', 'aria-label':'選客戶訂單', onclick:openCoPicker}, st.cos.length ? '加選訂單' + (mine.length ? '（還有 ' + mine.length + ' 張未出貨）' : '') : '選客戶訂單帶入（' + (st.partnerId ? '這位客戶有 ' + mine.length + ' 張未出貨' : '可以多選') + '）'),
+      st.cos.length ? h('small', {class:'hint', style:'display:block;margin-top:4px', text:'已帶入訂單還沒出貨的數量，可以修改或刪除；不在訂單裡的商品，用下面的搜尋自己加（會標「另加」）。這次少出的，訂單會保留待出。'}) : null);
+  }
+  function openCoPicker(){
+    const sel = new Set(st.cos.map(c => c.id)), U = {q:''}, ps = sheet({title:'選客戶訂單'}), listBox = h('div');
+    const okBtn = h('button', {class:'btn grow', 'aria-label':'帶入選取的訂單', onclick:() => { ps.forceClose(); applyCos([...sel]); }});
+    const ptOf = () => st.partnerId || (sel.size ? (S.corders[[...sel][0]] || {}).partnerId || '' : '');
+    const paint = () => {
+      const pid = ptOf(), q = U.q.trim().toLowerCase();
+      const list = [...new Set([...coActive(), ...[...sel].map(id => S.corders[id]).filter(Boolean)])]
+        .filter(d => (!pid || d.partnerId === pid) && (!q || (d.no + ' ' + coPt(d) + ' ' + ((S.partners[d.partnerId] || {}).name || '')).toLowerCase().includes(q)))
+        .sort((a, b) => String(a.expected || '9').localeCompare(String(b.expected || '9')) || String(a.no).localeCompare(String(b.no)));
+      setKids(listBox, list.length ? h('div', {class:'panel', 'aria-label':'客戶訂單清單'}, list.map(d => { const on = sel.has(d.id), pr = docProgress('co', d), rem = pr.lines.filter(l => l.rem > 0.0004), late = d.expected && daysBetween(today(), d.expected) < 0;
+        return h('button', {class:'row', style:'text-align:left', 'aria-pressed':on, 'aria-label':(on ? '取消 ' : '選取 ') + d.no, onclick:() => { if (on) sel.delete(d.id); else sel.add(d.id); paint(); }},
+          h('span', {style:'min-width:0'}, h('b', {text:(on ? '☑ ' : '☐ ') + d.no + (st.partnerId ? '' : '　' + coPt(d))}), h('br'),
+            h('small', {text:'交貨日 ' + (d.expected ? mdw(d.expected) : '未設定') + (late ? '（已逾期）' : '') + '　' + pr.label + '　未出 ' + rem.length + ' 項'}), h('br'),
+            h('small', {class:'hint', text:rem.slice(0, 3).map(l => l.name + ' ×' + num(l.rem)).join('、') + (rem.length > 3 ? '…' : '')}))); }))
+        : h('div', {class:'panel empty', text:q ? '沒有符合的訂單' : '沒有未出貨的客戶訂單'}));
+      okBtn.disabled = !sel.size && !st.cos.length;
+      okBtn.textContent = sel.size ? '帶入 ' + sel.size + ' 張訂單' : (st.cos.length ? '不帶入訂單' : '帶入');
+    };
+    put(ps.bodyEl, h('p', {class:'note', text:'勾選要一起出貨的訂單（同一位客戶，可以選好幾張）。會帶入每張訂單還沒出貨的品項；帶入後可以改數量，也可以再自己加商品。'}),
+      st.partnerId ? null : h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋客戶或訂單編號', autocomplete:'off', 'aria-label':'搜尋客戶訂單', oninput:e => { U.q = e.target.value; paint(); }})),
+      h('div', {style:'height:6px'}), listBox);
+    ps.footEl.append(okBtn); paint();
+  }
+  /* 存檔時，從每一行記的訂單算出這張銷貨單的來源訂單（第一張記在 srcId；好幾張時另外記 srcIds） */
+  const coSrcOf = (lines, upd) => { const ids = [...new Set(lines.filter(l => l.co).map(l => l.co))]; if (!ids.length) return null; const nos = ids.map(id => (lines.find(l => l.co === id) || {}).coNo || (S.corders[id] || {}).no || '');
+    return {srcId:ids[0], srcNo:nos[0], srcKind:'co', ...(ids.length > 1 || upd ? {srcIds:ids.length > 1 ? ids : [], srcNos:ids.length > 1 ? nos : []} : {})}; };
   const payHintTxt = () => type === 'sale' && st.partnerId && partnerOf() ? '客戶付款方式：' + termText(partnerOf()) + '，預設「' + (custPayDefault(partnerOf()) === 'none' ? '月結（記入應收帳款）' : '銷貨收現') + '」，可自行更改' : '';
   const payHint = h('small', {class:'hint'});
   const shipBox = type === 'sale' ? h('div', {class:'f', style:'margin-top:8px'}) : null;
@@ -1534,15 +1611,16 @@ function openOrder(type, pre){
   }
   function addLine(pid, qty, price, meta){
     const p = S.products[pid]; if (!p || p.active === false) return;
-    const ex = st.lines.find(l => l.pid === pid && !l.gift);
+    const ex = st.lines.find(l => l.pid === pid && !l.gift && (meta && meta.co ? l.co === meta.co : !l.co));
     if (ex){ if (!isAdj){ ex.qty = r3(toNum(ex.qty) + (qty || 1)); auto(ex); famRefresh(ex); } }
     else {
       const ln = {pid, qty:isAdj ? '' : (qty || 1), counted:'', price:0, manual:price != null, rule:null};
       if (price != null){ ln.price = price; ln.list = meta && meta.listPrice != null ? Number(meta.listPrice) : (Number(p.price) || 0); ln.disc = meta && meta.disc != null ? Number(meta.disc) : discPct(ln.list, price); } else if (!isAdj) auto(ln);
+      if (meta && meta.co){ ln.co = meta.co; ln.coNo = meta.coNo || ''; if (meta.ord != null){ ln.ord = Number(meta.ord) || 0; ln.rem = Number(meta.rem) || 0; } }
       st.lines.push(ln); if (!isAdj) famRefresh(ln);
     }
     paintLines();
-    const i = st.lines.findIndex(l => l.pid === pid && !l.gift);
+    const i = st.lines.findIndex(l => l.pid === pid && !l.gift && (meta && meta.co ? l.co === meta.co : !l.co));
     const inp = linesBox.children[i] && linesBox.children[i].querySelector('input');
     if (inp) { inp.focus(); inp.select(); }
   }
@@ -1599,7 +1677,7 @@ function openOrder(type, pre){
       }
       rule.textContent = !isAdj && ln.rule ? ruleTxt(ln.rule) : (ln.manual && !isAdj ? (ln.orig ? '原單價（可修改）' : '手動輸入單價') : '');
       return h('div', {class:'ln'},
-        h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name}), h('small', {text:p.sku + '　' + (p.unit || '')})),
+        h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name}), h('small', {text:p.sku + '　' + (p.unit || '')}), ln.co ? h('div', null, h('span', {class:'mtag', style:'margin:3px 0 0', text:'訂單 ' + (ln.coNo || '')})) : (type === 'sale' && st.lines.some(x => x.co) ? h('div', null, h('span', {class:'mtag', style:'margin:3px 0 0;background:var(--soft);color:var(--ink2)', text:'另加（不在訂單裡）'})) : null)),
           h('span', {style:'display:flex;gap:6px;align-items:center'}, type === 'sale' ? infoBtn(ln.pid, {partnerId:st.partnerId, conv:ex => r2(conv(ex)), onPick:pr => { ln.price = pr; ln.manual = true; ln.rule = null; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); rule.textContent = '手動輸入單價'; calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefresh(gone); paintLines(); }}, icon('x')))),
         showDisc ? [h('div', {class:'ln-g'}, h('div', null, h('label', {text:'數量'}), qtyIn), h('div', null, h('label', {text:'定價'}), listIn), h('div', null, h('label', {text:'折數（0.9＝9折）'}), discIn)),
           h('div', {class:'ln-g', style:'margin-top:6px'}, h('div', null, h('label', {text:'單價（定價 × 折數）'}), priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub))]
@@ -1619,6 +1697,7 @@ function openOrder(type, pre){
       if (applyPromos()){ paintLines(); if (fi >= 0 && refs[fi] && refs[fi].qtyIn){ refs[fi].qtyIn.focus(); try { if (sel0) refs[fi].qtyIn.setSelectionRange(sel0[0], sel0[1]); } catch (_) {} } return; }
     }
     let sum = 0, diffs = 0;
+    const qBy = {}; if (!isAdj) for (const r of refs) qBy[r.ln.pid] = r3((qBy[r.ln.pid] || 0) + toNum(r.ln.qty));   // 同一個商品分在好幾行（例如兩張訂單都有）：庫存合起來看
     for (const r of refs){
       const stock = stockEff(r.ln.pid);
       if (isAdj){
@@ -1629,19 +1708,20 @@ function openOrder(type, pre){
       } else {
         const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price);
         sum += amt; r.sub.textContent = money(amt);
-        const bad = T.sign < 0 && q > stock;
+        const qAll = Math.max(qBy[r.ln.pid] || 0, q), bad = T.sign < 0 && qAll > stock;
         r.warn.className = bad ? 'warn' : 'hint';
         r.warn.textContent = bad ? '庫存不足，現有 ' + num(stock) : '現有庫存 ' + num(stock);
         if (type === 'sale'){
-          const pid = r.ln.pid, all = stockOf(pid), commit = S.d.commit[pid] || 0, inc = S.d.incoming[pid] || 0, after = r3(stock - q), safe = Number(r.p.safety) || 0;
-          r.warn.textContent = (bad ? '⚠ 庫存不足，現有 ' : '現有庫存 ') + num(stock) + (multiWh() ? '（本倉）／全倉 ' + num(all) : '') + '　客戶訂單預留 ' + num(commit) + '　採購在途 ' + num(inc) + '　出貨後剩 ' + num(after) + (!bad && safe > 0 && after < safe ? '　⚠ 低於安全庫存 ' + num(safe) : '');
+          const pid = r.ln.pid, all = stockOf(pid), commit = S.d.commit[pid] || 0, inc = S.d.incoming[pid] || 0, after = r3(stock - qAll), safe = Number(r.p.safety) || 0;
+          r.warn.textContent = (bad ? '⚠ 庫存不足，現有 ' : '現有庫存 ') + num(stock) + (multiWh() ? '（本倉）／全倉 ' + num(all) : '') + '　客戶訂單預留 ' + num(commit) + '　採購在途 ' + num(inc) + '　出貨後剩 ' + num(after) + (qAll > q + 0.0004 ? '（這張單共出 ' + num(qAll) + '）' : '') + (!bad && safe > 0 && after < safe ? '　⚠ 低於安全庫存 ' + num(safe) : '');
           r.warn.className = bad ? 'warn' : (safe > 0 && after < safe ? 'soon' : 'hint');
           if (r.short) setKids(r.short, bad && q > 0 ? shortRow({pid, need:q, have:() => stockEff(pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''}) : null);
         }
         if (type === 'purchase' && !st.srcPO) setQwarn(r, q); else if (r.qwarn) setKids(r.qwarn);
         paintTier(r);
         if (r.ln.retMax != null){ const over = q > r.ln.retMax + 0.0004; r.warn.className = over ? 'warn' : 'hint'; r.warn.textContent = (over ? '⚠ 超過可退數量　' : '') + '原銷貨單可退 ' + num(r.ln.retMax); }
-        const si = srcMap[r.ln.pid];
+        if (type === 'sale' && r.ln.co && r.ln.rem != null){ const over = q > r.ln.rem + 0.0004; if (over) r.warn.className = 'warn'; r.warn.textContent = (over ? '⚠ 超過訂單未出數量　' : '') + '訂單 ' + (r.ln.coNo || '') + ' 訂 ' + num(r.ln.ord) + '，未出 ' + num(r.ln.rem) + (q < r.ln.rem - 0.0004 ? '，這次少出 ' + num(r3(r.ln.rem - q)) + '（訂單保留待出）' : '') + '　' + r.warn.textContent; }
+        const si = type === 'sale' ? null : srcMap[r.ln.pid];
         if (si){ const over = q > si.rem + 0.0004; r.warn.className = over ? 'warn' : 'hint'; r.warn.textContent = (over ? '⚠ 超過採購單未收數量　' : '') + '採購單訂 ' + num(si.ord) + '，未收 ' + num(si.rem) + (q < si.rem - 0.0004 ? '，本次少收 ' + num(r3(si.rem - q)) + '（採購單保留待收）' : '') + '　現有庫存 ' + num(stock); }
       }
     }
@@ -1675,7 +1755,7 @@ function openOrder(type, pre){
     freightBox,
     see('cash') ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.freightCash, 'aria-label':'運費由零用金支付', onchange:e => { st.freightCash = e.target.checked; }}), '運費由零用金支付（同步記入零用金帳簿的「運費」）') : null) : null;
   const printChk = (!editO && (type === 'sale' || type === 'sale_return')) ? h('input', {type:'checkbox', checked:!!loadPrint().auto, onchange:e => { const pp = loadPrint(); pp.auto = e.target.checked; savePrint(pp); }}) : null;
-  const liveS = type === 'sale' ? {deps:['orders', 'porders', 'corders', 'products'], run:() => calc()} : null;
+  const liveS = type === 'sale' ? {deps:['orders', 'porders', 'corders', 'products'], run:() => { calc(); if (coBox) paintCo(); }} : null;
   const sh = sheet({title:editO ? '修改' + T.label + ' ' + editO.no : T.label, guard:() => st.lines.length ? dialog({title:editO ? '放棄修改？' : '放棄這張單據？', msg:editO ? '這次的修改不會保存。' : '已輸入的內容不會保存。', ok:'放棄', danger:true}) : true, onclose:() => { if (liveS) live.delete(liveS); }});
   if (liveS) live.add(liveS);
   const dateIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'日期', onchange:e => { st.date = e.target.value || today(); if (!st.delivTouched || st.deliv < st.date) st.deliv = st.date; repriceAll(); paintBill(); paintShip(); }});
@@ -1688,12 +1768,12 @@ function openOrder(type, pre){
   fillPartners();
   put(sh.bodyEl,
     editO ? h('div', {class:'note', text:'修改 ' + editO.no + '：儲存後庫存與應收帳款會依新內容重算。' + ((S.d.alloc[editO.id] || 0) > 0.004 ? '這張單已有收款沖銷 ' + money(S.d.alloc[editO.id]) + '，客戶不能更換，合計也不能低於已收金額。' : '') + (editO.invNo ? '已記錄發票號碼 ' + editO.invNo + '，金額若有變動，發票需自行處理。' : '')}) : null,
-    pre.src ? h('div', {class:'note', text:'由 ' + (pre.src.kind === 'po' ? '採購單 ' : '客戶訂單 ') + pre.src.no + ' 匯入。數量預設為未收（未出）數量，請依實際' + (pre.src.kind === 'po' ? '進貨' : '出貨') + '數量修改；少收的部分採購單會保留待收，也可以在採購單按「結案」。'}) : null,
+    pre.src && !fromCo ? h('div', {class:'note', text:'由 ' + (pre.src.kind === 'po' ? '採購單 ' : '客戶訂單 ') + pre.src.no + ' 匯入。數量預設為未收（未出）數量，請依實際' + (pre.src.kind === 'po' ? '進貨' : '出貨') + '數量修改；少收的部分採購單會保留待收，也可以在採購單按「結案」。'}) : null,
     h('div', {class:'f2'},
       fld('日期', dateIn),
       partnerSel ? h('div', {class:'f'}, h('label', {text:PLABEL[T.partner]}), h('div', {style:'display:flex;gap:6px;align-items:flex-start'}, pk.el, h('button', {class:'ic', style:'border:1px solid var(--line);flex:none', 'aria-label':'新增' + PLABEL[T.partner], onclick:() => { newPtRow.style.display = newPtRow.style.display === 'none' ? 'flex' : 'none'; }}, icon('plus'))), newPtRow) : null),
     billInfo,
-    retBox, poBox, shipBox, driverBox, stampBox, buyBtn ? h('div', {class:'f'}, buyBtn) : null,
+    coBox, retBox, poBox, shipBox, driverBox, stampBox, buyBtn ? h('div', {class:'f'}, buyBtn) : null,
     whSel ? fld('倉庫', whSel) : null,
     histP ? histP.el : null,
     h('label', {class:'search'}, icon('search'), searchIn),
@@ -1703,14 +1783,14 @@ function openOrder(type, pre){
     truckBox,
     h('details', {class:'fold'}, h('summary', {text:'更多選項（稅別、備註）'}), h('div', {class:'fold-b'},
       T.money && S.set.taxMode !== 'none' ? h('div', {class:'f'}, h('label', {text:'稅別（預設依客戶設定）'}), taxChips) : null,
-      fld('備註', h('input', {class:'in', placeholder:'選填', value:st.note, oninput:e => { st.note = e.target.value; }})))),
+      fld('備註', noteIn = h('input', {class:'in', placeholder:'選填', value:st.note, 'aria-label':'備註', oninput:e => { st.note = e.target.value; }})))),
     photoPk ? h('div', {class:'f'}, h('label', {text:'退貨照片（拍下退回的商品狀況，最多 ' + PH_MAX + ' 張）'}), photoPk.el) : null,
     printChk ? h('label', {class:'check'}, printChk, '儲存後列印' + T.label) : null);
   if (editO && st.pay === 'part'){ paidIn.value = st.paid; paidIn.style.display = ''; }
   sh.footEl.append(totEl, saveBtn);
-  paintPay(); paintTax(); paintBill(); paintLines(); paintFreight(); applyBuyVis(); paintShip(); paintDriver(); paintStamp(); paintRet(); paintPO(); payHint.textContent = payHintTxt(); if (pre.srcSale) loadFromSale();
+  paintPay(); paintTax(); paintBill(); paintLines(); paintFreight(); applyBuyVis(); paintShip(); paintDriver(); paintStamp(); paintRet(); paintPO(); payHint.textContent = payHintTxt(); if (pre.srcSale) loadFromSale(); if (coBox) paintCo();
   if (pre.pid) addLine(pre.pid, pre.qty);
-  (pre.lines || []).forEach(l => addLine(l.pid, l.qty, l.price, l));
+  (pre.lines || []).forEach(l => addLine(l.pid, l.qty, l.price, fromCo ? {...l, co:pre.src.id, coNo:pre.src.no} : l));
   calc();
 
   async function save(){
@@ -1732,12 +1812,13 @@ function openOrder(type, pre){
         if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
         if (pr < 0) return toast('單價不可為負');
         needQ[p.id] = (needQ[p.id] || 0) + q;
-        lines.push({...base, ...(ln.gift ? {name:p.name + '（贈品）'} : {}), qty:q, price:pr, ...(type === 'sale' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {}), ...(ln.gift ? {gift:true, promoId:ln.promoId, promoName:ln.promoName, listPrice:Number(p.price) || 0, disc:0} : (ln.promoId ? {promoId:ln.promoId, promoName:ln.promoName, basePrice:Number(ln.base) || 0} : {}))});
+        lines.push({...base, ...(ln.gift ? {name:p.name + '（贈品）'} : {}), qty:q, price:pr, ...(type === 'sale' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {}), ...(ln.gift ? {gift:true, promoId:ln.promoId, promoName:ln.promoName, listPrice:Number(p.price) || 0, disc:0} : (ln.promoId ? {promoId:ln.promoId, promoName:ln.promoName, basePrice:Number(ln.base) || 0} : {})), ...(type === 'sale' && ln.co && !ln.gift ? {co:ln.co, coNo:ln.coNo || ''} : {})});
       }
     }
     if (!lines.length) return toast('實盤數量與帳面相同，沒有需要調整的項目');
     if (!isAdj && !S.set.allowNeg){
-      for (const l of lines){
+      const perPid = []; { const m = new Map(); for (const l of lines){ const x = m.get(l.pid); if (x) x.qty = r3(x.qty + l.qty); else { const y = {...l}; m.set(l.pid, y); perPid.push(y); } } }   // 同一個商品分在好幾行：合起來檢查庫存
+      for (const l of perPid){
         const have = stockEff(l.pid), after = r3(have + T.sign * l.qty);
         if (after < 0){
           if (type !== 'sale' || !shortAct()) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
@@ -1789,7 +1870,7 @@ function openOrder(type, pre){
         for (const x of editO.lines || []) if (!pids.has(x.pid) && returnedQty(editO.id, x.pid) > 0.0004) return toast('「' + x.name + '」已有退貨，不能移除');
       }
       saving = true; saveBtn.disabled = true;
-      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
       saving = false; saveBtn.disabled = false;
       if (ok){ toast('已更新 ' + editO.no); sh.forceClose(); }
       return;
@@ -1799,7 +1880,7 @@ function openOrder(type, pre){
     if (phList.length){ const okP = await run(async () => { await savePhotoDocs(phList); return true; }); if (!okP){ saving = false; saveBtn.disabled = false; return; } }
     const doc = await run(() => createOrder(type, {date:st.date, partnerId:st.partnerId, lines, total, paid, note:st.note.trim(),
       tax:T.money ? {net:ts.net, tax:ts.tax, type:st.taxType, mode:st.taxType === 'taxable' ? st.taxMode : 'excl'} : null,
-      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {}), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
+      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
     saving = false; saveBtn.disabled = false;
     if (!doc && phList.length) deletePhotoDocs(phList.map(x => x.id));
     if (doc && pre.rtn) S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no)}).catch(() => null);
@@ -1840,12 +1921,12 @@ function openOrderDetail(id){
         kv('建立者', (o.byName || who(o.by)) + (o.at ? '，' + fmtDT(o.at) : '')), o.byAcct ? kv('建立帳號', o.byAcct) : null, reviewKv('order', o), o.editedAt ? kv('最後修改', who(o.editedBy) + '，' + fmtDT(o.editedAt)) : null,
         (o.type === 'sale' && !isVoid && see('print')) ? kv('統一發票', o.invNo ? h('button', {style:'text-decoration:underline', onclick:() => openInvoice(id)}, o.invNo) : h('button', {class:'btn ghost sm', onclick:() => openInvoice(id)}, '套印發票')) : null,
         (o.type === 'sale' && !isVoid && can('sale') && pt && pt.lineUserId && LINE().on) ? kv('LINE 通知客戶', h('span', {style:'display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end'}, o.lineSlipAt ? h('small', {class:'hint', 'aria-label':'LINE 通知狀態', text:'已通知 ' + lineTimeTxt(o.lineSlipAt)}) : null, h('button', {class:'btn ghost sm', 'aria-label':'通知商品數量', onclick:() => openLineSlipNotify(o)}, o.lineSlipAt ? '再通知一次' : '通知商品數量'))) : null,
-        o.srcNo ? (o.srcKind === 'sale' ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => S.orders[o.srcId] && openOrderDetail(o.srcId)}, o.srcNo)) : kv('來源' + (o.srcKind === 'co' ? '訂單' : '採購單'), h('button', {style:'text-decoration:underline', onclick:() => S[DOCS[o.srcKind].coll][o.srcId] && openDocDetail(o.srcKind, o.srcId)}, o.srcNo))) : null,
+        o.srcNo ? (o.srcKind === 'sale' ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => S.orders[o.srcId] && openOrderDetail(o.srcId)}, o.srcNo)) : (o.srcKind === 'co' && saleCoIds(o).length > 1 ? kv('來源訂單', h('span', {style:'display:inline-flex;gap:10px;flex-wrap:wrap;justify-content:flex-end', 'aria-label':'來源訂單'}, saleCoIds(o).map((cid, i) => h('button', {style:'text-decoration:underline', onclick:() => S.corders[cid] && openDocDetail('co', cid)}, (o.srcNos || [])[i] || (S.corders[cid] || {}).no || cid)))) : kv('來源' + (o.srcKind === 'co' ? '訂單' : '採購單'), h('button', {style:'text-decoration:underline', onclick:() => S[DOCS[o.srcKind].coll][o.srcId] && openDocDetail(o.srcKind, o.srcId)}, o.srcNo)))) : null,
         o.type === 'sale' && (o.shipAddress || o.shipSpecial || o.shipContact || o.shipPhone || o.shipMethod) ? kv('送貨', [o.shipMethod, o.shipSpecial || o.shipAddress].filter(Boolean).join('　')) : null, o.type === 'sale' && o.shipSpecial ? kv('指送特別地址', o.shipSpecial + (o.shipOnly ? '（只能送這裡，不送原本的送貨地址' + (o.shipAddress ? '：' + o.shipAddress : '') + '）' : (o.shipAddress ? '（取代原本的 ' + o.shipAddress + '）' : ''))) : null, o.type === 'sale' && o.shipSpot ? kv('指送特別地點', o.shipSpot) : null, o.type === 'sale' && o.urgent ? kv('早一點', '是（列印會蓋「早一點」郵戳）') : null, o.type === 'sale' && o.store ? kv('叫貨店面', o.store) : null, o.type === 'sale' && o.driver ? kv('送貨員', o.driver) : null, o.type === 'sale' ? kv('預計送貨日', deliveryOf(o)) : null, o.type === 'sale' && o.truckPlate ? kv('派車', o.truckPlate + '　' + truckSlotTxt(o) + (o.truckSeq ? '　第 ' + o.truckSeq + ' 站' : '') + (o.truckMerged ? '（中午不回公司）' : '') + (o.driver ? '　駕駛 ' + o.driver : '')) : null, (() => { const tr = o.type === 'sale' ? tripOfOrder(o.id) : null; return tr ? kv('出車', tr.date + ' ' + SLOTS[tr.slot] + '　' + vehLabel(S.vehicles[tr.vehicleId]) + (tr.driver ? '（' + tr.driver + '）' : '') + (tr.outTime ? '　' + tr.outTime + '→' + (tr.backTime || '--:--') : '')) : null; })(),
         o.type === 'sale' && (o.shipContact || o.shipPhone) ? kv('送貨聯絡', [o.shipContact, o.shipPhone].filter(Boolean).join('　')) : null,
         o.note ? kv('備註', o.note) : null),
       h('div', {class:'panel', style:'margin-bottom:14px'}, (o.lines || []).map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
-        h('span', null, h('b', {text:l.name}), h('br'), h('small', {text:l.sku + (T.money ? '　' + num(l.qty) + (hideBuy ? '' : ' × ' + money(l.price) + (discNote(l) ? '　' + discNote(l) : '')) : '')})),
+        h('span', null, h('b', {text:l.name}), h('br'), h('small', {text:l.sku + (T.money ? '　' + num(l.qty) + (hideBuy ? '' : ' × ' + money(l.price) + (discNote(l) ? '　' + discNote(l) : '')) : '') + (o.type === 'sale' && (o.lines || []).some(x => x.co) ? (l.co ? '　訂單 ' + (l.coNo || (S.corders[l.co] || {}).no || '') : (l.gift ? '' : '　另加（不在訂單裡）')) : '')})),
         h('b', {text:o.type === 'transfer' ? num(l.qty) + ' ' + (l.unit || '') : ((o.type === 'assembly' || o.type === 'disassembly') ? (l.sgn < 0 ? '−' : '+') + num(l.qty) + ' ' + (l.unit || '') : o.type === 'adjust' ? (l.qty > 0 ? '+' : '') + num(l.qty) + ' ' + (l.unit || '') : (hideBuy ? num(l.qty) + ' ' + (l.unit || '') : money(amtOf(l.qty, l.price))))})))),
       photoSection(o),
       (() => { const es = Object.values(S.derrors).filter(r => r.status !== 'void' && r.orderId === id), re = Object.values(S.derrors).filter(r => r.status !== 'void' && r.redeliverOrderId === id); return es.length || re.length ? [h('div', {class:'sec-h'}, h('h2', {text:'配送錯誤紀錄'})), h('div', {class:'panel', style:'margin-bottom:14px'}, [...es.map(r => h('button', {class:'row', onclick:() => openDErrDetail(r.id)}, h('span', {style:'text-align:left'}, h('b', {text:r.item + ' × ' + num(r.qty) + '　' + DE_CAUSE[r.cause]}), h('br'), h('small', {text:r.no + '　' + DE_RES[r.result] + (r.redeliverNo ? '：' + r.redeliverNo : '') + '　責任：' + (r.empName || '無')})), h('small', {text:'-' + money(r.amount || 0)}))), ...re.map(r => h('button', {class:'row', onclick:() => openDErrDetail(r.id)}, h('span', {style:'text-align:left'}, h('b', {text:'這張是 ' + r.orderNo + ' 的再度配送'}), h('br'), h('small', {text:r.item + ' × ' + num(r.qty) + '　' + r.no})), h('small', {class:'chev', text:'›'})))]) ] : null; })(),
@@ -3203,6 +3284,14 @@ const DOCS = {
   po: {coll:'porders', label:'採購單',   pref:'PO', short:'採', partner:'supplier', price:'cost',  dateLabel:'預計到貨日', act:'收貨', doneLbl:'已收', srcType:'purchase', open:'待收貨', part:'部分收貨', tagCls:'in'}
 };
 
+/* 銷貨單是從哪幾張客戶訂單出貨的：新的記 srcIds（可以好幾張），舊的只有一張 srcId */
+function saleCoIds(o){ if (!o) return []; if (Array.isArray(o.srcIds) && o.srcIds.length) return o.srcIds; return o.srcKind === 'co' && o.srcId ? [o.srcId] : []; }
+/* 每一行出貨算到哪一張來源單：{來源單: {商品: 數量}}。新的銷貨單每一行記 co（哪一張客戶訂單），自己另加的商品不算任何訂單；舊的單據整張算到 srcId */
+function srcQtyOf(o){
+  const out = {}, tagged = (o.lines || []).some(l => l.co);
+  for (const l of o.lines || []){ const id = tagged ? l.co : o.srcId; if (!id) continue; const m = out[id] || (out[id] = {}); m[l.pid] = r3((m[l.pid] || 0) + (Number(l.qty) || 0)); }
+  return out;
+}
 function docProgress(kind, d){
   const D = DOCS[kind], f = S.d.fill[d.id] || {};
   let rem = 0, done = 0;
@@ -3595,11 +3684,11 @@ function openDocEditor(kind, pre){
 }
 
 /* ---- 明細 / 拋轉 ---- */
-function convertDoc(kind, d){
+function convertDoc(kind, d, more){
   const D = DOCS[kind], pr = docProgress(kind, d);
   const lines = pr.lines.filter(l => l.rem > 0.0004 && S.products[l.pid] && S.products[l.pid].active !== false).map(l => ({pid:l.pid, qty:l.rem, price:l.price, listPrice:l.listPrice, disc:l.disc, ord:l.qty, rem:l.rem}));
   if (!lines.length) return toast('沒有可轉換的品項（商品可能已停用）');
-  openOrder(D.srcType, {partnerId:d.partnerId, lines, wh:d.wh, note:D.label + ' ' + d.no, src:{id:d.id, no:d.no, kind}});
+  openOrder(D.srcType, {partnerId:d.partnerId, lines, wh:d.wh, note:D.label + ' ' + d.no, src:{id:d.id, no:d.no, kind}, ...(more || {})});
 }
 function openDocDetail(kind, id){
   const D = DOCS[kind];
@@ -3608,7 +3697,7 @@ function openDocDetail(kind, id){
     const pt = S.partners[d.partnerId], pr = docProgress(kind, d);
     ensureNames([d.by, d.editedBy]);
     const late = pr.active && d.expected && daysBetween(today(), d.expected) < 0;
-    const linked = Object.values(S.orders).filter(o => o.srcId === id).sort(cmpOrd);
+    const linked = Object.values(S.orders).filter(o => o.srcId === id || (o.srcIds || []).includes(id)).sort(cmpOrd);
     const short = kind === 'co' && pr.active ? pr.lines.filter(l => l.rem > 0 && stockOf(l.pid) < l.rem) : [];
     const canX = can(kind === 'co' ? 'sale' : 'purchase') && (S.isAdmin || (d.by && d.by === S.meId));
     const more = [];
@@ -3826,7 +3915,7 @@ const REF_ROWS = 13;
 function slipNoteOf(o){
   let t = String((o && o.note) || '');
   const lab = '(?:客戶訂單|訂單|報價單|採購單)?[\\s\\u3000]*[:：]?[\\s\\u3000]*';
-  if (o && o.srcNo) t = t.replace(new RegExp(lab + String(o.srcNo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\u0001');
+  for (const no of new Set([o && o.srcNo, ...((o && o.srcNos) || [])].filter(Boolean))) t = t.replace(new RegExp(lab + String(no).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\u0001');
   t = t.replace(/(?:客戶訂單|訂單|報價單|採購單)[\s　]*[:：]?[\s　]*(?:CO|PO|QT)\d{6}-[A-Za-z0-9]{3,8}/gi, '\u0001');
   return t.replace(/[\s　,，、;；:：]*\u0001[\s　,，、;；:：]*/g, '　').replace(/^[\s　]+|[\s　]+$/g, '');
 }
@@ -6043,10 +6132,15 @@ async function syncTripOrders0(t, removedIds){
 async function healTripStops(){
   if (!S.canWrite || S.__healing) return; const fix = [];
   for (const t of Object.values(S.trips)) for (const st of t.stops || []){ if (!(S.corders && S.corders[st.orderId]) || (S.orders && S.orders[st.orderId])) continue;
-    const sale = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && o.srcId === st.orderId && !assignedMap()[o.id]).sort((a, b) => String(a.at || 0).localeCompare(String(b.at || 0)))[0];
+    const sale = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && saleCoIds(o).includes(st.orderId) && !assignedMap()[o.id]).sort((a, b) => String(a.at || 0).localeCompare(String(b.at || 0)))[0];
     if (sale) fix.push([t, st.orderId, sale.id]); }
   if (!fix.length) return; S.__healing = true;
-  try { const done = new Set(); for (const [t, coId, saleId] of fix){ const k = tripKey(t.date, t.vehicleId, t.slot); const cur = getTrip(t.date, t.vehicleId, t.slot); const i = cur.stops.findIndex(x => x.orderId === coId); if (i < 0 || done.has(coId)) continue; cur.stops[i] = {...cur.stops[i], orderId:saleId, fromCo:coId}; await writeTrip(cur); await syncTripOrders(cur, [coId]); done.add(coId); } } catch (e) { console.error(e); } finally { S.__healing = false; }
+  try { const done = new Set(), placed = new Set(), work = {}, gone = {};
+    for (const [t, coId, saleId] of fix){ const k = tripKey(t.date, t.vehicleId, t.slot); const cur = work[k] || (work[k] = getTrip(t.date, t.vehicleId, t.slot)); const i = cur.stops.findIndex(x => x.orderId === coId); if (i < 0 || done.has(coId)) continue;
+      /* 好幾張訂單合成一張銷貨單：第一站換成銷貨單，其他站拿掉（同一張銷貨單只送一次） */
+      if (placed.has(saleId) || cur.stops.some(x => x.orderId === saleId)) cur.stops.splice(i, 1); else { cur.stops[i] = {...cur.stops[i], orderId:saleId, fromCo:coId}; placed.add(saleId); }
+      (gone[k] = gone[k] || []).push(coId); done.add(coId); }
+    for (const k of Object.keys(work)){ await writeTrip(work[k]); await syncTripOrders(work[k], gone[k] || []); } } catch (e) { console.error(e); } finally { S.__healing = false; }
 }
 /* ================= 出車作業（外務人員：選配送人員 → 出車 → 抵達公司，系統自動記錄時間） ================= */
 const DRV_LS = 'drvRunName1';
@@ -6313,14 +6407,13 @@ function openArReturn(){
   });
 }
 /* ================= LINE：客戶用 LINE 下訂單 → 管理者審核 → 通知客戶；管理者每日彙總 ================= */
-const LINE_TPL_CONFIRM = '【{公司}】{客戶}您好，您的訂單已確認建立（單號 {單號}）：\n{品項}\n合計 {金額}。目前等候安排配送，確認配送時間後會再通知您。';
-const LINE_TPL_DELIVER = '【{公司}】{客戶}您好，您的訂單 {單號} 已安排配送：{日期}（{時段}）{送貨員}。如有問題請與我們聯絡。';
-const LINE_TPL_REJECT = '【{公司}】{客戶}您好，抱歉，您 {時間} 傳來的訂單目前無法確認{原因}。請與我們聯絡，謝謝。';
-const LINE_TPL_SLIP = '【{公司}】{客戶}您好，您訂購的商品已開立銷貨單 {單號}（{日期}），出貨內容如下：\n{品項}\n共 {品項數} 項。{未出貨}\n如與您的訂單不符，請與我們聯絡，謝謝。';
-const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, notifySlip:true, slipScope:'order', tplConfirm:LINE_TPL_CONFIRM, tplDeliver:LINE_TPL_DELIVER, tplReject:LINE_TPL_REJECT, tplSlip:LINE_TPL_SLIP, ...(S.set.line || {})});
+/* LINE 通知（給客人）都是一張卡片：最上面綠色「服務通知」，標題、單號、日期、品項和數量由系統帶；不放公司名稱、不放金額。
+   卡片最下面那一段話可以在「LINE 通知設定」改（下面是預設） */
+const LINE_MSG = {confirm:'感謝您的訂購，我們會盡快安排出貨，確定配送時間後會再通知您。', deliver:'我們會在上面的時間送達；時間不方便的話，請直接回覆訊息告訴我們。', reject:'抱歉，這張訂單目前無法成立，請直接回覆訊息與我們聯絡，謝謝。', slip:'如與您的訂單不符，請直接回覆訊息與我們聯絡，謝謝。', statement:'如與您的帳不符，請直接回覆訊息與我們聯絡，謝謝。', overdue:'如已付款，請忽略這則訊息，謝謝。', test:'收到這則訊息，代表網站 → LINE 這一段是通的。通知客人的訊息會是這個樣子。'};
+const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, notifySlip:true, slipScope:'order', msgConfirm:LINE_MSG.confirm, msgDeliver:LINE_MSG.deliver, msgReject:LINE_MSG.reject, msgSlip:LINE_MSG.slip, ...(S.set.line || {})});
 const lineFill = (tpl, v) => String(tpl || '').replace(/\{([^}]+)\}/g, (m, k) => v[k] !== undefined ? v[k] : m);
 const linePending = () => Object.values(S.lineorders || {}).filter(x => x.status === 'pending').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-const lineOriginOf = o => o ? (o.lineOrderId || ((S.corders[o.srcId] || {}).lineOrderId) || '') : '';
+const lineOriginOf = o => o ? (o.lineOrderId || (saleCoIds(o).length ? saleCoIds(o) : (o.srcId ? [o.srcId] : [])).map(id => (S.corders[id] || {}).lineOrderId).find(Boolean) || '') : '';
 const lineTimeTxt = ms => { const d = new Date(ms || Date.now()); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const lineAgoTxt = ms => { const m = Math.max(Math.round((Date.now() - (ms || Date.now())) / 60000), 0); return m < 60 ? m + ' 分鐘' : (m < 1440 ? Math.floor(m / 60) + ' 小時' : Math.floor(m / 1440) + ' 天'); };
 async function queueLine(key, data){
@@ -6328,19 +6421,152 @@ async function queueLine(key, data){
   try { const sn = await ref.get(); if (sn.exists) return false; } catch (_) {}
   await ref.set({...data, key:String(key), status:'queued', at:Date.now(), by:S.meId || ''}); return true;
 }
-function lineItemsTxt(lines){ const a = (lines || []).map(l => l.name + ' ×' + num(l.qty) + (l.unit || '')); return a.slice(0, 8).join('、') + (a.length > 8 ? '…等 ' + a.length + ' 項' : ''); }
+/* LINE 通知卡片（Flex Message）。同一份程式放在網站（index.html）和雲端函式（line-functions/lib/card.js），兩邊做出來的卡片一模一樣（有對照測試）。
+   card = {title, alt, rows:[{k, v, b}], lists:[{label, items:[{name, qty, note, warn}], more}], quote:{label, text}, msg}
+   回傳 {flex：卡片本身（bubble）, alt：手機通知列和聊天列表顯示的文字, text：純文字版（雲端函式還沒更新、或 LINE 不收卡片時改送這個）}
+   卡片不放公司名稱（官方帳號的名稱 LINE 本來就會顯示），也不放金額（對帳通知、付款提醒除外）。 */
+function lineCard(card) {
+  card = card || {};
+  const S = v => String(v == null ? '' : v).replace(/\r/g, '').trim();
+  const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+  const C = { head: '#06C755', ink: '#222222', sub: '#8C8C8C', rule: '#E5E5E5', warn: '#D93025', soft: '#F5F5F5' };
+  const title = cut(S(card.title) || '通知', 60), msg = cut(S(card.msg), 1000);
+  const rows = (card.rows || []).filter(r => r && S(r.k) && S(r.v)).map(r => ({ k: cut(S(r.k), 8), v: cut(S(r.v), 300), b: !!r.b }));
+  const quote = card.quote && S(card.quote.text) ? { label: cut(S(card.quote.label) || '內容', 20), text: cut(S(card.quote.text), 300) } : null;
+  const lists0 = (card.lists || []).filter(l => l && (l.items || []).length).map(l => ({
+    label: cut(S(l.label) || '品項', 20),
+    items: l.items.map(it => ({ name: cut(S(it && it.name) || '（未命名）', 80), qty: cut(S(it && it.qty), 20), note: cut(S(it && it.note), 80), warn: !!(it && it.warn) })),
+    more: Math.max(Math.floor(Number(l.more) || 0), 0)
+  }));
+  const T = (text, o) => Object.assign({ type: 'text', text: text }, o);
+  const SEP = () => ({ type: 'separator', margin: 'lg', color: C.rule });
+  const total = l => l.items.length + l.more;
+  const rowBox = r => ({ type: 'box', layout: 'baseline', spacing: 'md', contents: [
+    T(r.k, { size: 'sm', color: C.sub, flex: 2 }),
+    T(r.v, r.b ? { size: 'sm', color: C.ink, flex: 5, wrap: true, weight: 'bold' } : { size: 'sm', color: C.ink, flex: 5, wrap: true })] });
+  /* 一個品項：左邊名稱（太長會換行）、右邊數量；有備註（例如尚欠）就在名稱下面多一行小字。寫得精簡一點，卡片才放得下比較多品項 */
+  const qtyT = it => T(it.qty || '－', { size: 'sm', flex: 0, align: 'end' });
+  const itemBox = it => (it.note
+    ? { type: 'box', layout: 'horizontal', spacing: 'md', contents: [{ type: 'box', layout: 'vertical', flex: 1, contents: [T(it.name, { size: 'sm', wrap: true }), T(it.note, { size: 'xs', color: it.warn ? C.warn : C.sub, wrap: true })] }, qtyT(it)] }
+    : { type: 'box', layout: 'baseline', spacing: 'md', contents: [T(it.name, { size: 'sm', wrap: true, flex: 1 }), qtyT(it)] });
+  const listBox = l => ({ type: 'box', layout: 'vertical', spacing: 'sm', margin: 'lg', contents: [T(l.label + '（' + total(l) + ' 項）', { size: 'sm', color: C.sub })]
+    .concat(l.items.map(itemBox), l.more ? [T('…另有 ' + l.more + ' 項', { size: 'xs', color: C.sub })] : []) });
+  const build = lists => {
+    const body = [T(title, { size: 'xl', weight: 'bold', color: C.ink, wrap: true })];
+    if (rows.length) body.push(SEP(), { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'lg', contents: rows.map(rowBox) });
+    lists.forEach(l => body.push(SEP(), listBox(l)));
+    if (quote) body.push({ type: 'box', layout: 'vertical', margin: 'lg', paddingAll: '10px', cornerRadius: '8px', backgroundColor: C.soft, contents: [T(quote.label, { size: 'xs', color: C.sub }), T(quote.text, { size: 'sm', color: C.ink, wrap: true })] });
+    if (msg) body.push(SEP(), T(msg, { size: 'sm', color: C.ink, wrap: true, margin: 'lg' }));
+    return {
+      type: 'bubble', size: 'mega',
+      header: { type: 'box', layout: 'vertical', paddingAll: '14px', paddingStart: '20px', backgroundColor: C.head, contents: [T('服務通知', { size: 'md', weight: 'bold', color: '#FFFFFF' })] },
+      body: { type: 'box', layout: 'vertical', paddingAll: '20px', contents: body },
+      footer: { type: 'box', layout: 'vertical', paddingAll: '12px', paddingStart: '20px', paddingEnd: '20px', backgroundColor: C.soft, contents: [T('這是自動發送的通知，有問題請直接回覆這則訊息。', { size: 'xs', color: C.sub, wrap: true })] }
+    };
+  };
+  /* 卡片有大小上限（LINE 規定一張卡片的內容不能太大；這裡保守抓 9500 位元組）：品項太多就從最長的清單後面收起來，寫「另有 N 項」 */
+  const bytes = o => { const s = JSON.stringify(o); let n = 0; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c < 0x80) n += 1; else if (c < 0x800) n += 2; else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; } else n += 3; } return n; };
+  const lists = lists0.map(l => ({ label: l.label, items: l.items.slice(), more: l.more }));
+  let flex = build(lists);
+  /* 先收後面的清單（例如「尚未出貨」，留 3 項），再收第一個清單（例如出貨品項） */
+  const later = () => lists.slice(1).reverse();
+  while (bytes(flex) > 9500) {
+    const l = later().find(x => x.items.length > 3) || (lists[0] && lists[0].items.length > 1 ? lists[0] : null) || later().find(x => x.items.length > 1);
+    if (!l) break;
+    l.items.pop(); l.more += 1; flex = build(lists);
+  }
+  /* 純文字版：內容和卡片一樣（品項全部列出，太長才收起來） */
+  const tl = ['【' + title + '】'].concat(rows.map(r => r.k + '：' + r.v));
+  let budget = 3400;
+  lists0.forEach((l, li) => {
+    tl.push('', l.label + '（' + total(l) + ' 項）：');
+    const room = budget - 500 * (lists0.length - 1 - li);   // 後面的清單至少留 500 字
+    let shown = 0, used = 0;
+    for (const it of l.items) {
+      const t = '・' + it.name + (it.qty ? ' ×' + it.qty : '') + (it.note ? '（' + it.note + '）' : '');
+      if (used + t.length + 1 > room) break;
+      tl.push(t); used += t.length + 1; shown++;
+    }
+    budget -= used;
+    const rest = l.items.length - shown + l.more;
+    if (rest) tl.push('…另有 ' + rest + ' 項');
+  });
+  if (quote) tl.push('', quote.label + '：' + quote.text);
+  if (msg) tl.push('', msg);
+  return { flex: flex, alt: cut(S(card.alt) || title, 400), text: cut(tl.join('\n'), 4900) };
+}
+/* 卡片在網站裡的預覽：照 LINE 卡片的排版規則（字級、間距、顏色）畫出來，讓設定的人看到客人手機上的樣子 */
+function lineFlexEl(n, parent){
+  const FS = {xxs:11, xs:13, sm:14, md:16, lg:19, xl:22, xxl:29, '3xl':35, '4xl':48, '5xl':74}, SP = {none:0, xs:2, sm:4, md:8, lg:12, xl:16, xxl:20};
+  const px = v => v == null ? '' : (/px$/.test(String(v)) ? String(v) : (SP[v] !== undefined ? SP[v] + 'px' : ''));
+  const inRow = parent === 'horizontal' || parent === 'baseline';
+  const fx = inRow ? (n.flex === 0 ? 'flex:0 0 auto;' : 'flex:' + (n.flex == null ? 1 : n.flex) + ' 1 0%;min-width:0;') : '';
+  if (n.type === 'text') return h('div', {style:fx + 'font-size:' + (FS[n.size] || parseInt(n.size, 10) || 16) + 'px;line-height:1.45;color:' + (n.color || '#111111') + ';' + (n.weight === 'bold' ? 'font-weight:700;' : '') + (n.align === 'end' ? 'text-align:right;' : n.align === 'center' ? 'text-align:center;' : '') + (n.wrap ? 'white-space:pre-wrap;overflow-wrap:anywhere;' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'), text:n.text});
+  if (n.type === 'separator') return h('div', {style:(inRow ? 'width:1px;align-self:stretch;' : 'height:1px;') + 'flex:0 0 auto;background:' + (n.color || '#DDDDDD')});
+  if (n.type !== 'box') return h('div');
+  const kids = (n.contents || []).map((c, i) => { const el = lineFlexEl(c, n.layout), gap = i ? (c.margin ? px(c.margin) : px(n.spacing)) : ''; if (gap) el.style[n.layout === 'vertical' ? 'marginTop' : 'marginLeft'] = gap; return el; });
+  return h('div', {style:fx + 'display:flex;flex-direction:' + (n.layout === 'vertical' ? 'column' : 'row') + ';' + (n.layout === 'baseline' ? 'align-items:baseline;' : n.layout === 'horizontal' ? 'align-items:flex-start;' : '') + (n.backgroundColor ? 'background:' + n.backgroundColor + ';' : '') + (n.cornerRadius ? 'border-radius:' + px(n.cornerRadius) + ';' : '') + (n.paddingAll ? 'padding:' + px(n.paddingAll) + ';' : '') + (n.paddingTop ? 'padding-top:' + px(n.paddingTop) + ';' : '') + (n.paddingBottom ? 'padding-bottom:' + px(n.paddingBottom) + ';' : '') + (n.paddingStart ? 'padding-left:' + px(n.paddingStart) + ';' : '') + (n.paddingEnd ? 'padding-right:' + px(n.paddingEnd) + ';' : '')}, kids);
+}
+/* c：lineCard() 的結果。外面套一層 LINE 聊天室的藍色底，下面寫手機通知列會顯示的文字 */
+function lineCardEl(c, label){
+  const f = c.flex || c;
+  return h('div', {'aria-label':label || 'LINE 卡片預覽', style:'margin:8px 0'},
+    h('div', {class:'lcard-chat'}, h('div', {class:'lcard'}, ...['header', 'body', 'footer'].filter(k => f[k]).map(k => lineFlexEl(f[k], 'vertical')))),
+    c.alt ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'手機通知列會顯示：' + c.alt}) : null);
+}
+const lineDT = ms => { const d = new Date(ms || Date.now()); return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const lineDay = s => s ? s.slice(0, 4) + '/' + s.slice(5, 7) + '/' + s.slice(8, 10) + '（' + wdName(s.slice(0, 10)) + '）' : '';
+const lineQty = (q, u) => num(q) + (u ? ' ' + u : '');
+const lineWho = pt => pt ? (pt.shortName || pt.name || '') : '';
+/* 排進發送佇列的內容：卡片＋手機通知列的文字＋純文字版（雲端函式還沒更新、或 LINE 不收卡片時送這個） */
+const lineOut = card => { const c = lineCard(card); return {text:c.text, flex:c.flex, alt:c.alt}; };
+/* 訂單成立通知（LINE 訂單審核通過） */
+function lineConfirmCard(doc, lo, msg){
+  const L = LINE(), pt = S.partners[doc.partnerId], items = (doc.lines || []).map(l => { const p = S.products[l.pid] || {}; return {name:l.name || p.name || '', qty:lineQty(l.qty, l.unit || p.unit || '')}; });
+  const v = {客戶:lineWho(pt), 單號:doc.no || '', 日期:lineDay(doc.expected || '')};
+  return {title:'訂單成立通知', alt:'訂單成立通知：' + v.單號 + '（' + items.length + ' 項商品）',
+    rows:[{k:'客戶', v:v.客戶}, {k:'訂單編號', v:v.單號}, {k:'訂單時間', v:lineDT((lo && lo.createdAt) || doc.at || Date.now())}, {k:'預計交貨', v:v.日期}],
+    lists:[{label:'訂購品項', items}], msg:lineFill(msg == null ? (L.msgConfirm || LINE_MSG.confirm) : msg, v)};
+}
+/* 配送通知（訂單排進出車排程） */
+function lineDeliverCard(pt, os, t, msg){
+  const L = LINE(), drv = String(tripDriver(t) || '').trim(), nos = os.map(o => o.no).filter(Boolean).sort();
+  const v = {客戶:lineWho(pt), 單號:nos.join('、'), 日期:lineDay(t.date || ''), 時段:SLOTS[t.slot] || '', 送貨員:drv};
+  return {title:'配送通知', alt:'配送通知：' + v.日期 + (v.時段 ? ' ' + v.時段 : '') + ' 送達',
+    rows:[{k:'客戶', v:v.客戶}, {k:'單號', v:v.單號}, {k:'配送日期', v:v.日期}, {k:'配送時段', v:v.時段}, {k:'送貨人員', v:drv}], msg:lineFill(msg == null ? (L.msgDeliver || LINE_MSG.deliver) : msg, v)};
+}
+/* 訂單未成立通知（LINE 訂單駁回） */
+function lineRejectCard(lo, pt, reason, msg){
+  const L = LINE(), v = {客戶:lineWho(pt), 時間:lineDT(lo.createdAt), 原因:String(reason || '').trim()};
+  return {title:'訂單未成立通知', alt:'訂單未成立通知' + (v.原因 ? '：' + v.原因 : ''),
+    rows:[{k:'客戶', v:v.客戶}, {k:'訂單時間', v:v.時間}, {k:'原因', v:v.原因}], quote:{label:'您傳來的內容', text:lo.text || ''}, msg:lineFill(msg == null ? (L.msgReject || LINE_MSG.reject) : msg, v)};
+}
+/* 對帳通知、付款提醒：和雲端函式 lib/remind.js 的 stmtCard、dueCard 一樣（有對照測試）。這兩種本來就是講帳款，所以有金額 */
+function lineStmtCard(pt, x, msg){
+  const R = lineRemindCfg(), v = {客戶:lineWho(pt), 月份:rocMonthTxt(x.month), 累計未收:lineMoney(x.cum)};
+  return {title:'對帳通知', alt:'對帳通知：' + v.月份,
+    rows:[{k:'客戶', v:v.客戶}, {k:'帳款月份', v:v.月份}, {k:'本月銷貨', v:x.n + ' 張'}, {k:'未稅', v:lineMoney(x.net)}, {k:'稅金', v:lineMoney(x.tax)}, {k:'應收', v:lineMoney(x.total)}, {k:'已收', v:lineMoney(x.rec)}, {k:'前期未收', v:lineMoney(x.prior)}, {k:'累計未收', v:v.累計未收, b:true}, {k:'匯款帳號', v:pt.bankAccount || ''}, {k:'付款說明', v:pt.paymentNote || ''}],
+    msg:lineFill(msg == null ? (R.msgStatement || LINE_MSG.statement) : msg, v)};
+}
+function lineDueCard(pt, x, msg){
+  const R = lineRemindCfg(), v = {客戶:lineWho(pt), 逾期張數:String(x.n), 逾期金額:lineMoney(x.amount), 最久天數:String(x.days)};
+  return {title:'付款提醒', alt:'付款提醒：有 ' + x.n + ' 張單據已逾期',
+    rows:[{k:'客戶', v:v.客戶}, {k:'逾期單據', v:x.n + ' 張'}, {k:'逾期金額', v:v.逾期金額, b:true}, {k:'最久逾期', v:x.days + ' 天'}, {k:'匯款帳號', v:pt.bankAccount || ''}, {k:'付款說明', v:pt.paymentNote || ''}],
+    msg:lineFill(msg == null ? (R.msgOverdue || LINE_MSG.overdue) : msg, v)};
+}
+/* 給管理者的測試訊息（也用卡片，順便看到客人收到的樣子） */
+const lineTestCard = (title, msg) => ({title:title || '測試通知', alt:(title || '測試通知') + '：LINE 通知設定成功', rows:[{k:'發送時間', v:lineDT(Date.now())}], msg:msg || LINE_MSG.test});
 async function lineNotifyConfirm(doc, lo){
   const L = LINE(); if (!L.on || !L.notifyConfirm || !lo.lineUserId) return false;
-  const pt = S.partners[doc.partnerId] || {};
-  return queueLine('conf_' + doc.id, {to:lo.lineUserId, type:'confirm', partnerId:doc.partnerId, orderId:doc.id, text:lineFill(L.tplConfirm, {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 單號:doc.no, 品項:lineItemsTxt(doc.lines), 金額:money(doc.total)})});
+  return queueLine('conf_' + doc.id, {to:lo.lineUserId, type:'confirm', partnerId:doc.partnerId, orderId:doc.id, ...lineOut(lineConfirmCard(doc, lo))});
 }
 async function lineDeliveryNotices(t){
   const L = LINE(); if (!L.on || !L.notifyDeliver) return;
   const by = {};
   for (const st of t.stops || []){ const o = ordOf(st.orderId); if (!o || !lineOriginOf(o)) continue; const pt = S.partners[o.partnerId]; if (!pt || !pt.lineUserId) continue; (by[pt.id] = by[pt.id] || {pt, os:[]}).os.push(o); }
   for (const g of Object.values(by)){
-    const nos = g.os.map(o => o.no).sort(), drv = tripDriver(t);
-    await queueLine(['deliv', g.pt.id, t.date, t.slot, nos.join('+')].join('_'), {to:g.pt.lineUserId, type:'deliver', partnerId:g.pt.id, orderIds:g.os.map(o => o.id), text:lineFill(L.tplDeliver, {公司:S.set.co || S.set.name || '', 客戶:g.pt.shortName || g.pt.name || '', 單號:nos.join('、'), 日期:mdw(t.date), 時段:SLOTS[t.slot] || '', 送貨員:drv ? '，送貨員 ' + drv : ''})});
+    const nos = g.os.map(o => o.no).sort();
+    await queueLine(['deliv', g.pt.id, t.date, t.slot, nos.join('+')].join('_'), {to:g.pt.lineUserId, type:'deliver', partnerId:g.pt.id, orderIds:g.os.map(o => o.id), ...lineOut(lineDeliverCard(g.pt, g.os, t))});
   }
 }
 
@@ -6350,11 +6576,11 @@ async function lineDeliveryNotices(t){
 const LINE_SLIP_MAX = 3600;
 /* 這張銷貨單的出貨明細，並和來源訂單比對：這次少出的（尚欠）、完全沒出的（尚未出貨） */
 function slipNoticeModel(o){
-  const co = o.srcKind === 'co' && o.srcId ? S.corders[o.srcId] : null, EPS = 0.0004;
+  const cos = saleCoIds(o).map(id => S.corders[id]).filter(Boolean), co = cos[0] || null, ids = new Set(cos.map(c => c.id)), EPS = 0.0004;   // 可以是好幾張訂單合成的
   const prior = {}, ord = {}, here = {}, nm = {};
   if (co){
-    for (const x of Object.values(S.orders)) if (x.type === 'sale' && x.status !== 'void' && x.srcId === co.id && x.id !== o.id) for (const l of x.lines || []) prior[l.pid] = r3((prior[l.pid] || 0) + (Number(l.qty) || 0));
-    for (const l of co.lines || []){ ord[l.pid] = r3((ord[l.pid] || 0) + (Number(l.qty) || 0)); if (!nm[l.pid]) nm[l.pid] = {name:l.name || (S.products[l.pid] || {}).name || '', unit:l.unit || (S.products[l.pid] || {}).unit || ''}; }
+    for (const x of Object.values(S.orders)) if (x.type === 'sale' && x.status !== 'void' && x.id !== o.id) for (const [cid, m] of Object.entries(srcQtyOf(x))) if (ids.has(cid)) for (const pid of Object.keys(m)) prior[pid] = r3((prior[pid] || 0) + m[pid]);
+    for (const c of cos) for (const l of c.lines || []){ ord[l.pid] = r3((ord[l.pid] || 0) + (Number(l.qty) || 0)); if (!nm[l.pid]) nm[l.pid] = {name:l.name || (S.products[l.pid] || {}).name || '', unit:l.unit || (S.products[l.pid] || {}).unit || ''}; }
   }
   for (const l of o.lines || []) if (!l.gift) here[l.pid] = r3((here[l.pid] || 0) + (Number(l.qty) || 0));
   const noted = new Set(), rows = (o.lines || []).map(l => {
@@ -6364,18 +6590,21 @@ function slipNoticeModel(o){
   });
   const pending = [];
   if (co) for (const pid of Object.keys(ord)){ if (here[pid] !== undefined) continue; const rem = r3(ord[pid] - (prior[pid] || 0)); if (rem > EPS && nm[pid].name) pending.push({pid, name:nm[pid].name, unit:nm[pid].unit, rem}); }
-  return {rows, pending, co};
+  return {rows, pending, co, cos};
 }
-/* 訊息文字。tpl 可以傳入還沒儲存的範本（設定頁預覽用） */
-function slipNoticeText(o, tpl){
-  const L = LINE(), pt = S.partners[o.partnerId] || {}, m = slipNoticeModel(o), qtyTxt = (q, u) => '×' + num(q) + (u ? ' ' + u : '');
-  const items = m.rows.map(r => '・' + r.name + ' ' + qtyTxt(r.qty, r.unit) + (r.short ? '（訂購 ' + num(r.ord) + '，尚欠 ' + num(r.short) + '）' : ''));
-  let shown = items, cut = 0;
-  if (items.join('\n').length > LINE_SLIP_MAX){ shown = []; let n = 0; for (const t of items){ if (n + t.length + 1 > LINE_SLIP_MAX) break; shown.push(t); n += t.length + 1; } cut = items.length - shown.length; }
-  const pend = m.pending.length ? '\n尚未出貨：' + m.pending.map(r => r.name + ' ' + qtyTxt(r.rem, r.unit)).join('、') : '';
-  return lineFill(tpl || L.tplSlip || LINE_TPL_SLIP, {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 單號:o.no || '', 日期:mdw(o.date || today()), 訂單單號:m.co ? m.co.no : (o.srcNo || ''),
-    品項:shown.join('\n') + (cut ? '\n…另有 ' + cut + ' 項，請與我們聯絡或看銷貨單' : ''), 品項數:String(items.length), 金額:money(o.total || 0), 未出貨:pend});
+/* 出貨通知的卡片。msg：卡片最下面那段話（設定頁預覽時傳入還沒儲存的內容） */
+function slipNoticeCard(o, msg){
+  const L = LINE(), pt = S.partners[o.partnerId], m = slipNoticeModel(o);
+  const items = m.rows.map(r => ({name:r.name, qty:lineQty(r.qty, r.unit), note:r.short ? '訂購 ' + num(r.ord) + '，尚欠 ' + num(r.short) : (r.gift && !/贈/.test(r.name) ? '贈品' : ''), warn:!!r.short}));
+  const coNos = m.cos.length ? m.cos.map(c => c.no).join('、') : (o.srcNo || '');
+  const v = {客戶:lineWho(pt), 單號:o.no || '', 日期:lineDay(o.date || today()), 訂單單號:coNos, 品項數:String(items.length)};
+  return {title:'出貨通知', alt:'出貨通知：' + v.單號 + ' 共 ' + items.length + ' 項商品',
+    rows:[{k:'客戶', v:v.客戶}, {k:'銷貨單號', v:v.單號}, {k:'出貨日期', v:v.日期}, {k:'訂單編號', v:coNos}],
+    lists:[{label:'出貨品項', items}, {label:'尚未出貨', items:m.pending.map(r => ({name:r.name, qty:lineQty(r.rem, r.unit)}))}],
+    msg:lineFill(msg == null ? (L.msgSlip || LINE_MSG.slip) : msg, v)};
 }
+/* 純文字版（雲端函式還沒更新時客人收到的就是這個） */
+function slipNoticeText(o, msg){ return lineCard(slipNoticeCard(o, msg)).text; }
 /* 這張單現在能不能通知、通知給誰。manual＝人工按的，不看「自動通知」和範圍設定 */
 function lineSlipPlan(o, manual){
   const L = LINE();
@@ -6388,12 +6617,13 @@ function lineSlipPlan(o, manual){
     if (L.slipScope !== 'all' && !(o.srcKind === 'co' && o.srcId)) return {ok:false, why:'scope'};
   }
   if (!(o.lines || []).length) return {ok:false, why:'empty'};
-  return {ok:true, to:pt.lineUserId, pt, text:slipNoticeText(o)};
+  const card = slipNoticeCard(o);
+  return {ok:true, to:pt.lineUserId, pt, card, text:lineCard(card).text};
 }
 async function lineNotifySlip(o, manual){
   try {
     const p = lineSlipPlan(o, manual); if (!p.ok) return {sent:false, why:p.why};
-    const q = await queueLine(manual ? 'slip_' + o.id + '_' + Date.now() : 'slip_' + o.id, {to:p.to, type:'slip', partnerId:o.partnerId, orderId:o.id, text:p.text});
+    const q = await queueLine(manual ? 'slip_' + o.id + '_' + Date.now() : 'slip_' + o.id, {to:p.to, type:'slip', partnerId:o.partnerId, orderId:o.id, ...lineOut(p.card)});
     if (q) await S.db.doc('orders/' + o.id).update({lineSlipAt:Date.now()}).catch(() => null);
     return {sent:!!q, why:q ? '' : 'dup'};
   } catch (e) { console.error(e); return {sent:false, why:'error', err:e}; }
@@ -6404,40 +6634,49 @@ function openLineSlipNotify(o){
   const sh = sheet({title:'通知客戶商品數量'});
   put(sh.bodyEl,
     h('p', {class:'note', text:'會用 LINE 傳給「' + (p.pt.shortName || p.pt.name) + '」，用掉 1 則訊息額度。' + (o.lineSlipAt ? '這張單 ' + lineTimeTxt(o.lineSlipAt) + ' 已經通知過一次，再按會再傳一則。' : '')}),
-    h('div', {'aria-label':'LINE 訊息預覽', style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:p.text}));
+    lineCardEl(lineCard(p.card), 'LINE 訊息預覽'));
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'寄出 LINE 通知', onclick:async () => {
     const r = await lineNotifySlip(o, true);
     if (r.sent){ toast('已排入，幾秒內送出'); sh.forceClose(); } else toast(LINE_SLIP_WHY[r.why] || '沒有排入，請稍後再試');
   }}, '寄出'));
 }
-/* 設定頁：用最近一張銷貨單看看訊息長什麼樣子（用畫面上還沒儲存的範本） */
-function previewSlipNotice(tpl){
-  const o = Object.values(S.orders).filter(x => x.type === 'sale' && x.status !== 'void' && (x.lines || []).length).sort((a, b) => (b.at || 0) - (a.at || 0))[0];
-  if (!o) return toast('還沒有銷貨單可以預覽');
-  const sh = sheet({title:'客戶會收到的訊息（用 ' + o.no + ' 預覽）'});
-  put(sh.bodyEl, h('div', {'aria-label':'LINE 訊息預覽', style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:slipNoticeText(o, tpl)}), h('p', {class:'hint', text:'只是預覽，不會寄出。內容是這張單的品項和數量。'}));
+/* 設定頁的預覽：kind＝confirm／deliver／slip／reject／statement／overdue；msg＝畫面上還沒儲存的最後一段話。有資料就用最近一筆，沒有就用範例 */
+function lineSampleCard(kind, msg){
+  const latest = (list, f) => list.filter(f).sort((a, b) => (b.at || 0) - (a.at || 0) || String(b.date || '').localeCompare(String(a.date || '')))[0];
+  const cust = Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true}))[0] || {name:'範例客戶'};
+  const co = latest(Object.values(S.corders || {}), x => x.status !== 'void' && (x.lines || []).length);
+  const sampleCo = {no:'CO' + today().slice(2).replace(/-/g, '') + '-A1B2', partnerId:cust.id || '', expected:addDays(today(), 2), at:Date.now(), lines:[{name:'範例商品 A', qty:20, unit:'組'}, {name:'範例商品 B', qty:5, unit:'個'}]};
+  if (kind === 'confirm') return co ? {card:lineConfirmCard(co, null, msg), from:'訂單 ' + co.no} : {card:lineConfirmCard(sampleCo, null, msg), from:''};
+  if (kind === 'deliver'){ const o = co || sampleCo; return {card:lineDeliverCard(S.partners[o.partnerId] || cust, [o], {date:addDays(today(), 1), slot:'am', driver:''}, msg), from:co ? '訂單 ' + co.no + '（配送日期是範例）' : ''}; }
+  if (kind === 'slip'){ const o = latest(Object.values(S.orders), x => x.type === 'sale' && x.status !== 'void' && (x.lines || []).length); if (!o){ toast('還沒有銷貨單可以預覽'); return null; } return {card:slipNoticeCard(o, msg), from:'銷貨單 ' + o.no}; }
+  if (kind === 'reject') return {card:lineRejectCard({text:'低進水器 20組\n馬桶蓋 5個', createdAt:Date.now()}, cust, '品項看不懂', msg), from:''};
+  if (kind === 'statement') return {card:lineStmtCard(cust, {month:prevMonth(billMonth(today(), cutoffOf(cust))), n:3, net:9000, tax:450, total:9450, rec:0, prior:0, cum:9450}, msg), from:''};
+  if (kind === 'overdue') return {card:lineDueCard(cust, {n:2, amount:6300, days:12}, msg), from:''};
+  return null;
 }
+function previewLineNotice(kind, msg){
+  const x = lineSampleCard(kind, msg); if (!x) return;
+  const sh = sheet({title:'客人收到的樣子'});
+  put(sh.bodyEl, lineCardEl(lineCard(x.card), 'LINE 訊息預覽'), h('p', {class:'hint', text:(x.from ? '用' + x.from + '預覽' : '用範例資料預覽') + '，不會寄出。卡片在每支手機上的字型和寬度會有一點不同。'}));
+}
+function previewSlipNotice(msg){ return previewLineNotice('slip', msg); }
 
-const LINE_TPL_STATEMENT = '【{公司}】{客戶}您好，{月份}對帳通知：\n本月銷貨 {單據數} 張，未稅 {未稅}，稅金 {稅金}，應收 {應收}。\n已收 {已收}；前期未收 {前期未收}。\n目前累計未收 {累計未收}。{付款資訊}\n如與您的帳不符，請與我們聯絡，謝謝。';
-const LINE_TPL_OVERDUE = '【{公司}】{客戶}您好，提醒您目前有 {逾期張數} 張單據已逾期，逾期金額 {逾期金額}（最久逾期 {最久天數} 天）。{付款資訊}\n如已付款請忽略，謝謝。';
-const lineRemindCfg = () => { const r = (S.set.line || {}).remind || {}; return {monthly:{on:false, time:'09:30', ...(r.monthly || {})}, weekly:{on:false, wd:1, time:'09:30', ...(r.weekly || {})}, tplStatement:r.tplStatement || LINE_TPL_STATEMENT, tplOverdue:r.tplOverdue || LINE_TPL_OVERDUE}; };
+const lineRemindCfg = () => { const r = (S.set.line || {}).remind || {}; return {monthly:{on:false, time:'09:30', ...(r.monthly || {})}, weekly:{on:false, wd:1, time:'09:30', ...(r.weekly || {})}, msgStatement:r.msgStatement || LINE_MSG.statement, msgOverdue:r.msgOverdue || LINE_MSG.overdue}; };
 const rocMonthTxt = bm => { const [y, m] = bm.split('-').map(Number); return '民國 ' + (y - 1911) + ' 年 ' + m + ' 月帳'; };
-const linePayInfo = p => { const a = []; if (p.bankAccount) a.push('匯款帳號：' + p.bankAccount); if (p.paymentNote) a.push(String(p.paymentNote).trim()); return a.length ? '\n' + a.join('；') : ''; };
 const lineMoney = x => { const n = Math.round(Number(x) || 0); return (n < 0 ? '-' : '') + (S.set.cur || 'NT$') + Math.abs(n).toLocaleString('en-US'); };
 /* 這位客戶「現在」會收到的對帳通知和逾期提醒內容（用網站自己的帳款計算；雲端程式用同一套規則，兩邊有對照測試） */
 function remindPreview(pt){
-  const R = lineRemindCfg(), t = today(), c = cutoffOf(pt), out = {statement:null, overdue:null};
-  const base = {公司:S.set.co || S.set.name || '', 客戶:pt.shortName || pt.name || '', 付款資訊:linePayInfo(pt)};
+  const t = today(), c = cutoffOf(pt), out = {statement:null, overdue:null};
   const rows = Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return')).map(o => ({o, f:arFig(o), month:billMonth(o.date, c)}));
   if (billingOf(pt) === 'cycle'){
     const M = prevMonth(billMonth(t, c)), cur = rows.filter(r => r.month === M), prior = r2(rows.filter(r => r.month < M).reduce((a, r) => a + r.f.due, 0)), due = r2(cur.reduce((a, r) => a + r.f.due, 0)), cum = r2(prior + due);
-    if (cur.length || Math.abs(cum) > 0.004) out.statement = {month:M, text:lineFill(R.tplStatement, {...base, 月份:rocMonthTxt(M), 單據數:cur.length, 未稅:lineMoney(cur.reduce((a, r) => a + r.f.net, 0)), 稅金:lineMoney(cur.reduce((a, r) => a + r.f.tax, 0)), 應收:lineMoney(cur.reduce((a, r) => a + r.f.total, 0)), 已收:lineMoney(cur.reduce((a, r) => a + r.f.rec, 0)), 前期未收:lineMoney(prior), 累計未收:lineMoney(cum)})};
+    if (cur.length || Math.abs(cum) > 0.004){ const card = lineStmtCard(pt, {month:M, n:cur.length, net:cur.reduce((a, r) => a + r.f.net, 0), tax:cur.reduce((a, r) => a + r.f.tax, 0), total:cur.reduce((a, r) => a + r.f.total, 0), rec:cur.reduce((a, r) => a + r.f.rec, 0), prior, cum}); out.statement = {month:M, card, text:lineCard(card).text}; }
   }
   const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && daysBetween(dueDateOf(r.o), t) > 0);
-  if (late.length) out.overdue = {text:lineFill(R.tplOverdue, {...base, 逾期張數:late.length, 逾期金額:lineMoney(late.reduce((a, r) => a + r.f.due, 0)), 最久天數:late.reduce((a, r) => Math.max(a, daysBetween(dueDateOf(r.o), t)), 0)})};
+  if (late.length){ const card = lineDueCard(pt, {n:late.length, amount:late.reduce((a, r) => a + r.f.due, 0), days:late.reduce((a, r) => Math.max(a, daysBetween(dueDateOf(r.o), t)), 0)}); out.overdue = {card, text:lineCard(card).text}; }
   return out;
 }
-const alertLabel = t => ({line_quota:'LINE 額度', push_failed:'LINE 沒送出', backup_failed:'備份失敗', budget:'費用提醒', summary_failed:'每日彙總', remind_failed:'對帳提醒', guard_tripped:'費用保護暫停', guard_resumed:'費用保護恢復', guard_warn:'用量異常', guard_blind:'費用保護失效'}[t] || '系統提醒');
+const alertLabel = t => ({line_quota:'LINE 額度', push_failed:'LINE 沒送出', backup_failed:'備份失敗', budget:'費用提醒', summary_failed:'每日彙總', remind_failed:'對帳提醒', guard_tripped:'費用保護暫停', guard_resumed:'費用保護恢復', guard_warn:'用量異常', guard_blind:'費用保護失效', flex_rejected:'LINE 卡片格式'}[t] || '系統提醒');
 const openAlertList = () => Object.values(S.alerts || {}).filter(a => !a.resolved).sort((a, b) => (b.at || 0) - (a.at || 0));
 function alertsHomeCard(){
   if (!S.isAdmin) return null; const n = openAlertList().length; if (!n) return null;
@@ -6795,7 +7034,30 @@ function boardChange(cur, prev){
 }
 function salesBoard(){
   const mode = boardMode(); if (mode === 'off') return null; if (mode === 'report' && !(see('report') || S.isAdmin)) return null;
-  const st = salesStats(), R = st.ranges, wd = '一二三四五六日';
+  const st = salesStats(), R = st.ranges;
+  const btns = h('span', {style:'display:flex;gap:6px'}, (see('report') || S.isAdmin) && fxOn('buReport') ? h('button', {class:'btn ghost sm', 'aria-label':'看事業部營業績效', onclick:openBuReport}, '事業部') : null, S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看板設定', onclick:openBoardSettings}, '設定') : null);
+  if (document.documentElement.dataset.ui === 'laptop'){
+    /* 電腦版：一排小卡片（今天、本週、本月），點了才打開完整的圖表 */
+    const chg = (cur, prev, lab) => { if (!prev) return h('small', {class:'hint', text:cur ? lab + '沒有營業額' : '—'}); if (Math.abs(cur - prev) < 0.5) return h('small', {class:'hint', text:'和' + lab + '持平'});
+      const up = cur > prev, pct = Math.round(Math.abs(cur - prev) / Math.abs(prev) * 1000) / 10; return h('small', {class:up ? 'sb-up' : 'overdue', text:(up ? '▲ 比' : '▼ 比') + lab + (up ? '增加 ' : '減少 ') + pct + '%'}); };
+    const nToday = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && o.date === st.t).length;
+    const mx = Math.max(1, ...st.wkDays.map(x => x.v));
+    const spark = h('div', {class:'sb-spark', 'aria-hidden':'true'}, st.wkDays.map(x => h('i', {style:'opacity:' + (x.d > st.t ? 0.15 : 1) + ';height:' + (x.d > st.t ? 2 : Math.max(Math.round(Math.max(x.v, 0) / mx * 100), x.v > 0 ? 8 : 4)) + '%'})));
+    const full = R.pmFull.net, pctFull = full > 0 ? Math.round(R.mo.net / full * 100) : null;
+    const tile = (aria, label, amt, ...rest) => h('button', {class:'sb-tile', 'aria-label':aria, onclick:openSalesBoard}, h('small', {class:'hint', text:label}), h('b', {class:'sb-amt', text:amt}), ...rest);
+    return h('section', {class:'sec sb-mini', 'aria-label':'營業額看板'}, h('div', {class:'sec-h'}, h('h2', {text:'營業額'}), btns),
+      h('div', {class:'sb-tiles'},
+        tile('看今天營業額', '今天', money(st.todayNet), h('small', {class:'hint', text:'今天銷貨 ' + nToday + ' 張'})),
+        tile('看本週營業額', '本週（' + boardRange(R.wk.from, R.wk.to) + '）', money(R.wk.net), chg(R.wk.net, R.pw.net, '上週同期'), spark),
+        tile('看本月營業額', '本月（' + boardRange(R.mo.from, R.mo.to) + '）', money(R.mo.net), chg(R.mo.net, R.pm.net, '上月同期'), pctFull != null ? h('span', {class:'bar', style:'width:100%;margin-top:6px'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'})) : null)));
+  }
+  const [wk, mo, foot] = boardPanels(st);
+  return h('section', {class:'sec', 'aria-label':'營業額看板'}, h('div', {class:'sec-h', style:'display:flex;justify-content:space-between;align-items:center'}, h('h2', {text:'營業額看板'}), btns), wk, mo, foot);
+}
+/* 營業額看板的完整內容（手機、平板直接顯示；電腦版點小卡片才打開） */
+function openSalesBoard(){ const sh = sheet({title:'營業額看板'}); put(sh.bodyEl, ...boardPanels(salesStats())); }
+function boardPanels(st){
+  const R = st.ranges, wd = '一二三四五六日';
   const line = (label, rg, cur, prev, aria, year) => { const c = boardChange(cur, prev.net); return h('div', {style:'margin-top:8px;padding-top:8px;border-top:1px solid var(--line,#d8dee4)', 'aria-label':aria},
     h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('small', {class:'hint', text:label + '（' + boardRange(prev.from, prev.to, year) + '）'}), h('b', {text:money(prev.net)})),
     h('div', {style:'text-align:right;margin-top:2px', class:c.cls === 'down' ? 'overdue' : (c.cls === 'up' ? '' : 'hint')}, h('b', {style:c.cls === 'up' ? 'color:var(--ok,#1e7f52)' : '', text:c.txt}))); };
@@ -6818,7 +7080,7 @@ function salesBoard(){
     line('上月同期', null, R.mo.net, R.pm, '上月同期'),
     st.lyHas ? line('去年同期', null, R.mo.net, R.ly, '去年同期', true) : null,
     pctFull != null ? h('div', {style:'margin-top:10px', 'aria-label':'本月進度'}, h('small', {class:'hint', text:'上月全月 ' + money(full) + '，本月已達 ' + pctFull + '%'}), h('span', {class:'bar'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'}))) : null);
-  return h('section', {class:'sec', 'aria-label':'營業額看板'}, h('div', {class:'sec-h', style:'display:flex;justify-content:space-between;align-items:center'}, h('h2', {text:'營業額看板'}), h('span', {style:'display:flex;gap:6px'}, (see('report') || S.isAdmin) && fxOn('buReport') ? h('button', {class:'btn ghost sm', 'aria-label':'看事業部營業績效', onclick:openBuReport}, '事業部') : null, S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'看板設定', onclick:openBoardSettings}, '設定') : null)), wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'}));
+  return [wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'})];
 }
 function openBoardSettings(){
   if (!S.isAdmin) return toast('只有管理員可以設定');
@@ -6949,13 +7211,17 @@ function lineFillFromLast(d, lo){
   d.last = {no:last.doc.no, date:last.doc.date, kind:last.kind, n:fromLast.length}; d.lastApplied = true; return fromLast.length;
 }
 const linePrice = (pid, partnerId, qty, fl) => { const p = S.products[pid]; if (!p) return 0; try { return resolvePrice({product:p, partner:S.partners[partnerId] || {}, side:'sale', qty:qty || 1, famQty:fl ? famQtyOf(fl, p, qty || 1) : null, date:today()}).price; } catch (_) { return p.price || 0; } };
+/* LINE 訂單的審核草稿（選的客戶、品項、數量…）：清單和每一張的明細共用，關掉再打開還在 */
+const lineDraftStore = () => S.__lineDrafts || (S.__lineDrafts = {});
+const lineWantsLast = lo => !!lo.repeat || (!(lo.lines || []).length && LINE_REPEAT_RE.test(lo.text || ''));
+const lineDraft0 = lo => { const D = lineDraftStore(); return D[lo.id] = D[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; const fl = (lo.lines || []).filter(x => x.pid).map(x => ({pid:x.pid, qty:Number(x.qty) || 1})); return {partnerId:pid, bind:true, expected:today(), note:'', lines:(lo.lines || []).map(l => ({text:l.text || '', pid:l.pid || '', qty:Number(l.qty) || 1, unit:l.unit || '', conf:l.conf, ambiguous:!!l.ambiguous, price:l.pid ? linePrice(l.pid, pid, Number(l.qty) || 1, fl) : 0}))}; })(); };
+const lineDraft = lo => { const d = lineDraft0(lo); if (!d.lastApplied && !d.lastDeclined && lineWantsLast(lo) && d.partnerId) lineFillFromLast(d, lo); return d; };
+const lineDraftTotal = d => mInt(d.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
+/* LINE 訂單審核：先是清單（一張一行），點了才打開那一張的完整內容 */
 function openLineOrders(){
   if (!fxGate('lineOrders')) return;
   if (!can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
-  const U = {tab:'pending', drafts:{}};
-  const draft0 = lo => U.drafts[lo.id] = U.drafts[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; const fl = (lo.lines || []).filter(x => x.pid).map(x => ({pid:x.pid, qty:Number(x.qty) || 1})); return {partnerId:pid, bind:true, expected:today(), note:'', lines:(lo.lines || []).map(l => ({text:l.text || '', pid:l.pid || '', qty:Number(l.qty) || 1, unit:l.unit || '', conf:l.conf, ambiguous:!!l.ambiguous, price:l.pid ? linePrice(l.pid, pid, Number(l.qty) || 1, fl) : 0}))}; })();
-  const wantsLast = lo => !!lo.repeat || (!(lo.lines || []).length && LINE_REPEAT_RE.test(lo.text || ''));
-  const draft = lo => { const d = draft0(lo); if (!d.lastApplied && !d.lastDeclined && wantsLast(lo) && d.partnerId) lineFillFromLast(d, lo); return d; };
+  const U = {tab:'pending'};
   liveSheet({title:'LINE 訂單審核'}, ['lineorders', 'partners', 'products', 'corders', 'orders'], sh => {
     const pend = linePending(), done = Object.values(S.lineorders || {}).filter(x => x.status !== 'pending').sort((a, b) => (b.approvedAt || b.rejectedAt || b.createdAt || 0) - (a.approvedAt || a.rejectedAt || a.createdAt || 0)).slice(0, 30);
     const chip = (k, t) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'分頁 ' + t, onclick:() => { U.tab = k; render('lineorders'); }}, t);
@@ -6966,16 +7232,36 @@ function openLineOrders(){
       return {body};
     }
     if (!pend.length){ body.append(h('div', {class:'panel empty', 'aria-label':'沒有待審核', text:'目前沒有待審核的 LINE 訂單'})); return {body}; }
-    for (const lo of pend){
+    body.append(h('p', {class:'hint', style:'margin:4px 2px 8px', text:'最早收到的排最上面。點一張打開完整內容，確認客戶和品項後核准或駁回。'}),
+      h('div', {class:'panel', 'aria-label':'待審核的 LINE 訂單'}, pend.map(lo => {
+        const d = lineDraft(lo), pt = S.partners[d.partnerId], n = d.lines.filter(l => l.pid).length, unsure = d.lines.filter(l => l.pid && !l.picked && (l.ambiguous || (l.conf !== undefined && l.conf < 0.7))).length, miss = d.lines.filter(l => !l.pid).length;
+        const warn = [!pt ? '要選客戶' : '', unsure ? unsure + ' 項比對不確定' : '', miss ? miss + ' 項還沒選商品' : ''].filter(Boolean).join('、');
+        return h('button', {class:'row', 'aria-label':'打開 LINE 訂單 ' + lo.id, onclick:() => openLineOrder(lo.id)},
+          h('span', {style:'min-width:0'}, h('b', {text:(pt ? (pt.shortName || pt.name) : '（還沒指定客戶）') + (lo.displayName ? '　' + lo.displayName : '')}),
+            h('small', {class:'hint', style:'display:block', text:lineTimeTxt(lo.createdAt) + '　已等 ' + lineAgoTxt(lo.createdAt) + '　' + (n ? n + ' 項' : '還沒有品項') + ((lo.imageIds || []).length ? '　圖片 ' + lo.imageIds.length + ' 張' : '') + (lineWantsLast(lo) ? '　照上次' : '')}),
+            h('small', {style:'display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text:String(lo.text || '（沒有文字）').replace(/\s+/g, ' ')}),
+            warn ? h('small', {class:'overdue', style:'display:block', text:'⚠ ' + warn}) : null),
+          h('span', {style:'display:flex;align-items:center;gap:6px'}, h('b', {text:money(lineDraftTotal(d))}), h('small', {class:'chev', text:'›'})));
+      })));
+    return {body};
+  });
+}
+/* 一張 LINE 訂單的完整內容：原文、客戶、品項、數量、單價、交貨日；核准或駁回後自動關掉，回到清單 */
+function openLineOrder(id){
+  if (!can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const draft = lineDraft, wantsLast = lineWantsLast;
+  liveSheet({title:'審核 LINE 訂單'}, ['lineorders', 'partners', 'products', 'corders', 'orders'], sh => {
+    const lo = (S.lineorders || {})[id]; if (!lo || lo.status !== 'pending') return false;
+    const body = h('div');
       const d = draft(lo), pt = S.partners[d.partnerId];
       const lineRow = (l, i) => { const p = S.products[l.pid];
         return h('div', {style:'border-top:1px solid var(--line);padding:8px 0', 'aria-label':'品項 ' + (i + 1)},
           h('small', {class:'hint', text:(l.fromLast && !l.changed ? '上次訂過' : '客人寫的：' + (l.text || '（空白）'))}), l.pid && !l.picked && (l.ambiguous || (l.conf !== undefined && l.conf < 0.7)) ? h('small', {class:'overdue', style:'display:block', 'aria-label':'比對不確定 ' + (i + 1), text:'比對不太確定，請確認是不是這個商品'}) : null,
-          h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:4px'}, h('button', {class:'btn ghost sm', style:'flex:1;text-align:left;min-width:0', 'aria-label':'商品 ' + (i + 1), onclick:() => lineSearchSheet('選商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), id => { l.pid = id; l.picked = true; l.unit = (S.products[id] || {}).unit || ''; l.price = linePrice(id, d.partnerId, l.qty); render('lineorders'); })}, p ? p.sku + ' ' + p.name : '選擇商品…'),
+          h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:4px'}, h('button', {class:'btn ghost sm', style:'flex:1;justify-content:flex-start;overflow:hidden;min-width:0', title:p ? p.sku + ' ' + p.name : '', 'aria-label':'商品 ' + (i + 1), onclick:() => lineSearchSheet('選商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), id => { l.pid = id; l.picked = true; l.unit = (S.products[id] || {}).unit || ''; l.price = linePrice(id, d.partnerId, l.qty); render('lineorders'); })}, h('span', {style:'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0', text:p ? p.sku + ' ' + p.name : '選擇商品…'})),
             h('button', {class:'ic', 'aria-label':'刪除品項 ' + (i + 1), onclick:() => { d.lines.splice(i, 1); render('lineorders'); }}, icon('x'))),
           h('div', {style:'display:flex;gap:8px;margin-top:6px;align-items:center'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.qty), 'aria-label':'數量 ' + (i + 1), style:'height:38px;width:84px', onchange:e => { l.qty = Math.max(toNum(e.target.value), 0); if (l.pid) l.price = linePrice(l.pid, d.partnerId, l.qty); render('lineorders'); }}), h('span', {text:l.unit || (p && p.unit) || ''}), h('span', {class:'hint', text:'× 單價'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.price), 'aria-label':'單價 ' + (i + 1), style:'height:38px;width:96px', onchange:e => { l.price = Math.max(toNum(e.target.value), 0); render('lineorders'); }}), h('b', {style:'margin-left:auto', text:money(amtOf(l.qty, l.price))}))); };
       const total = mInt(d.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
-      body.append(h('div', {class:'panel pad', style:'margin-top:12px', 'aria-label':'LINE 訂單 ' + lo.id},
+      body.append(h('div', {class:'panel pad', style:'margin-top:0', 'aria-label':'LINE 訂單 ' + lo.id},
         h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline'}, h('b', {class:'big', text:pt ? (pt.shortName || pt.name) : '（還沒指定客戶）'}), h('small', {class:'hint', text:lineTimeTxt(lo.createdAt) + '，已等 ' + lineAgoTxt(lo.createdAt)})),
         h('small', {class:'hint', text:'LINE 用戶：' + (lo.displayName || lo.lineUserId || '') + (lo.parse === 'ai' ? '　（AI 解析，請確認）' : (lo.parse === 'rule' ? '　（自動比對，請確認）' : ''))}),
         h('div', {style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', 'aria-label':'原文', text:lo.text || '（沒有文字）'}),
@@ -6988,8 +7274,8 @@ function openLineOrders(){
         h('div', {class:'f2', style:'margin-top:8px'}, fld('交貨日', h('input', {class:'in', type:'date', value:d.expected, 'aria-label':'交貨日', onchange:e => { d.expected = e.target.value || today(); }})), fld('備註', h('input', {class:'in', type:'text', value:d.note, 'aria-label':'備註', onchange:e => { d.note = e.target.value; }}))),
         pt && pt.lineUserId !== lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:d.bind, 'aria-label':'綁定這位 LINE 用戶', onchange:e => { d.bind = e.target.checked; }}), '之後這位 LINE 用戶傳來的訂單，都算 ' + (pt.shortName || pt.name)) : null,
         h('div', {style:'display:flex;justify-content:space-between;align-items:center;margin-top:8px'}, h('b', {text:'合計 ' + money(total)}), h('span', {class:'hint', text:d.lines.filter(l => l.pid).length + ' 項商品'})),
-        h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn', style:'flex:1', 'aria-label':'核准 ' + lo.id, onclick:() => lineApprove(lo, d)}, '核准，建立客戶訂單'), h('button', {class:'btn ghost', 'aria-label':'駁回 ' + lo.id, onclick:() => lineReject(lo, d)}, '駁回'))));
-    }
+        h('div', {class:'btns', style:'margin-top:8px;flex-wrap:wrap'}, h('button', {class:'btn', style:'flex:1 1 150px', 'aria-label':'核准 ' + lo.id, onclick:() => lineApprove(lo, d)}, '核准，建立客戶訂單'), can('sale') && fxOn('sale') ? h('button', {class:'btn', style:'flex:1 1 150px', 'aria-label':'核准並開銷貨單 ' + lo.id, onclick:() => lineApprove(lo, d, true)}, '核准並開銷貨單') : null, h('button', {class:'btn ghost', 'aria-label':'駁回 ' + lo.id, onclick:() => lineReject(lo, d)}, '駁回')),
+        can('sale') && fxOn('sale') ? h('small', {class:'hint', style:'display:block;margin-top:4px', text:'「核准並開銷貨單」：先建立客戶訂單（記錄是 LINE 訂的），再直接打開銷貨單，確認數量、送貨資訊後開單出貨。'}) : null));
     return {body};
   });
 }
@@ -6998,7 +7284,7 @@ async function lineShowImages(lo){
   const imgs = []; for (const id of lo.imageIds || []){ try { const sn = await S.db.doc('linephotos/' + id).get(); if (sn.exists) imgs.push((sn.data() || {}).data); } catch (_) {} }
   setKids(box, imgs.length ? imgs.map(src => h('img', {src, alt:'客人傳的圖片', style:'width:100%;border-radius:12px;margin-bottom:10px'})) : h('p', {class:'hint', text:'讀不到圖片（可能太大沒有儲存，請到 LINE 官方帳號後台看原始訊息）。'}));
 }
-async function lineApprove(lo, d){
+async function lineApprove(lo, d, toSale){
   const pt = S.partners[d.partnerId]; if (!pt) return toast('請先選擇客戶');
   const lines = d.lines.filter(l => l.pid && S.products[l.pid] && Number(l.qty) > 0).map(l => { const p = S.products[l.pid]; return {pid:p.id, name:p.name, sku:p.sku, unit:l.unit || p.unit || '', qty:Number(l.qty), price:Number(l.price) || 0, cost:p.cost || 0}; });
   if (!lines.length) return toast('至少要有一項選好商品、數量大於 0 的品項');
@@ -7012,13 +7298,14 @@ async function lineApprove(lo, d){
     try { notified = await lineNotifyConfirm(co, lo); } catch (e) { console.error(e); }
     return co;
   });
-  if (doc){ delete (S.__lineDrafts || {})[lo.id]; toast('已建立客戶訂單 ' + doc.no + (notified ? '，已排入 LINE 通知客戶' : '')); }
+  if (doc){ delete (S.__lineDrafts || {})[lo.id]; toast('已建立客戶訂單 ' + doc.no + (notified ? '，已排入 LINE 通知客戶' : '') + (toSale ? '，請確認後開銷貨單' : ''));
+    if (toSale) convertDoc('co', doc, {deliv:doc.expected}); }   // 直接打開銷貨單（帶入這張訂單，預計送貨日＝交貨日）
 }
 async function lineReject(lo, d){
-  const pt = S.partners[d.partnerId], L = LINE(); let reason = '', tell = false;
+  const pt = S.partners[d.partnerId], L = LINE(); let reason = '', tell = !!L.notifyReject;
   const sh = sheet({title:'駁回這張 LINE 訂單'}), why = h('input', {class:'in', type:'text', placeholder:'原因（選填，例如：品項看不懂、庫存不足）', 'aria-label':'駁回原因', oninput:e => { reason = e.target.value; }});
-  put(sh.bodyEl, fld('駁回原因', why), L.on && lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'用 LINE 通知客戶', onchange:e => { tell = e.target.checked; }}), '用 LINE 通知客戶（會用掉 1 則訊息額度）') : null);
-  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'確認駁回', onclick:async () => { const ok = await run(async () => { await S.db.doc('lineorders/' + lo.id).update({status:'rejected', rejectReason:reason.trim(), rejectedBy:S.meId || '', rejectedAt:Date.now()}); if (tell && L.on && lo.lineUserId) await queueLine('rej_' + lo.id, {to:lo.lineUserId, type:'reject', text:lineFill(L.tplReject, {公司:S.set.co || S.set.name || '', 客戶:pt ? (pt.shortName || pt.name) : '', 時間:lineTimeTxt(lo.createdAt), 原因:reason.trim() ? '（' + reason.trim() + '）' : ''})}); return true; }); if (ok){ toast('已駁回'); sh.forceClose(); } }}, '確認駁回'));
+  put(sh.bodyEl, fld('駁回原因', why), L.on && lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:tell, 'aria-label':'用 LINE 通知客戶', onchange:e => { tell = e.target.checked; }}), '用 LINE 通知客戶（會用掉 1 則訊息額度）') : null);
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'確認駁回', onclick:async () => { const ok = await run(async () => { await S.db.doc('lineorders/' + lo.id).update({status:'rejected', rejectReason:reason.trim(), rejectedBy:S.meId || '', rejectedAt:Date.now()}); if (tell && L.on && lo.lineUserId) await queueLine('rej_' + lo.id, {to:lo.lineUserId, type:'reject', partnerId:pt ? pt.id : '', ...lineOut(lineRejectCard(lo, pt, reason))}); return true; }); if (ok){ toast('已駁回'); sh.forceClose(); } }}, '確認駁回'));
 }
 function lineHomeCard(){
   const n = linePending().length; if (!n && !LINE().on) return null; if (!can('sale') && !S.isAdmin) return null; if (!fxOn('lineOrders')) return null;
@@ -7027,8 +7314,8 @@ function lineHomeCard(){
 }
 function showRemindPreview(pt){
   const pv = remindPreview(pt), sh = sheet({title:(pt.shortName || pt.name) + ' 會收到的訊息'}), box = (title, m, kind) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':title},
-    h('b', {text:title}), m ? h('div', {style:'white-space:pre-wrap;background:var(--soft);border-radius:10px;padding:8px 10px;margin:8px 0', text:m.text}) : h('p', {class:'hint', text:kind === 'statement' ? (billingOf(pt) === 'cycle' ? '這個月帳款沒有單據，也沒有未收，不會送。' : '這位客戶不是月結，沒有每月對帳通知。') : '目前沒有逾期的單據，不會送。'}),
-    m && pt.lineUserId ? h('button', {class:'btn ghost sm', 'aria-label':'現在寄給這位客戶 ' + kind, onclick:async () => { if (!await dialog({title:'現在就寄給 ' + (pt.shortName || pt.name) + '？', msg:'會用掉 1 則 LINE 訊息額度，客人會馬上收到。', ok:'寄出'})) return; const ok = await run(() => queueLine('manual_' + kind + '_' + pt.id + '_' + Date.now(), {to:pt.lineUserId, type:kind === 'statement' ? 'statement' : 'overdue', partnerId:pt.id, text:m.text})); if (ok !== undefined) toast(LINE().on ? '已排入，幾秒內送出' : '已排入，但 LINE 通知還沒啟用'); }}, '現在寄給這位客戶') : (m ? h('small', {class:'hint', text:'這位客戶還沒綁定 LINE，寄不出去。'}) : null));
+    h('b', {text:title}), m ? lineCardEl(lineCard(m.card), 'LINE 訊息預覽 ' + kind) : h('p', {class:'hint', text:kind === 'statement' ? (billingOf(pt) === 'cycle' ? '這個月帳款沒有單據，也沒有未收，不會送。' : '這位客戶不是月結，沒有每月對帳通知。') : '目前沒有逾期的單據，不會送。'}),
+    m && pt.lineUserId ? h('button', {class:'btn ghost sm', 'aria-label':'現在寄給這位客戶 ' + kind, onclick:async () => { if (!await dialog({title:'現在就寄給 ' + (pt.shortName || pt.name) + '？', msg:'會用掉 1 則 LINE 訊息額度，客人會馬上收到。', ok:'寄出'})) return; const ok = await run(() => queueLine('manual_' + kind + '_' + pt.id + '_' + Date.now(), {to:pt.lineUserId, type:kind === 'statement' ? 'statement' : 'overdue', partnerId:pt.id, ...lineOut(m.card)})); if (ok !== undefined) toast(LINE().on ? '已排入，幾秒內送出' : '已排入，但 LINE 通知還沒啟用'); }}, '現在寄給這位客戶') : (m ? h('small', {class:'hint', text:'這位客戶還沒綁定 LINE，寄不出去。'}) : null));
   put(sh.bodyEl, !pt.lineRemind ? h('div', {class:'note warn', text:'這位客戶的資料裡還沒有勾「LINE 對帳與逾期提醒」，所以排程不會自動送給他。'}) : null, box('每月對帳通知（' + (pv.statement ? rocMonthTxt(pv.statement.month) : '上一個帳款月份') + '）', pv.statement, 'statement'), box('每週逾期提醒', pv.overdue, 'overdue'));
 }
 function openLineBind(){
@@ -7040,22 +7327,27 @@ function openLineBind(){
   put(sh.bodyEl, h('p', {class:'note', text:'客人要先加你們的 LINE 官方帳號為好友，再傳「綁定 ABC123」，系統就會把他的 LINE 和這個客戶對起來。綁定後，他傳來的訂單會自動帶出客戶。'}), h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋客戶', 'aria-label':'搜尋客戶', oninput:e => { st.q = e.target.value; paint(); }})), list);
   const iv = setInterval(paint, 1200); const old = sh.forceClose; sh.forceClose = () => { clearInterval(iv); old(); }; paint();
 }
+const lineMsgVal = (v, k) => String(v || '').trim() || LINE_MSG[k];   // 清空就回到預設
 function openLineSettings(){
   if (!S.isAdmin) return toast('只有管理員可以設定');
-  const RC0 = lineRemindCfg(), L0 = LINE(), st = {on:L0.on, remind:JSON.parse(JSON.stringify(RC0)), summaryTime:L0.summaryTime, days:[...L0.days], appUrl:L0.appUrl, notifyConfirm:L0.notifyConfirm, notifyDeliver:L0.notifyDeliver, notifyReject:L0.notifyReject, notifySlip:L0.notifySlip, slipScope:L0.slipScope === 'all' ? 'all' : 'order', tplConfirm:L0.tplConfirm, tplDeliver:L0.tplDeliver, tplReject:L0.tplReject, tplSlip:L0.tplSlip, mgrCode:L0.mgrCode};
+  const RC0 = lineRemindCfg(), L0 = LINE(), st = {on:L0.on, remind:JSON.parse(JSON.stringify(RC0)), summaryTime:L0.summaryTime, days:[...L0.days], appUrl:L0.appUrl, notifyConfirm:L0.notifyConfirm, notifyDeliver:L0.notifyDeliver, notifyReject:L0.notifyReject, notifySlip:L0.notifySlip, slipScope:L0.slipScope === 'all' ? 'all' : 'order', msgConfirm:L0.msgConfirm, msgDeliver:L0.msgDeliver, msgReject:L0.msgReject, msgSlip:L0.msgSlip, mgrCode:L0.mgrCode};
   liveSheet({title:'LINE 通知設定'}, ['settings', 'partners'], sh => {
     const L = LINE(), bound = Object.values(S.partners).filter(x => x.type === 'customer' && x.lineUserId).length;
     const wd = '日一二三四五六';
     const fld = (label, input, hint) => h('div', {class:'f'}, h('label', {text:label}), input, hint ? h('small', {class:'hint', text:hint}) : null);   // 這一頁的說明文字要顯示出來（共用的 fld 第三個參數是樣式，不是說明）
     const chk = (k, t) => h('label', {class:'check'}, h('input', {type:'checkbox', checked:!!st[k], 'aria-label':t, onchange:e => { st[k] = e.target.checked; }}), t);
-    const tpl = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:4, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st[k] = e.target.value; }, text:st[k]}), hint);
-    const tpl2 = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:6, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st.remind[k] = e.target.value; }, text:st.remind[k]}), hint);
+    /* 每一種卡片最下面那段話：可以改、可以預覽（用畫面上還沒儲存的內容） */
+    const cardMsg = (obj, k, kind, t, hint) => fld(t + '：卡片最下面的一段話', h('div', null,
+      h('textarea', {class:'in', rows:2, 'aria-label':t + '的最後一段話', style:'height:auto;padding-top:8px', oninput:e => { obj()[k] = e.target.value; }, text:obj()[k]}),
+      h('small', {class:'hint', style:'display:block;margin-top:4px', text:hint}),
+      h('button', {class:'btn ghost sm', style:'margin-top:6px', 'aria-label':'預覽' + t, onclick:() => previewLineNotice(kind, String(obj()[k] || '').trim() || LINE_MSG[kind])}, '預覽客人收到的樣子')));
+    const top = () => st, rem = () => st.remind;
     const body = h('div', null,
       h('div', {class:'note', text:'LINE 要在 Firebase 部署中介程式（Cloud Functions）後才會真的收發訊息；沒部署前，這裡的設定和審核頁可以先試用。步驟寫在 README 的「LINE 串接」。'}),
       h('button', {class:'btn ghost', style:'width:100%;margin:0 0 12px', 'aria-label':'檢查 LINE 設定', onclick:openLineCheck}, '檢查設定：找出卡在哪一步'),
       chk('on', '啟用 LINE 通知（關掉就完全不排入通知）'),
       h('div', {class:'sec-h'}, h('h2', {text:'管理者（收每日彙總）'})),
-      L.managers.length ? h('div', {class:'panel', 'aria-label':'管理者名單'}, L.managers.map((m, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center'}, h('b', {text:m.name || '（未命名）'}), h('span', {style:'display:flex;gap:6px'}, h('button', {class:'btn ghost sm', 'aria-label':'測試 ' + (m.name || i), onclick:async () => { const ok = await run(() => queueLine('test_' + Date.now() + '_' + i, {to:m.userId, type:'test', text:'【' + (S.set.co || S.set.name || '') + '】這是一則測試訊息，收到代表 LINE 通知設定成功。'})); if (ok !== undefined) toast(LINE().on ? '已排入測試訊息，幾秒內會收到' : '已排入，但 LINE 通知還沒啟用，請先勾選「啟用」並儲存'); }}, '寄測試'), h('button', {class:'btn plain sm', 'aria-label':'移除 ' + (m.name || i), onclick:async () => { if (await dialog({title:'移除管理者「' + (m.name || '') + '」？', msg:'他就不會再收到每日彙總。', ok:'移除', danger:true})) { const cur = LINE(); await run(() => S.db.doc('settings/main').update({line:{...cur, managers:cur.managers.filter((x, j) => x.userId !== m.userId)}})); } }}, '移除'))))) : h('div', {class:'panel empty', text:'還沒有管理者。請管理者先加官方帳號好友，再傳下面的登記碼。'}),
+      L.managers.length ? h('div', {class:'panel', 'aria-label':'管理者名單'}, L.managers.map((m, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center'}, h('b', {text:m.name || '（未命名）'}), h('span', {style:'display:flex;gap:6px'}, h('button', {class:'btn ghost sm', 'aria-label':'測試 ' + (m.name || i), onclick:async () => { const ok = await run(() => queueLine('test_' + Date.now() + '_' + i, {to:m.userId, type:'test', ...lineOut(lineTestCard('測試通知', '這是一則測試訊息，收到代表 LINE 通知設定成功。通知客人的訊息會是這個樣子。'))})); if (ok !== undefined) toast(LINE().on ? '已排入測試訊息，幾秒內會收到' : '已排入，但 LINE 通知還沒啟用，請先勾選「啟用」並儲存'); }}, '寄測試'), h('button', {class:'btn plain sm', 'aria-label':'移除 ' + (m.name || i), onclick:async () => { if (await dialog({title:'移除管理者「' + (m.name || '') + '」？', msg:'他就不會再收到每日彙總。', ok:'移除', danger:true})) { const cur = LINE(); await run(() => S.db.doc('settings/main').update({line:{...cur, managers:cur.managers.filter((x, j) => x.userId !== m.userId)}})); } }}, '移除'))))) : h('div', {class:'panel empty', text:'還沒有管理者。請管理者先加官方帳號好友，再傳下面的登記碼。'}),
       fld('管理者登記碼', h('div', {style:'display:flex;gap:8px'}, h('input', {class:'in', value:st.mgrCode || '（按「產生」）', readonly:true, 'aria-label':'管理者登記碼', style:'flex:1'}), h('button', {class:'btn ghost', 'aria-label':'產生登記碼', onclick:() => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; st.mgrCode = Array.from({length:6}, () => A[Math.floor(Math.random() * A.length)]).join(''); render('settings'); }}, '產生')), st.mgrCode ? '管理者在 LINE 對官方帳號輸入：管理者 ' + st.mgrCode : '登記碼只用來登記管理者；登記完可以重新產生，舊的就失效。'),
       h('div', {class:'sec-h'}, h('h2', {text:'每日彙總'})),
       h('div', {class:'f2'}, fld('發送時間', h('input', {class:'in', type:'time', value:st.summaryTime, 'aria-label':'彙總時間', onchange:e => { st.summaryTime = e.target.value || '18:00'; }}), '到這個時間之後的半小時內送出'), fld('網站網址（放在訊息裡）', h('input', {class:'in', type:'text', value:st.appUrl, placeholder:'https://…', 'aria-label':'網站網址', oninput:e => { st.appUrl = e.target.value.trim(); }}))),
@@ -7064,19 +7356,22 @@ function openLineSettings(){
       chk('notifyConfirm', '訂單審核通過 → 通知客戶「已確認建立，等候安排配送」'), chk('notifyDeliver', '訂單排進出車排程 → 通知客戶配送日期和時段'), chk('notifyReject', '駁回時預設通知客戶（駁回時也可以個別決定）'),
       chk('notifySlip', '銷貨單開立後 → 通知客戶出貨的商品和數量'),
       fld('哪些銷貨單要通知', (() => { const sel = h('select', {class:'in', 'aria-label':'銷貨單通知範圍', onchange:e => { st.slipScope = e.target.value; }}, h('option', {value:'order', text:'只通知從客戶訂單轉出的銷貨單（建議）'}), h('option', {value:'all', text:'所有已綁定 LINE 的客戶的銷貨單'})); sel.value = st.slipScope; return sel; })(), '客戶要先綁定 LINE 才會收到。其他銷貨單可以在單據詳情按「通知商品數量」手動寄。'),
-      tpl('tplConfirm', '審核通過的訊息', '可用：{公司} {客戶} {單號} {品項} {金額}'), tpl('tplDeliver', '配送通知的訊息', '可用：{公司} {客戶} {單號} {日期} {時段} {送貨員}'), tpl('tplReject', '駁回的訊息', '可用：{公司} {客戶} {時間} {原因}'),
-      tpl('tplSlip', '銷貨單開立後的訊息', '可用：{公司} {客戶} {單號}（銷貨單） {訂單單號} {日期} {品項}（每項一行，含數量） {品項數} {金額} {未出貨}（訂單還有沒出的品項才會有字）'),
-      h('button', {class:'btn ghost', style:'margin:0 0 12px', 'aria-label':'預覽銷貨單通知', onclick:() => previewSlipNotice(st.tplSlip)}, '用最近一張銷貨單預覽這則訊息'),
+      h('div', {class:'note', 'aria-label':'卡片說明', text:'客人收到的是一張卡片：最上面綠色「服務通知」，下面是標題、單號、日期、品項和數量（不顯示公司名稱和金額），最後一段話可以在下面改。'}),
+      cardMsg(top, 'msgConfirm', 'confirm', '訂單成立通知', '審核通過時送。可用：{客戶} {單號} {日期}（預計交貨日）'),
+      cardMsg(top, 'msgDeliver', 'deliver', '配送通知', '排進出車排程時送。可用：{客戶} {單號} {日期} {時段} {送貨員}'),
+      cardMsg(top, 'msgSlip', 'slip', '出貨通知', '銷貨單開立後送，卡片會列出這次出貨的品項、數量，和訂單還沒出的品項。可用：{客戶} {單號}（銷貨單） {訂單單號} {日期} {品項數}'),
+      cardMsg(top, 'msgReject', 'reject', '訂單未成立通知', '駁回時送。可用：{客戶} {時間} {原因}'),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶對帳與逾期提醒（每則都算 LINE 訊息額度）'})),
       h('div', {class:'note', text:'只會發給「客戶資料裡勾了 LINE 對帳與逾期提醒」而且已綁定 LINE 的客戶。對帳通知在每個客戶的帳款月份結束後（結帳日當天起，最多補送 3 天）送一則，只對月結客戶；逾期提醒每週送一則，有逾期單據才送。'}),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.remind.monthly.on, 'aria-label':'啟用每月對帳通知', onchange:e => { st.remind.monthly.on = e.target.checked; }}), '每月對帳通知'), h('div', {class:'f', style:'margin-left:26px'}, fld('發送時間（到這個時間之後才送）', h('input', {class:'in', type:'time', value:st.remind.monthly.time, 'aria-label':'對帳通知時間', onchange:e => { st.remind.monthly.time = e.target.value || '09:30'; }}))),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.remind.weekly.on, 'aria-label':'啟用每週逾期提醒', onchange:e => { st.remind.weekly.on = e.target.checked; }}), '每週逾期提醒'),
       h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap;margin-left:26px'}, h('small', {class:'hint', style:'align-self:center', text:'星期：'}), [0, 1, 2, 3, 4, 5, 6].map(d => h('button', {class:'chip', 'aria-pressed':Number(st.remind.weekly.wd) === d, 'aria-label':'提醒星期' + wd[d], onclick:e => { st.remind.weekly.wd = d; [...e.target.parentElement.querySelectorAll('button')].forEach((b, i) => b.setAttribute('aria-pressed', String(i === d))); }}, wd[d]))),
       h('div', {class:'f', style:'margin-left:26px'}, fld('發送時間', h('input', {class:'in', type:'time', value:st.remind.weekly.time, 'aria-label':'逾期提醒時間', onchange:e => { st.remind.weekly.time = e.target.value || '09:30'; }}))),
-      tpl2('tplStatement', '對帳通知的訊息', '可用：{公司} {客戶} {月份} {單據數} {未稅} {稅金} {應收} {已收} {前期未收} {累計未收} {付款資訊}'), tpl2('tplOverdue', '逾期提醒的訊息', '可用：{公司} {客戶} {逾期張數} {逾期金額} {最久天數} {付款資訊}'),
+      cardMsg(rem, 'msgStatement', 'statement', '對帳通知', '對帳通知本來就是講帳款，卡片會列出這個月的金額和累計未收、匯款帳號。可用：{客戶} {月份} {累計未收}'),
+      cardMsg(rem, 'msgOverdue', 'overdue', '付款提醒', '列出逾期幾張、逾期金額、最久逾期幾天、匯款帳號。可用：{客戶} {逾期張數} {逾期金額} {最久天數}'),
       h('div', {class:'panel pad', 'aria-label':'提醒預覽'}, h('div', {text:'已啟用提醒的客戶 ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind).length + ' 位（其中已綁定 LINE ' + Object.values(S.partners).filter(x => x.type === 'customer' && x.lineRemind && x.lineUserId).length + ' 位）'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'預覽客戶收到的訊息', onclick:() => lineSearchSheet('選一位客戶看他會收到什麼', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:(x.lineRemind ? '已啟用提醒' : '未啟用') + (x.lineUserId ? '、已綁定 LINE' : '、未綁定')})), id => showRemindPreview(S.partners[id]))}, '預覽客戶會收到的訊息')),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶綁定'})), h('div', {class:'panel pad'}, h('div', {text:'已綁定 LINE 的客戶 ' + bound + ' 位'}), h('button', {class:'btn ghost', style:'margin-top:8px', 'aria-label':'管理客戶綁定', onclick:openLineBind}, '管理客戶綁定（產生綁定碼）')));
-    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, notifySlip:!!st.notifySlip, slipScope:st.slipScope === 'all' ? 'all' : 'order', tplConfirm:st.tplConfirm || LINE_TPL_CONFIRM, tplDeliver:st.tplDeliver || LINE_TPL_DELIVER, tplReject:st.tplReject || LINE_TPL_REJECT, tplSlip:st.tplSlip || LINE_TPL_SLIP, remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, tplStatement:st.remind.tplStatement || LINE_TPL_STATEMENT, tplOverdue:st.remind.tplOverdue || LINE_TPL_OVERDUE}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
+    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, notifySlip:!!st.notifySlip, slipScope:st.slipScope === 'all' ? 'all' : 'order', msgConfirm:lineMsgVal(st.msgConfirm, 'confirm'), msgDeliver:lineMsgVal(st.msgDeliver, 'deliver'), msgReject:lineMsgVal(st.msgReject, 'reject'), msgSlip:lineMsgVal(st.msgSlip, 'slip'), remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, msgStatement:lineMsgVal(st.remind.msgStatement, 'statement'), msgOverdue:lineMsgVal(st.remind.msgOverdue, 'overdue')}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
   });
 }
 /* ================= LINE 設定檢查：依訊息的路線一段一段檢查（網站設定 → 雲端函式 → LINE 傳進來 → 網站傳出去），找出卡在哪一步 ================= */
@@ -7112,11 +7407,11 @@ function openLineCheck(){
   /* 「等了多久」要隨時間重新判斷：只有還有訊息在等的時候才每 15 秒重畫（不打擾閱讀） */
   const iv = setInterval(() => { const now = Date.now(); if (C.tests.some(t => now - t.at < 120000) || (C.box || []).some(x => (x.status === 'queued' || x.status === 'sending') && now - (x.at || 0) < 600000)) refresh(); }, 15000); C.unsub.push(() => clearInterval(iv));
   const sendTest = async () => {
-    const L = LINE(), t0 = Date.now(), co = S.set.co || S.set.name || '', list = [];
+    const L = LINE(), t0 = Date.now(), list = [];
     if (!(L.managers || []).length) return;
     for (const [i, m] of L.managers.entries()){
       const key = 'chk_' + t0 + '_' + i;
-      const ok = await run(() => queueLine(key, {to:m.userId, type:'test', text:'【' + co + '】LINE 設定檢查：收到這則訊息，代表網站 → LINE 這一段是通的。'}));
+      const ok = await run(() => queueLine(key, {to:m.userId, type:'test', ...lineOut(lineTestCard('LINE 設定檢查', '收到這則訊息，代表網站 → LINE 這一段是通的。通知客人的訊息會是這個樣子。'))}));
       if (ok === undefined) return;
       list.push({id:'o_' + key, name:m.name || '管理者', at:t0});
     }
@@ -7139,7 +7434,9 @@ function openLineCheck(){
     const fails = rec.filter(x => x.status === 'failed').sort((a, b) => (b.at || 0) - (a.at || 0));
     const sysFail = fails.find(x => /LINE (401|403|429)/.test(String(x.error || '')) || ['test', 'summary', 'alert'].includes(x.type));
     const sums = box.filter(x => x.type === 'summary' && x.status === 'sent').sort((a, b) => (b.sentAt || b.at || 0) - (a.sentAt || a.at || 0));
-    const alerts = Object.values(S.alerts || {}).filter(a => !a.resolved && /^(push_failed|line_quota|summary_failed|remind_failed)$/.test(String(a.type || ''))).sort((a, b) => (b.at || 0) - (a.at || 0));
+    const alerts = Object.values(S.alerts || {}).filter(a => !a.resolved && /^(push_failed|line_quota|summary_failed|remind_failed|flex_rejected)$/.test(String(a.type || ''))).sort((a, b) => (b.at || 0) - (a.at || 0));
+    /* 卡片有沒有真的用卡片送出：新版雲端函式送出後會記 fmt（flex＝卡片、text＝LINE 不收卡片改送文字）；舊版不會記 */
+    const fx = box.filter(x => x.flex && x.status === 'sent').sort((a, b) => (b.sentAt || b.at || 0) - (a.sentAt || a.at || 0))[0];
     const whoOf = x => { const m = mgrs.find(y => y.userId === x.to); if (m) return '管理者 ' + (m.name || ''); const p = Object.values(S.partners).find(y => y.lineUserId && y.lineUserId === x.to); return p ? (p.shortName || p.name || '客戶') : '收件人'; };
     /* 測試訊息的結果 */
     const tr = C.tests.map(t => { const d = box.find(x => x.id === t.id);
@@ -7169,7 +7466,7 @@ function openLineCheck(){
     const deploy = h('details', {class:'fold', style:'margin:8px 0 0', 'aria-label':'怎麼部署雲端函式'}, h('summary', {text:'怎麼部署雲端函式（line-functions）'}), h('div', {class:'fold-b'},
       h('ol', {style:'margin:0;padding-left:18px;font-size:13.5px;line-height:1.6'},
         h('li', {text:'開 https://console.cloud.google.com ，專案選「' + (proj || '你的 Firebase 專案') + '」，右上角按「啟用 Cloud Shell」（終端機圖示）。'}),
-        h('li', null, '把 line-functions.zip 上傳到 Cloud Shell（右上「⋮」→「上傳」），再執行：', cmd('unzip line-functions.zip && cd line-functions && npm install'), cmd('firebase login --no-localhost')),
+        h('li', null, '把 line-functions.zip 上傳到 Cloud Shell（右上「⋮」→「上傳」），再執行：', cmd('cd ~ && unzip -o line-functions.zip && cd line-functions && npm install'), cmd('firebase login --no-localhost')),
         h('li', null, '設定兩個秘密（會要你貼上剛剛從 LINE Developers 複製的內容；不要寫進任何檔案）：', cmd('firebase functions:secrets:set LINE_CHANNEL_SECRET'), cmd('firebase functions:secrets:set LINE_CHANNEL_TOKEN')),
         h('li', null, '部署：', cmd('firebase deploy --only functions --project ' + (proj || '你的專案ID'))),
         h('li', {text:'完成後會列出 lineWebhook 的網址，貼到 LINE Developers 的 Webhook URL（見最下面 ⑥）。第一次部署如果說權限還在設定中，等幾分鐘再部署一次。'}))));
@@ -7190,6 +7487,9 @@ function openLineCheck(){
       : fails.length ? row('box', 'warn', '發送紀錄', sumTxt + '\n最近一次失敗：' + lineTimeTxt(fails[0].at) + ' 給' + whoOf(fails[0]) + '（' + lineTypeTxt(fails[0].type) + '）：' + String(fails[0].error || '').slice(0, 160), lineErrTxt(fails[0].error))
       : !n('sent') && (n('skipped') || n('blocked')) ? row('box', 'warn', '發送紀錄', sumTxt, n('skipped') ? '「沒啟用略過」是當時沒有勾「啟用 LINE 通知」；勾了以後的新訊息才會送。' : '「沒綁定擋下」是收件人不是已綁定的客戶或管理者，不是錯誤。')
       : row('box', 'ok', '發送紀錄', sumTxt);
+    const fmtRow = !fx ? null : fx.fmt === 'flex' ? row('fmt', 'ok', '訊息格式', '客人收到的是卡片（最近一則 ' + lineTimeTxt(fx.sentAt || fx.at) + '）。')
+      : fx.fmt === 'text' ? row('fmt', 'warn', '訊息格式', 'LINE 沒有收下卡片，改用文字送出（' + lineTimeTxt(fx.sentAt || fx.at) + '，內容一樣）。' + (fx.note ? '\n' + String(fx.note).slice(0, 200) : ''), '把這段原因告訴系統維護的人。')
+      : row('fmt', 'warn', '訊息格式', '雲端函式是舊版：訊息是用文字送出（內容一樣，只是不是卡片）。', '用新的 line-functions.zip 重新部署雲端函式（上面 ② 的步驟），之後的訊息就會是卡片。');
     const testRow = !mgrs.length ? row('test', 'info', '寄測試訊息', '要先有管理者（上面 ③）才能寄測試。')
       : row('test', !tr.length ? 'info' : tr.some(x => x[0] === 'bad') ? 'bad' : tr.some(x => x[0] === 'wait') ? 'wait' : 'ok', '寄測試訊息', tr.length ? '' : '寄一則測試訊息給每位管理者，結果會即時顯示在這裡。', '',
         h('div', null, ...tr.map(([st, t, f]) => h('div', {class:'lck-sub lck-s-' + st, 'data-st':st}, h('span', {text:IC[st] + ' ' + t}), f && st !== 'wait' ? h('small', {text:f}) : null)),
@@ -7209,7 +7509,7 @@ function openLineCheck(){
           : row('cust', 'warn', '客戶綁定', '還沒有客戶綁定 LINE。沒綁定的客人也能傳訂單，但收不到訂單確認、配送和出貨通知。', '「LINE 通知設定」→「管理客戶綁定」→ 對客戶按「產生綁定碼」，請客人加官方帳號好友後，在 LINE 傳「綁定 綁定碼」。'),
         lastLo ? row('orders', 'ok', '客人傳來的訂單', '最近一次收到：' + lineTimeTxt(lastLo) + '；待審核 ' + pend + ' 張（在「LINE 訂單審核」）。')
           : row('orders', 'info', '客人傳來的訂單', '還沒收到過。客人傳商品和數量（例如「礦泉水 10箱」）給官方帳號，「LINE 訂單審核」就會出現。')]),
-      ...sec('④ 網站傳出去（發送）', [boxRow, testRow, sumRow]),
+      ...sec('④ 網站傳出去（發送）', [boxRow, fmtRow, testRow, sumRow]),
       ...sec('⑤ 雲端函式回報的問題', [alerts.length ? row('alerts', 'bad', '系統提醒（LINE）', alerts.slice(0, 3).map(a => lineTimeTxt(a.at) + '　' + a.text).join('\n'), '照提醒的說明處理，處理好到「系統提醒」按「已處理」。', h('button', {class:'btn ghost sm', style:'margin-top:8px', 'aria-label':'打開系統提醒', onclick:openAlerts}, '打開系統提醒')) : row('alerts', 'ok', '系統提醒（LINE）', '沒有還沒處理的 LINE 問題。')]),
       ...sec('⑥ LINE 後台（網站看不到，請自己對照）', [h('ol', {class:'lck-ol', 'aria-label':'LINE 後台設定'},
         h('li', null, h('b', {text:'LINE Developers'}), '（developers.line.biz/console）→ 你的 Provider → Messaging API channel →「Messaging API」分頁：', h('ul', null,
@@ -7225,7 +7525,7 @@ function openLineCheck(){
   watchBox(); pingFn();
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -7235,7 +7535,7 @@ function setMerge(day, vid, state){ return run(async () => { for (const slot of 
 function unassignedOrders(day, back){
   const map = assignedMap(), from = back ? addDays(day, -7) : day;
   const sales = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && !map[o.id] && deliveryOf(o) >= from && deliveryOf(o) <= day);
-  const cos = Object.values(S.corders || {}).filter(c => !map[c.id] && docProgress('co', c).active && (c.expected || '') >= from && (c.expected || '') <= day && !Object.values(S.orders).some(o => o.type === 'sale' && o.status !== 'void' && o.srcId === c.id && map[o.id]));
+  const cos = Object.values(S.corders || {}).filter(c => !map[c.id] && docProgress('co', c).active && (c.expected || '') >= from && (c.expected || '') <= day && !Object.values(S.orders).some(o => o.type === 'sale' && o.status !== 'void' && saleCoIds(o).includes(c.id) && map[o.id]));
   return [...sales, ...cos].sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(stopDate(a)).localeCompare(String(stopDate(b))) || String(a.no).localeCompare(String(b.no)));
 }
 const stopCust = o => { const pt = S.partners[o.partnerId] || {}; return (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : ''); };
@@ -11714,7 +12014,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bx';
+const APP_VERSION = '2026.10.11-cb';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -11723,7 +12023,7 @@ const APP_VERSION = '2026.10.11-bx';
      沒有 need、也不是 al 的＝只有管理員能用（會改到商品主檔、價格或系統設定，雲端資料庫規則也只讓管理員寫）。
    FN_CATS：功能表的分類 → 小分類 → 功能。「全部功能」頁、搜尋、電腦版左側選單、權限設定畫面都用這一份。 */
 const FN = {
-  sale:{l:'銷貨作業', kw:'出貨 開單 銷售 賣 銷貨單 出貨單 送貨單', need:['sale'], d:'開銷貨單出貨，可以帶入客戶訂單、自動算價'},
+  sale:{l:'銷貨作業', kw:'出貨 開單 銷售 賣 銷貨單 出貨單 送貨單 多張訂單 合併出貨', need:['sale'], d:'開銷貨單出貨，可以一次帶入多張客戶訂單、也可以自己加商品，自動算價'},
   sale_return:{l:'銷貨退回作業', kw:'退貨 客戶退貨 銷退 退回', need:['sale'], d:'客戶退回商品，沖減應收或退款'},
   quote:{l:'國內報價作業', kw:'報價 報價單 估價', need:['sale']},
   corder:{l:'國內訂單作業', kw:'訂單 客戶訂單 接單 未交 預購', need:['sale']},
