@@ -642,7 +642,7 @@ function liveSheet(o, deps, build){
     if (keep) keep();
     if (r.title) sh.setTitle(r.title);
   }};
-  const sh = sheet({...o, onclose:() => live.delete(entry)});
+  const sh = sheet({...o, onclose:() => { live.delete(entry); if (o.onclose) o.onclose(); }});
   live.add(entry); entry.run();
   return sh;
 }
@@ -7052,6 +7052,7 @@ function openLineSettings(){
     const tpl2 = (k, t, hint) => fld(t, h('textarea', {class:'in', rows:6, 'aria-label':t, style:'height:auto;padding-top:8px', oninput:e => { st.remind[k] = e.target.value; }, text:st.remind[k]}), hint);
     const body = h('div', null,
       h('div', {class:'note', text:'LINE 要在 Firebase 部署中介程式（Cloud Functions）後才會真的收發訊息；沒部署前，這裡的設定和審核頁可以先試用。步驟寫在 README 的「LINE 串接」。'}),
+      h('button', {class:'btn ghost', style:'width:100%;margin:0 0 12px', 'aria-label':'檢查 LINE 設定', onclick:openLineCheck}, '檢查設定：找出卡在哪一步'),
       chk('on', '啟用 LINE 通知（關掉就完全不排入通知）'),
       h('div', {class:'sec-h'}, h('h2', {text:'管理者（收每日彙總）'})),
       L.managers.length ? h('div', {class:'panel', 'aria-label':'管理者名單'}, L.managers.map((m, i) => h('div', {class:'row', style:'grid-template-columns:1fr auto;align-items:center'}, h('b', {text:m.name || '（未命名）'}), h('span', {style:'display:flex;gap:6px'}, h('button', {class:'btn ghost sm', 'aria-label':'測試 ' + (m.name || i), onclick:async () => { const ok = await run(() => queueLine('test_' + Date.now() + '_' + i, {to:m.userId, type:'test', text:'【' + (S.set.co || S.set.name || '') + '】這是一則測試訊息，收到代表 LINE 通知設定成功。'})); if (ok !== undefined) toast(LINE().on ? '已排入測試訊息，幾秒內會收到' : '已排入，但 LINE 通知還沒啟用，請先勾選「啟用」並儲存'); }}, '寄測試'), h('button', {class:'btn plain sm', 'aria-label':'移除 ' + (m.name || i), onclick:async () => { if (await dialog({title:'移除管理者「' + (m.name || '') + '」？', msg:'他就不會再收到每日彙總。', ok:'移除', danger:true})) { const cur = LINE(); await run(() => S.db.doc('settings/main').update({line:{...cur, managers:cur.managers.filter((x, j) => x.userId !== m.userId)}})); } }}, '移除'))))) : h('div', {class:'panel empty', text:'還沒有管理者。請管理者先加官方帳號好友，再傳下面的登記碼。'}),
@@ -7078,8 +7079,153 @@ function openLineSettings(){
     return {body, foot:[h('button', {class:'btn grow', 'aria-label':'儲存 LINE 設定', onclick:async () => { const cur = LINE(); const ok = await run(() => S.db.doc('settings/main').update({line:{on:!!st.on, managers:cur.managers, mgrCode:st.mgrCode || '', summaryTime:st.summaryTime || '18:00', days:st.days, appUrl:st.appUrl || '', notifyConfirm:!!st.notifyConfirm, notifyDeliver:!!st.notifyDeliver, notifyReject:!!st.notifyReject, notifySlip:!!st.notifySlip, slipScope:st.slipScope === 'all' ? 'all' : 'order', tplConfirm:st.tplConfirm || LINE_TPL_CONFIRM, tplDeliver:st.tplDeliver || LINE_TPL_DELIVER, tplReject:st.tplReject || LINE_TPL_REJECT, tplSlip:st.tplSlip || LINE_TPL_SLIP, remind:{monthly:st.remind.monthly, weekly:st.remind.weekly, tplStatement:st.remind.tplStatement || LINE_TPL_STATEMENT, tplOverdue:st.remind.tplOverdue || LINE_TPL_OVERDUE}}})); if (ok !== undefined) toast('已儲存 LINE 設定'); }}, '儲存')]};
   });
 }
+/* ================= LINE 設定檢查：依訊息的路線一段一段檢查（網站設定 → 雲端函式 → LINE 傳進來 → 網站傳出去），找出卡在哪一步 ================= */
+const lineErrTxt = e => { const t = String(e || '');
+  if (/LINE 401/.test(t)) return 'Channel access token 不對（貼錯、重新發行過或已失效）：到 LINE Developers 的「Messaging API」分頁重新發行（Issue），在 Cloud Shell 執行 firebase functions:secrets:set LINE_CHANNEL_TOKEN 貼上新的，再重新部署。';
+  if (/LINE 429/.test(t)) return 'LINE 本月的訊息額度用完了：到 LINE Official Account Manager 升級方案，或等下個月重新計算。';
+  if (/LINE 403/.test(t)) return '這個官方帳號現在不能推播（方案或帳號狀態）：到 LINE Official Account Manager 查看。';
+  if (/LINE 400/.test(t)) return '收件人收不到：對方沒有加官方帳號好友、已經封鎖，或這個 LINE 編號是別的官方帳號的（換過官方帳號就要重新登記／綁定）。';
+  return t ? '照上面的錯誤訊息處理；看不懂可以把這段文字傳給負責部署的人。' : '';
+};
+const lineTypeTxt = t => ({confirm:'訂單確認', deliver:'配送通知', slip:'銷貨單通知', reject:'駁回通知', statement:'對帳通知', overdue:'逾期提醒', summary:'每日彙總', test:'測試訊息', alert:'系統提醒'}[t] || t || '訊息');
+function openLineCheck(){
+  if (!S.isAdmin) return toast('只有管理員可以檢查 LINE 設定');
+  const C = {fn:'wait', fnErr:'', box:null, boxErr:'', tests:[], unsub:[], open:{}};
+  const fc = window.FIREBASE_CONFIG || {}, proj = fc.projectId || '', region = window.FUNCTIONS_REGION || 'asia-east1';
+  const hookUrl = 'https://' + region + '-' + (proj || '（你的專案 ID）') + '.cloudfunctions.net/lineWebhook';
+  const refresh = () => render('linecheck');
+  /* 雲端函式有沒有回應：問費用保護的 guardStatus（和 LINE 的函式在同一包 line-functions，一起部署） */
+  const pingFn = async () => {
+    if (!window.appGuard || typeof window.appGuard.status !== 'function'){ C.fn = window.FIREBASE_CONFIG ? 'old' : 'na'; refresh(); return; }   // 正式網站卻沒有 appGuard：firebase-boot.js 是舊版
+    C.fn = 'wait'; C.fnErr = ''; refresh();
+    try { await Promise.race([window.appGuard.status(), new Promise((_, rej) => setTimeout(() => rej(new Error('12 秒沒有回應')), 12000))]); C.fn = 'ok'; }
+    catch (e){ C.fn = 'bad'; C.fnErr = String((e && (e.message || e.code)) || e).slice(0, 160); }
+    refresh();
+  };
+  /* 發送佇列（只有管理員讀得到）：一直看著，測試訊息的結果會即時出現 */
+  const watchBox = () => {
+    try {
+      const u = S.db.collection('lineoutbox').onSnapshot(sn => { C.box = sn.docs.map(d => ({id:d.id, ...(d.data() || {})})); C.boxErr = ''; refresh(); }, e => { C.box = null; C.boxErr = String((e && (e.code || e.message)) || '讀取失敗'); refresh(); });
+      if (typeof u === 'function') C.unsub.push(u);
+    } catch (e){ C.boxErr = String((e && e.message) || e); }
+  };
+  /* 「等了多久」要隨時間重新判斷：只有還有訊息在等的時候才每 15 秒重畫（不打擾閱讀） */
+  const iv = setInterval(() => { const now = Date.now(); if (C.tests.some(t => now - t.at < 120000) || (C.box || []).some(x => (x.status === 'queued' || x.status === 'sending') && now - (x.at || 0) < 600000)) refresh(); }, 15000); C.unsub.push(() => clearInterval(iv));
+  const sendTest = async () => {
+    const L = LINE(), t0 = Date.now(), co = S.set.co || S.set.name || '', list = [];
+    if (!(L.managers || []).length) return;
+    for (const [i, m] of L.managers.entries()){
+      const key = 'chk_' + t0 + '_' + i;
+      const ok = await run(() => queueLine(key, {to:m.userId, type:'test', text:'【' + co + '】LINE 設定檢查：收到這則訊息，代表網站 → LINE 這一段是通的。'}));
+      if (ok === undefined) return;
+      list.push({id:'o_' + key, name:m.name || '管理者', at:t0});
+    }
+    C.tests = list; refresh(); setTimeout(refresh, 46000);
+  };
+  const IC = {ok:'✓', bad:'✕', warn:'!', info:'i', wait:'…'}, STT = {ok:'正常', bad:'有問題', warn:'要注意', info:'說明', wait:'檢查中'};
+  const row = (key, st, title, detail, fix, extra) => h('div', {class:'lck lck-' + st, 'data-ck':key, 'data-st':st, 'aria-label':title + '（' + STT[st] + '）'},
+    h('span', {class:'lck-i', 'aria-hidden':'true', text:IC[st]}),
+    h('div', {style:'min-width:0'}, h('b', {text:title}), detail ? h('small', {text:detail}) : null, fix ? h('div', {class:'lck-fix', text:fix}) : null, extra || null));
+  const sec = (t, rows) => [h('div', {class:'sec-h'}, h('h2', {text:t})), h('div', {class:'panel'}, ...rows.filter(Boolean))];
+  const cmd = t => h('code', {class:'lck-cmd', text:t});
+  const goSet = () => h('button', {class:'btn ghost sm', style:'margin-top:8px', 'aria-label':'打開 LINE 通知設定', onclick:openLineSettings}, '打開 LINE 通知設定');
+  const copyBtn = (t, what) => h('button', {class:'btn ghost sm', 'aria-label':'複製' + what, onclick:async () => { try { await navigator.clipboard.writeText(t); toast('已複製' + what); } catch (_) { toast('無法複製，請手動選取文字'); } }}, '複製');
+  liveSheet({title:'LINE 設定檢查', onclose:() => C.unsub.forEach(f => { try { f(); } catch (_) {} })}, ['settings', 'partners', 'lineorders', 'alerts', 'linecheck'], () => {
+    const L = LINE(), now = Date.now(), mgrs = L.managers || [], wd = '日一二三四五六', days = (L.days || []).map(d => wd[d]).join('') || '（沒有選）';
+    const custs = Object.values(S.partners).filter(x => x.type === 'customer' && x.lineUserId), lastBind = custs.reduce((a, x) => Math.max(a, Number(x.lineBoundAt) || 0), 0);
+    const los = Object.values(S.lineorders || {}), lastLo = los.reduce((a, x) => Math.max(a, Number(x.createdAt) || 0), 0), pend = los.filter(x => x.status === 'pending').length;
+    const box = C.box || [], rec = box.filter(x => (x.at || 0) >= now - 7 * 86400000), n = st => rec.filter(x => x.status === st).length;
+    const stuck = box.filter(x => (x.status === 'queued' || x.status === 'sending') && now - (x.at || 0) > 180000).sort((a, b) => (a.at || 0) - (b.at || 0));
+    const fails = rec.filter(x => x.status === 'failed').sort((a, b) => (b.at || 0) - (a.at || 0));
+    const sysFail = fails.find(x => /LINE (401|403|429)/.test(String(x.error || '')) || ['test', 'summary', 'alert'].includes(x.type));
+    const sums = box.filter(x => x.type === 'summary' && x.status === 'sent').sort((a, b) => (b.sentAt || b.at || 0) - (a.sentAt || a.at || 0));
+    const alerts = Object.values(S.alerts || {}).filter(a => !a.resolved && /^(push_failed|line_quota|summary_failed|remind_failed)$/.test(String(a.type || ''))).sort((a, b) => (b.at || 0) - (a.at || 0));
+    const whoOf = x => { const m = mgrs.find(y => y.userId === x.to); if (m) return '管理者 ' + (m.name || ''); const p = Object.values(S.partners).find(y => y.lineUserId && y.lineUserId === x.to); return p ? (p.shortName || p.name || '客戶') : '收件人'; };
+    /* 測試訊息的結果 */
+    const tr = C.tests.map(t => { const d = box.find(x => x.id === t.id);
+      if (!d || d.status === 'queued' || d.status === 'sending') return now - t.at > 45000 ? ['bad', t.name + '：45 秒都沒有被送出', '雲端函式 sendOutbox 沒有在處理：沒有部署、部署失敗，或部署的區域和資料庫不同。'] : ['wait', t.name + '：等雲端函式送出…（通常幾秒）', ''];
+      if (d.status === 'sent') return ['ok', t.name + '：LINE 已經收下（' + lineTimeTxt(d.sentAt || d.at) + '），請看他的手機有沒有收到', '手機沒收到：確認他有加官方帳號好友、沒有封鎖。'];
+      if (d.status === 'skipped') return ['bad', t.name + '：沒有送出，因為「啟用 LINE 通知」沒有打勾', '到「LINE 通知設定」勾「啟用 LINE 通知」並儲存，再寄一次。'];
+      if (d.status === 'blocked') return ['bad', t.name + '：沒有送出，他不在管理者名單裡', '請他用 LINE 重新傳「管理者 登記碼」登記。'];
+      if (d.status === 'failed') return ['bad', t.name + '：LINE 拒絕送出（' + String(d.error || '').slice(0, 160) + '）', lineErrTxt(d.error)];
+      return ['info', t.name + '：' + d.status, ''];
+    });
+    const testBad = tr.find(x => x[0] === 'bad');
+    /* 最上面：目前卡在哪一步 */
+    const block = !L.on ? ['網站的「啟用 LINE 通知」沒有打勾', '到「LINE 通知設定」勾「啟用 LINE 通知」，按「儲存」。']
+      : C.fn === 'old' ? ['網站的 firebase-boot.js 是舊版，檢查不到雲端函式', '把部署包 firebase-deploy 裡的 index.html、firebase-boot.js、firebase-adapter.js、firebase-config.js 四個檔案一起換上去，再打開這一頁。']
+      : C.fn === 'bad' ? ['雲端函式沒有回應', 'line-functions 還沒部署、部署失敗，或區域不對；照下面 ② 的步驟部署。']
+      : !mgrs.length ? (L.mgrCode ? ['LINE 還傳不進來（還沒有管理者登記成功）', '用手機 LINE 加官方帳號好友，傳「管理者 ' + L.mgrCode + '」。沒有任何回覆，就照最下面 ⑥ 對照 LINE 後台的設定。'] : ['還沒有產生管理者登記碼', '到「LINE 通知設定」→「管理者登記碼」按「產生」並儲存，再用 LINE 傳「管理者 登記碼」。'])
+      : testBad ? ['測試訊息沒有送到', testBad[2] || testBad[1]]
+      : stuck.length ? ['網站排進去的訊息沒有被送出', '雲端函式 sendOutbox 沒有在處理，照 ④ 的說明檢查。']
+      : sysFail ? ['LINE 拒絕送出訊息', lineErrTxt(sysFail.error)] : null;
+    const checking = C.fn === 'wait' || (C.box === null && !C.boxErr);
+    const sentSome = n('sent') > 0 || tr.some(x => x[0] === 'ok');
+    const head = block ? h('div', {class:'note bad', 'aria-label':'檢查結果'}, h('b', {style:'display:block', text:'目前卡在：' + block[0]}), h('div', {style:'margin-top:4px', text:'怎麼做：' + block[1]}))
+      : checking ? h('div', {class:'note', 'aria-label':'檢查結果', text:'檢查中…'})
+      : C.fn === 'na' ? h('div', {class:'note warn', 'aria-label':'檢查結果', text:'這裡是測試環境：網站的設定可以檢查；雲端函式和 LINE 收發，要在正式網站（Firebase）用管理員帳號打開這一頁檢查。'})
+      : h('div', {class:'note', style:'background:var(--oks);color:var(--ok)', 'aria-label':'檢查結果', text:sentSome ? '目前看起來都通了：網站設定、雲端函式、LINE 傳進來、網站傳出去都正常。' : '目前沒有發現問題。最後按 ④ 的「寄測試訊息給管理者」，確認網站 → LINE 這一段。'});
+    /* ② 雲端函式 */
+    const deploy = h('details', {class:'fold', style:'margin:8px 0 0', 'aria-label':'怎麼部署雲端函式'}, h('summary', {text:'怎麼部署雲端函式（line-functions）'}), h('div', {class:'fold-b'},
+      h('ol', {style:'margin:0;padding-left:18px;font-size:13.5px;line-height:1.6'},
+        h('li', {text:'開 https://console.cloud.google.com ，專案選「' + (proj || '你的 Firebase 專案') + '」，右上角按「啟用 Cloud Shell」（終端機圖示）。'}),
+        h('li', null, '把 line-functions.zip 上傳到 Cloud Shell（右上「⋮」→「上傳」），再執行：', cmd('unzip line-functions.zip && cd line-functions && npm install'), cmd('firebase login --no-localhost')),
+        h('li', null, '設定兩個秘密（會要你貼上剛剛從 LINE Developers 複製的內容；不要寫進任何檔案）：', cmd('firebase functions:secrets:set LINE_CHANNEL_SECRET'), cmd('firebase functions:secrets:set LINE_CHANNEL_TOKEN')),
+        h('li', null, '部署：', cmd('firebase deploy --only functions --project ' + (proj || '你的專案ID'))),
+        h('li', {text:'完成後會列出 lineWebhook 的網址，貼到 LINE Developers 的 Webhook URL（見最下面 ⑥）。第一次部署如果說權限還在設定中，等幾分鐘再部署一次。'}))));
+    deploy.open = !!C.open.deploy; deploy.addEventListener('toggle', () => { C.open.deploy = deploy.open; });   // 畫面重畫時保持打開
+    const fnRow = C.fn === 'wait' ? row('fn', 'wait', '雲端函式有沒有回應', '檢查中…')
+      : C.fn === 'na' ? row('fn', 'info', '雲端函式有沒有回應', '這裡不是 Firebase 正式網站（測試環境），沒有雲端函式可以檢查。')
+      : C.fn === 'old' ? row('fn', 'warn', '雲端函式有沒有回應', '檢查不到：網站的 firebase-boot.js 是舊版（沒有連雲端函式的程式）。', '把部署包 firebase-deploy 裡的 index.html、firebase-boot.js、firebase-adapter.js、firebase-config.js 四個檔案一起換上去。')
+      : C.fn === 'ok' ? row('fn', 'ok', '雲端函式有沒有回應', '有回應：line-functions 已經部署（區域 ' + region + '）。')
+      : row('fn', 'bad', '雲端函式有沒有回應', '沒有回應（' + C.fnErr + '）。', 'line-functions 還沒部署、部署失敗，或部署的區域和網站設定不一樣（firebase-config.js 的 FUNCTIONS_REGION 是 ' + region + '，要和 line-functions/index.js 的 REGION 一樣）。', deploy);
+    /* ④ 發送紀錄 */
+    const waiting = rec.filter(x => x.status === 'queued' || x.status === 'sending').length;
+    const sumTxt = '最近 7 天：送出 ' + n('sent') + ' 則' + (fails.length ? '、失敗 ' + fails.length : '') + (n('blocked') ? '、沒綁定擋下 ' + n('blocked') : '') + (n('skipped') ? '、沒啟用略過 ' + n('skipped') : '') + (waiting ? '、處理中 ' + waiting : '') + '。';
+    const boxRow = C.boxErr ? row('box', 'bad', '發送紀錄', '讀不到發送紀錄（' + C.boxErr + '）。', '請用管理員帳號登入；並到 Firebase 主控台 → Firestore Database →「規則」，重新貼上 firestore.rules.full，按「發布」。')
+      : C.box === null ? row('box', 'wait', '發送紀錄', '讀取中…')
+      : stuck.length ? row('box', 'bad', '發送紀錄', '有 ' + stuck.length + ' 則訊息排進去超過 3 分鐘還沒送出（最早一則 ' + lineTimeTxt(stuck[0].at) + '，' + lineTypeTxt(stuck[0].type) + '）。', '雲端函式 sendOutbox 沒有在處理：沒有部署、部署失敗，或部署的區域和資料庫不同。到 Firebase 主控台 → Functions，看有沒有 sendOutbox（區域 ' + region + '）；沒有就重新部署 line-functions。')
+      : sysFail ? row('box', 'bad', '發送紀錄', 'LINE 拒絕送出：' + lineTimeTxt(sysFail.at) + ' 給' + whoOf(sysFail) + '（' + lineTypeTxt(sysFail.type) + '）\n' + String(sysFail.error || '').slice(0, 200), lineErrTxt(sysFail.error))
+      : !rec.length ? row('box', 'info', '發送紀錄', '最近 7 天沒有發送紀錄。按下面「寄測試訊息給管理者」試一次。')
+      : fails.length ? row('box', 'warn', '發送紀錄', sumTxt + '\n最近一次失敗：' + lineTimeTxt(fails[0].at) + ' 給' + whoOf(fails[0]) + '（' + lineTypeTxt(fails[0].type) + '）：' + String(fails[0].error || '').slice(0, 160), lineErrTxt(fails[0].error))
+      : !n('sent') && (n('skipped') || n('blocked')) ? row('box', 'warn', '發送紀錄', sumTxt, n('skipped') ? '「沒啟用略過」是當時沒有勾「啟用 LINE 通知」；勾了以後的新訊息才會送。' : '「沒綁定擋下」是收件人不是已綁定的客戶或管理者，不是錯誤。')
+      : row('box', 'ok', '發送紀錄', sumTxt);
+    const testRow = !mgrs.length ? row('test', 'info', '寄測試訊息', '要先有管理者（上面 ③）才能寄測試。')
+      : row('test', !tr.length ? 'info' : tr.some(x => x[0] === 'bad') ? 'bad' : tr.some(x => x[0] === 'wait') ? 'wait' : 'ok', '寄測試訊息', tr.length ? '' : '寄一則測試訊息給每位管理者，結果會即時顯示在這裡。', '',
+        h('div', null, ...tr.map(([st, t, f]) => h('div', {class:'lck-sub lck-s-' + st, 'data-st':st}, h('span', {text:IC[st] + ' ' + t}), f && st !== 'wait' ? h('small', {text:f}) : null)),
+          h('button', {class:'btn ghost sm', style:'margin-top:8px', 'aria-label':'寄測試訊息給管理者', onclick:sendTest}, (tr.length ? '再寄一次' : '寄測試訊息給管理者') + '（' + mgrs.length + ' 位）')));
+    const sumRow = !mgrs.length ? null : sums.length ? row('sum', 'ok', '每日彙總', '最近一次送出：' + lineTimeTxt(sums[0].sentAt || sums[0].at) + '。設定：每週' + days + ' ' + L.summaryTime + '。')
+      : row('sum', 'info', '每日彙總', '還沒有送過。設定：每週' + days + ' ' + L.summaryTime + '，到時間後半小時內送出' + (L.on ? '。' : '（要先啟用 LINE 通知）。'));
+    const body = h('div', null, head,
+      h('p', {class:'hint', style:'margin:8px 0 0', text:'依訊息的路線一段一段檢查。網站看得到的會自動打勾，畫面會跟著更新；LINE 後台的設定網站看不到，列在最下面 ⑥ 請自己對照。'}),
+      ...sec('① 網站設定', [
+        row('on', L.on ? 'ok' : 'bad', '啟用 LINE 通知', L.on ? '已啟用。' : '沒有啟用：網站排進去的訊息都會被略過，每日彙總和對帳提醒也不會送。', L.on ? '' : '到「LINE 通知設定」勾「啟用 LINE 通知」，按「儲存」。', L.on ? null : goSet()),
+        mgrs.length ? null : row('code', L.mgrCode ? 'ok' : 'bad', '管理者登記碼', L.mgrCode ? '目前的登記碼：' + L.mgrCode + '（管理者在 LINE 傳「管理者 ' + L.mgrCode + '」登記）。' : '還沒有產生。', L.mgrCode ? '' : '到「LINE 通知設定」→「管理者登記碼」按「產生」，再按「儲存」。', L.mgrCode ? null : goSet())]),
+      ...sec('② 雲端函式（Firebase）', [fnRow]),
+      ...sec('③ LINE 傳進來（Webhook）', [
+        mgrs.length ? row('mgr', 'ok', '管理者登記', '已登記 ' + mgrs.length + ' 位：' + mgrs.map(m => m.name || '（未命名）').join('、') + '。管理者是用 LINE 傳「管理者 登記碼」登記的，有名字就代表 LINE 傳進來的訊息網站收得到。')
+          : row('mgr', 'bad', '管理者登記', '還沒有管理者，所以還不能確定 LINE 傳得進來。', L.mgrCode ? '1. 用手機 LINE 加官方帳號好友，傳「管理者 ' + L.mgrCode + '」。\n2. 官方帳號回「已登記為管理者」：這一項會自動打勾。\n3. 回「登記碼不正確」：登記碼沒有按「儲存」，或打錯字。\n4. 完全沒有回覆：LINE 傳不進來，照最下面 ⑥ 逐項對照（最常見：Webhook URL 沒貼、沒按 Verify、Use webhook 沒打開）。' : '先在「LINE 通知設定」產生管理者登記碼並儲存（上面 ①）。'),
+        custs.length ? row('cust', 'ok', '客戶綁定', '已綁定 ' + custs.length + ' 位客戶' + (lastBind ? '，最近一次 ' + lineTimeTxt(lastBind) : '') + '。')
+          : row('cust', 'warn', '客戶綁定', '還沒有客戶綁定 LINE。沒綁定的客人也能傳訂單，但收不到訂單確認、配送和出貨通知。', '「LINE 通知設定」→「管理客戶綁定」→ 對客戶按「產生綁定碼」，請客人加官方帳號好友後，在 LINE 傳「綁定 綁定碼」。'),
+        lastLo ? row('orders', 'ok', '客人傳來的訂單', '最近一次收到：' + lineTimeTxt(lastLo) + '；待審核 ' + pend + ' 張（在「LINE 訂單審核」）。')
+          : row('orders', 'info', '客人傳來的訂單', '還沒收到過。客人傳商品和數量（例如「礦泉水 10箱」）給官方帳號，「LINE 訂單審核」就會出現。')]),
+      ...sec('④ 網站傳出去（發送）', [boxRow, testRow, sumRow]),
+      ...sec('⑤ 雲端函式回報的問題', [alerts.length ? row('alerts', 'bad', '系統提醒（LINE）', alerts.slice(0, 3).map(a => lineTimeTxt(a.at) + '　' + a.text).join('\n'), '照提醒的說明處理，處理好到「系統提醒」按「已處理」。', h('button', {class:'btn ghost sm', style:'margin-top:8px', 'aria-label':'打開系統提醒', onclick:openAlerts}, '打開系統提醒')) : row('alerts', 'ok', '系統提醒（LINE）', '沒有還沒處理的 LINE 問題。')]),
+      ...sec('⑥ LINE 後台（網站看不到，請自己對照）', [h('ol', {class:'lck-ol', 'aria-label':'LINE 後台設定'},
+        h('li', null, h('b', {text:'LINE Developers'}), '（developers.line.biz/console）→ 你的 Provider → Messaging API channel →「Messaging API」分頁：', h('ul', null,
+          h('li', null, 'Webhook URL：', h('code', {class:'lck-cmd', 'aria-label':'Webhook URL', text:hookUrl}), copyBtn(hookUrl, ' Webhook URL'), h('div', {text:'（部署完成時列出的 lineWebhook 網址也可以）按「Verify」要出現 Success。出現 401：Channel secret 不一樣；404：網址錯了或函式沒部署；500：看 firebase functions:log。'})),
+          h('li', {text:'Use webhook：打開。'}),
+          h('li', {text:'Channel access token（long-lived）：要有。重新發行（Issue）過，就要在 Cloud Shell 重設 LINE_CHANNEL_TOKEN 並重新部署。'}))),
+        h('li', null, h('b', {text:'LINE Developers「Basic settings」分頁'}), '：Channel secret 要和 Cloud Shell 設的 LINE_CHANNEL_SECRET 一樣。'),
+        h('li', null, h('b', {text:'LINE Official Account Manager'}), '（manager.line.biz）→ 設定 → 回應設定：Webhook 打開；「自動回應訊息」和「加入好友的歡迎訊息」關掉（不然客人會收到兩次回覆）。'),
+        h('li', null, h('b', {text:'Firebase 主控台 → Functions'}), '：看得到 lineWebhook、sendOutbox、dailySummary、customerReminders 等，區域 ' + region + '。'),
+        h('li', null, h('b', {text:'Firebase 主控台 → Firestore Database → 規則'}), '：已貼上 firestore.rules.full（裡面有 inv_lineoutbox 那一段）並按「發布」。'))]));
+    return {body, foot:[h('button', {class:'btn grow', 'aria-label':'重新檢查', onclick:() => { pingFn(); refresh(); }}, '重新檢查')]};
+  });
+  watchBox(); pingFn();
+}
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {docEditForTest:{openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE()}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -11568,7 +11714,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-bw';
+const APP_VERSION = '2026.10.11-bx';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -11648,6 +11794,7 @@ const FN = {
   settings:{l:'系統設定', kw:'設定 帳期 稅 倉庫 折讓 公司資料'},
   buSettings:{l:'事業部設定', kw:'事業部 網路事業部'},
   lineSettings:{l:'LINE 通知設定', kw:'line 通知 賴 推播'},
+  lineCheck:{l:'LINE 設定檢查', kw:'line 賴 檢查 診斷 沒反應 收不到 傳不出去 webhook 雲端函式 部署', d:'一步一步檢查 LINE 串接卡在哪裡'},
   guard:{l:'費用保護', kw:'費用 用量 保護 暫停'},
   batchEdit:{l:'整批修改作業', kw:'整批 批次 修改 調價 停用 條碼 刪除條碼 清除條碼 清空條碼', d:'一次調整一批商品的售價、進價、分類、供應商、單位、啟用狀態，或整批刪除條碼'},
   backup:{l:'資料庫備份', kw:'備份 下載 還原 資料', d:'下載全部資料的備份檔，也可以從備份還原'},
@@ -11670,7 +11817,7 @@ const FN_CATS = [
   ['客戶與供應商', 'users', [['資料', ['customers', 'suppliers']], ['匯入匯出', ['custImport', 'dataHub']]]],
   ['人事與考勤', 'clock', [['個人', ['clock', 'myAtt']], ['人員與考勤', ['people', 'attAdmin']], ['考核與薪資', ['perf', 'payroll']]]],
   ['報表與稽核', 'chart', [['報表', ['reports', 'buReport']], ['稽核', ['review', 'periodLock']]]],
-  ['系統與設定', 'sliders', [['使用者與權限', ['roles', 'loginAccounts']], ['系統設定', ['settings', 'buSettings', 'lineSettings', 'guard']], ['資料維護', ['batchEdit', 'backup', 'progBackup', 'wipe']], ['列印與操作', ['printSettings', 'printDiag', 'keys']], ['登出', ['logoutSys', 'logout']]]]
+  ['系統與設定', 'sliders', [['使用者與權限', ['roles', 'loginAccounts']], ['系統設定', ['settings', 'buSettings', 'lineSettings', 'lineCheck', 'guard']], ['資料維護', ['batchEdit', 'backup', 'progBackup', 'wipe']], ['列印與操作', ['printSettings', 'printDiag', 'keys']], ['登出', ['logoutSys', 'logout']]]]
 ];
 const FN_LABEL = Object.fromEntries(Object.entries(FN).map(([id, f]) => [f.l, id]));
 const FN_ALIAS = {'成員與權限':'使用者權限管理'};   // 改過名字的功能：舊名稱 → 新名稱（釘選、最近使用沿用）
@@ -11766,7 +11913,7 @@ function menuGroups(){
     ['帳款', [M('現金票據簽收', can('pay') || S.isAdmin, openHandover, '外務收的現金和支票，內勤當面點清、核對票號後簽收，保管責任轉到內勤'), M('應收帳款清單回傳表', see('report') || can('pay'), openArReturn, '依負責營業所和月份，列出客戶簡稱、應收帳款、稅金，結尾合計前期未收＋應收帳款＋稅金（每個營業所一頁，可列印、匯出）'), M('應收帳款報表', see('report') || can('pay'), openArReport, '選帳款月份，依類別篩選或指定客戶，列出每張銷貨單明細，以及每位客戶的應收、已收、稅金清單與總額（可列印、匯出）'), M('應收帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ar'})), M('應收沖帳作業', can('pay'), () => openSettle({type:'customer'}), '現金、轉帳、支票、折讓'), M('批次沖帳', can('pay'), openBatchSettle, '貼上匯款文字，自動配對客戶並沖帳'), M('退貨管理', can('sale') || can('stock'), openReturnMgmt, '退貨商品：排除故障後退還客戶，或直接退款'), M('揀貨輔助', can('stock') || can('sale'), () => openPicking(), '依送貨員帶出當天要送的銷貨單，看照片和架位揀貨，可語音提示'), M('架位管理', canShelf(), () => openShelfMgmt(), '建立貨架位置（可批次產生，或從 Excel／CSV 匯入架位清單）、列印架位 QR Code 標籤，看每個架位放了哪些商品'), M('商品架位調整', canShelf(), () => openShelfAdjust(), '掃貨架上的架位 QR Code，再掃商品條碼，商品就放到這個架位；也可以先掃商品再掃新架位'), M('架位設定', S.isAdmin, openShelfEditor, '快速填寫每個商品的貨架位置'), M('調庫補貨作業', can('stock') || S.isAdmin, openReplenish, '營業所庫存低於安全庫存時，依規則自動算出從工廠調多少，一鍵建立調撥單'), M('倉庫庫存規則', S.isAdmin, openWhRules, '工廠、營業所各自設定安全庫存與最小進貨批量、進貨批量'), M('拆解作業設定', can('stock') || S.isAdmin, openDisPlans, '庫存不足時，先設定好要拆哪個成品、怎麼拆，揀貨人員照提示做'), M('送貨清單', can('sale') || can('print'), openDeliveryList, '依送貨員列出當天要送的銷貨單，可列印'), M('出車作業', S.canWrite, openDriverRun, '外務人員用：選配送人員、出車前確認、抵達公司，系統自動記錄時間並告訴你今天送了多少'), M('出車排程', can('sale') || can('stock'), () => openDispatch(), '貨車上午、下午行程：出車與回來時間、連結銷貨單或客戶訂單'), M('出車績效', see('report'), openTripStats, '依送貨員、車號、日期統計趟數、時間、單數與金額'), M('列印設定', true, openPrintSettings, '手機、平板可以送到 Windows 電腦的印表機列印'), M('配送錯誤與考核', canPerf() || canDErr(), openPerfAdmin, '哪張銷貨單的哪個品項送錯、再度配送、考核績效表與獎懲規則'), M('獎金與薪資', canPayroll(), openPayroll, '業績獎金規則、每人薪資彙總、確認並匯出給薪資系統'), M('人員管理', canAttView() || canAttMgr(), openPeopleMgr, '人員資料、打卡類型、登入帳號綁定、送貨員、離職與復職'), M('上下班打卡', S.canWrite, openClock, '輸入員工代號和密碼，自動拍照並記錄位置'), M('我的考勤', S.canWrite, () => openMyAtt(), '看自己的出勤、請假和特休使用情況'), M('考勤管理', canAttView() || canAttMgr(), openAttAdmin, '統計表、出勤異常表、請假審核、人員與假別（薪資依據）'), M('保管管理', canCustody(), openCustody, '票據、費用原始單據、現金的保管位置與移交單（可列印 PDF）'), M('外務收款', canField(), openFieldPay, '外務人員登記收款（現金、支票），不用沖帳'), M('待沖帳收款', can('pay'), openFieldQueue, '會計把外務人員登記的收款沖到單據'), M('單據覆核', reviewOn() && canReviewPerm(), openReviewQueue, '待覆核的單據，一次覆核'), M('期間封存', S.isAdmin && reviewOn(), openPeriodLock, '依月份把訂單、帳款、庫存整批覆核並鎖定'), M('收款結算', can('pay'), openCollectSummary, '依收款人結算現金與待核對單據'), M('支票代收作業', can('pay'), openCollections, '批次送託收、兌現、退票'), M('票據管理', tabAllowed('acc'), goTab('acc', {accSeg:'note'}), '收到的支票、開出的支票、到期提醒，兌現與退票'), M('應付帳款作業', tabAllowed('acc'), goTab('acc', {accSeg:'ap'})), M('其他收支作業', see('cash'), goTab('acc', {accSeg:'cash'}), '零用金帳簿')]],
     ['報表與車輛', [M('價格等級與折扣', S.isAdmin, openPriceLevels, '客戶類別對應價格等級；依商品類別、編號設折扣率，依數量給特價，可設適用期間'), M('價格策略匯入匯出', S.isAdmin, openPriceIO, '價格規則、組合優惠與買送：匯出成 Excel／CSV，改好再匯入批次更新'), M('營運報表', see('report'), goTab('rep'), '銷貨、進貨、毛利、未結帳款'), M('事業部營業績效', see('report') || S.isAdmin, openBuReport, '網路事業部等各事業部的營業額、毛利、客單價，和上月比較'), M('車輛管理', tabAllowed('veh'), goTab('veh'), '加油、油耗、保養提醒'), M('加油儲值卡', tabAllowed('veh'), openFuelCards, '卡片餘額、儲值、連動零用金')]],
     ['成本', [M('進貨成本設定', see('cost'), openCostPage, '依實際進貨成本更新進價')]],
-    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('使用者權限管理', S.isAdmin, openRoles, '使用者分類，依功能逐項勾選每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
+    ['系統', [M('系統設定', S.isAdmin, openSettings, '帳期、稅、倉庫、折讓'), M('事業部設定', S.isAdmin, openBuSettings, '網路事業部等事業部的名單；每位客戶在客戶資料裡選自己屬於哪個事業部'), M('清除所有資料', S.isAdmin, openWipe, '永久刪除交易資料，或全部資料（要先下載備份、輸入確認字）'), M('鍵盤快速鍵', true, openKeys, 'Enter 下一格、Ctrl+Enter 儲存、Esc 關閉、↑↓ 選擇、Ctrl+K 找功能'), M('費用保護', S.isAdmin, openGuard, '防止程式錯誤或被攻擊讓資料庫費用暴增：用量暴增就自動暫停，管理員確認後恢復'), M('LINE 通知設定', S.isAdmin, openLineSettings, '管理者名單、每日彙總時間、通知客戶的訊息內容、客戶綁定'), M('LINE 設定檢查', S.isAdmin, openLineCheck, '一步一步檢查 LINE 串接卡在哪裡：網站設定、雲端函式、LINE 傳進來、網站傳出去'), M('登出系統', !!S.emp, () => logoutSys(), '離開目前登錄的員工，換人使用'), M('列印診斷', true, openPrintDiag, '檢查為什麼跳不出列印視窗'), M('登入帳號管理', S.isAdmin && typeof window.appCreateUser === 'function', openLoginAccounts, '新增使用者、設定權限層級'), M('登出', typeof window.appLogout === 'function', () => window.appLogout(), '離開目前的帳號'), M('使用者權限管理', S.isAdmin, openRoles, '使用者分類，依功能逐項勾選每個人可以使用的功能'), M('整批修改作業', S.isAdmin, openBatchEdit), M('庫存關帳作業', S.isAdmin, openClosing), M('資料庫備份', S.isAdmin, openBackup), M('程式備份', S.isAdmin, openProgramBackup)]]
   ];
   return regroupMenu(raw);
 }
