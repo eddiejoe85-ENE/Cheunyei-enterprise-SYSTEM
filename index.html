@@ -6409,8 +6409,10 @@ function openArReturn(){
 /* ================= LINE：客戶用 LINE 下訂單 → 管理者審核 → 通知客戶；管理者每日彙總 ================= */
 /* LINE 通知（給客人）都是一張卡片：最上面綠色「服務通知」，標題、單號、日期、品項和數量由系統帶；不放公司名稱、不放金額。
    卡片最下面那一段話可以在「LINE 通知設定」改（下面是預設） */
-const LINE_MSG = {confirm:'感謝您的訂購，我們會盡快安排出貨，確定配送時間後會再通知您。', deliver:'我們會在上面的時間送達；時間不方便的話，請直接回覆訊息告訴我們。', reject:'抱歉，這張訂單目前無法成立，請直接回覆訊息與我們聯絡，謝謝。', slip:'如與您的訂單不符，請直接回覆訊息與我們聯絡，謝謝。', statement:'如與您的帳不符，請直接回覆訊息與我們聯絡，謝謝。', overdue:'如已付款，請忽略這則訊息，謝謝。', test:'收到這則訊息，代表網站 → LINE 這一段是通的。通知客人的訊息會是這個樣子。'};
-const LINE = () => ({on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, notifySlip:true, slipScope:'order', msgConfirm:LINE_MSG.confirm, msgDeliver:LINE_MSG.deliver, msgReject:LINE_MSG.reject, msgSlip:LINE_MSG.slip, ...(S.set.line || {})});
+const LINE_MSG = {confirm:'感謝您的訂購，我們會盡快安排出貨。', deliver:'我們會在上面的時間送達；時間不方便的話，請直接回覆訊息告訴我們。', reject:'抱歉，這張訂單目前無法成立，請直接回覆訊息與我們聯絡，謝謝。', slip:'如與您的訂單不符，請直接回覆訊息與我們聯絡，謝謝。', statement:'如與您的帳不符，請直接回覆訊息與我們聯絡，謝謝。', overdue:'如已付款，請忽略這則訊息，謝謝。', test:'收到這則訊息，代表網站 → LINE 這一段是通的。通知客人的訊息會是這個樣子。'};
+/* 訂單成立通知不再說「確定配送時間後會再通知您」：以前存過的那段話也自動拿掉這一句（拿完是空的就用預設） */
+const lineMsgClean = m => String(m == null ? '' : m).replace(/[，,；;、]\s*確定配送時間後會再通知您/g, '').replace(/確定配送時間後會再通知您[。.！!]?/g, '').trim();
+const LINE = () => { const L = {on:false, managers:[], mgrCode:'', summaryTime:'18:00', days:[1, 2, 3, 4, 5, 6], appUrl:'', notifyConfirm:true, notifyDeliver:true, notifyReject:false, notifySlip:true, slipScope:'order', msgConfirm:LINE_MSG.confirm, msgDeliver:LINE_MSG.deliver, msgReject:LINE_MSG.reject, msgSlip:LINE_MSG.slip, ...(S.set.line || {})}; L.msgConfirm = lineMsgClean(L.msgConfirm) || LINE_MSG.confirm; return L; };
 const lineFill = (tpl, v) => String(tpl || '').replace(/\{([^}]+)\}/g, (m, k) => v[k] !== undefined ? v[k] : m);
 const linePending = () => Object.values(S.lineorders || {}).filter(x => x.status === 'pending').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 const lineOriginOf = o => o ? (o.lineOrderId || (saleCoIds(o).length ? saleCoIds(o) : (o.srcId ? [o.srcId] : [])).map(id => (S.corders[id] || {}).lineOrderId).find(Boolean) || '') : '';
@@ -6520,12 +6522,12 @@ const lineQty = (q, u) => num(q) + (u ? ' ' + u : '');
 const lineWho = pt => pt ? (pt.shortName || pt.name || '') : '';
 /* 排進發送佇列的內容：卡片＋手機通知列的文字＋純文字版（雲端函式還沒更新、或 LINE 不收卡片時送這個） */
 const lineOut = card => { const c = lineCard(card); return {text:c.text, flex:c.flex, alt:c.alt}; };
-/* 訂單成立通知（LINE 訂單審核通過） */
+/* 訂單成立通知（LINE 訂單審核通過）：不放預計交貨日（{日期} 仍可用在最後一段話，給以前存過的設定） */
 function lineConfirmCard(doc, lo, msg){
   const L = LINE(), pt = S.partners[doc.partnerId], items = (doc.lines || []).map(l => { const p = S.products[l.pid] || {}; return {name:l.name || p.name || '', qty:lineQty(l.qty, l.unit || p.unit || '')}; });
   const v = {客戶:lineWho(pt), 單號:doc.no || '', 日期:lineDay(doc.expected || '')};
   return {title:'訂單成立通知', alt:'訂單成立通知：' + v.單號 + '（' + items.length + ' 項商品）',
-    rows:[{k:'客戶', v:v.客戶}, {k:'訂單編號', v:v.單號}, {k:'訂單時間', v:lineDT((lo && lo.createdAt) || doc.at || Date.now())}, {k:'預計交貨', v:v.日期}],
+    rows:[{k:'客戶', v:v.客戶}, {k:'訂單編號', v:v.單號}, {k:'訂單時間', v:lineDT((lo && lo.createdAt) || doc.at || Date.now())}],
     lists:[{label:'訂購品項', items}], msg:lineFill(msg == null ? (L.msgConfirm || LINE_MSG.confirm) : msg, v)};
 }
 /* 配送通知（訂單排進出車排程） */
@@ -7353,11 +7355,11 @@ function openLineSettings(){
       h('div', {class:'f2'}, fld('發送時間', h('input', {class:'in', type:'time', value:st.summaryTime, 'aria-label':'彙總時間', onchange:e => { st.summaryTime = e.target.value || '18:00'; }}), '到這個時間之後的半小時內送出'), fld('網站網址（放在訊息裡）', h('input', {class:'in', type:'text', value:st.appUrl, placeholder:'https://…', 'aria-label':'網站網址', oninput:e => { st.appUrl = e.target.value.trim(); }}))),
       h('div', {class:'chips', style:'padding-top:0;flex-wrap:wrap'}, h('small', {class:'hint', style:'align-self:center', text:'哪幾天送：'}), [0, 1, 2, 3, 4, 5, 6].map(d => h('button', {class:'chip', 'aria-pressed':st.days.includes(d), 'aria-label':'星期' + wd[d], onclick:e => { st.days = st.days.includes(d) ? st.days.filter(x => x !== d) : [...st.days, d].sort(); e.target.setAttribute('aria-pressed', String(st.days.includes(d))); }}, wd[d]))),
       h('div', {class:'sec-h'}, h('h2', {text:'通知客戶（每則都算 LINE 訊息額度）'})),
-      chk('notifyConfirm', '訂單審核通過 → 通知客戶「已確認建立，等候安排配送」'), chk('notifyDeliver', '訂單排進出車排程 → 通知客戶配送日期和時段'), chk('notifyReject', '駁回時預設通知客戶（駁回時也可以個別決定）'),
+      chk('notifyConfirm', '訂單審核通過 → 通知客戶「訂單成立通知」'), chk('notifyDeliver', '訂單排進出車排程 → 通知客戶配送日期和時段'), chk('notifyReject', '駁回時預設通知客戶（駁回時也可以個別決定）'),
       chk('notifySlip', '銷貨單開立後 → 通知客戶出貨的商品和數量'),
       fld('哪些銷貨單要通知', (() => { const sel = h('select', {class:'in', 'aria-label':'銷貨單通知範圍', onchange:e => { st.slipScope = e.target.value; }}, h('option', {value:'order', text:'只通知從客戶訂單轉出的銷貨單（建議）'}), h('option', {value:'all', text:'所有已綁定 LINE 的客戶的銷貨單'})); sel.value = st.slipScope; return sel; })(), '客戶要先綁定 LINE 才會收到。其他銷貨單可以在單據詳情按「通知商品數量」手動寄。'),
       h('div', {class:'note', 'aria-label':'卡片說明', text:'客人收到的是一張卡片：最上面綠色「服務通知」，下面是標題、單號、日期、品項和數量（不顯示公司名稱和金額），最後一段話可以在下面改。'}),
-      cardMsg(top, 'msgConfirm', 'confirm', '訂單成立通知', '審核通過時送。可用：{客戶} {單號} {日期}（預計交貨日）'),
+      cardMsg(top, 'msgConfirm', 'confirm', '訂單成立通知', '審核通過時送，卡片列出訂單編號、訂單時間、訂購品項和數量。可用：{客戶} {單號}'),
       cardMsg(top, 'msgDeliver', 'deliver', '配送通知', '排進出車排程時送。可用：{客戶} {單號} {日期} {時段} {送貨員}'),
       cardMsg(top, 'msgSlip', 'slip', '出貨通知', '銷貨單開立後送，卡片會列出這次出貨的品項、數量，和訂單還沒出的品項。可用：{客戶} {單號}（銷貨單） {訂單單號} {日期} {品項數}'),
       cardMsg(top, 'msgReject', 'reject', '訂單未成立通知', '駁回時送。可用：{客戶} {時間} {原因}'),
@@ -12014,7 +12016,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-cb';
+const APP_VERSION = '2026.10.11-cc';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
