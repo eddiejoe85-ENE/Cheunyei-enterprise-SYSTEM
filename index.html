@@ -1770,6 +1770,7 @@ function openOrder(type, pre){
   fillPartners();
   put(sh.bodyEl,
     editO ? h('div', {class:'note', text:'修改 ' + editO.no + '：儲存後庫存與應收帳款會依新內容重算。' + ((S.d.alloc[editO.id] || 0) > 0.004 ? '這張單已有收款沖銷 ' + money(S.d.alloc[editO.id]) + '，客戶不能更換，合計也不能低於已收金額。' : '') + (editO.invNo ? '已記錄發票號碼 ' + editO.invNo + '，金額若有變動，發票需自行處理。' : '')}) : null,
+    pre.banner ? h('div', {class:'note warn', 'aria-label':'缺貨處理說明', text:pre.banner}) : null,
     pre.src && !fromCo ? h('div', {class:'note', text:'由 ' + (pre.src.kind === 'po' ? '採購單 ' : '客戶訂單 ') + pre.src.no + ' 匯入。數量預設為未收（未出）數量，請依實際' + (pre.src.kind === 'po' ? '進貨' : '出貨') + '數量修改；少收的部分採購單會保留待收，也可以在採購單按「結案」。'}) : null,
     h('div', {class:'f2'},
       fld('日期', dateIn),
@@ -1824,7 +1825,7 @@ function openOrder(type, pre){
         const have = stockEff(l.pid), after = r3(have + T.sign * l.qty);
         if (after < 0){
           if (type !== 'sale' || !shortAct()) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
-          if (await dialog({title:'「' + l.name + '」庫存不足', msg:'現有 ' + num(have) + '，這張要出 ' + num(l.qty) + '，差 ' + num(r3(-after)) + '。要用採購、拆解補貨或直接組裝補足嗎？', ok:'處理缺貨', cancel:'回去修改'}))
+          if (await dialog({title:'「' + l.name + '」庫存不足', msg:'現有 ' + num(have) + '，這張要出 ' + num(l.qty) + '，差 ' + num(r3(-after)) + '。要用' + shortJoin(shortWays(shortagePlan(l.pid, r3(-after), st.wh))) + '處理嗎？', ok:'處理缺貨', cancel:'回去修改'}))
             openShortage({pid:l.pid, need:l.qty, have:() => stockEff(l.pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''});
           return;
         }
@@ -11423,7 +11424,7 @@ function openBomOp(kind, pre){
   }
 }
 
-/* ================= 缺貨處理：開銷貨單、客戶訂單時，商品庫存不夠 → 提示「採購」「拆解補貨」「直接組裝」 =================
+/* ================= 缺貨處理：開銷貨單、客戶訂單時，商品庫存不夠 → 選擇「採購」「拆解補貨」「直接組裝」「倉庫調撥」「調整庫存」 =================
    shortagePlan(pid, gap, wid)：算出這個缺口（gap）可以怎麼補（只算，不寫任何資料）
    shortRow(o)：單據裡每一項商品下面的「⚠ 缺貨」提示列（庫存夠就回傳 null）
    openShortage(o)：按「處理缺貨」開出的畫面，列出採購、拆解補貨、直接組裝，每一種都帶好商品、數量、倉庫、備註
@@ -11464,8 +11465,10 @@ function shortagePlan(pid, gap, wid){
   const xfer = multiWh() ? whActive().filter(w => w.id !== wid && stockAt(pid, w.id) > SHORT_EPS).map(w => { const stock = stockAt(pid, w.id); return {wid:w.id, name:w.name, stock, qty:r3(Math.min(gap, stock)), mine:mine.has(w.id)}; }).sort((a, b) => b.stock - a.stock) : [];
   return {p, gap, wid, self:p.procSrc === 'make', bom:comps, canAsm, build, asmQty, dis, inc, incRows, sup:supplierOf(p) || defaultSupplierId(), buyNeed, buyQty:chk ? chk.suggest : buyNeed, rule:buyRule(p), xfer};
 }
-/* 提示列上寫的「可以用」：採購（自行生產的商品不採購）、拆解補貨（有成品可拆）、直接組裝（組件夠組至少一個）、倉庫調撥（別的倉庫有庫存） */
-const shortWays = pl => [!pl.self ? '採購' : null, pl.dis.some(op => op.useN > 0) ? '拆解補貨' : null, pl.canAsm && pl.build > 0 ? '直接組裝' : null, pl.xfer.some(x => x.mine) ? '倉庫調撥' : null].filter(Boolean);
+/* 提示列上寫的「可以用」：採購（自行生產的商品不採購）、拆解補貨（有成品可拆）、直接組裝（組件夠組至少一個）、倉庫調撥（別的倉庫有庫存），
+   最後一定有「調整庫存」（架上實際有貨、只是帳面數量不對時） */
+const shortWays = pl => [!pl.self ? '採購' : null, pl.dis.some(op => op.useN > 0) ? '拆解補貨' : null, pl.canAsm && pl.build > 0 ? '直接組裝' : null, pl.xfer.some(x => x.mine) ? '倉庫調撥' : null, '調整庫存'].filter(Boolean);
+const shortJoin = a => a.length > 1 ? a.slice(0, -1).join('、') + '或' + a[a.length - 1] : (a[0] || '');
 function shortRow(o){
   const p = S.products[o.pid]; if (!p) return null;
   const gap = r3(o.need - o.have()); if (!(gap > SHORT_EPS)) return null;
@@ -11473,7 +11476,7 @@ function shortRow(o){
   const tail = (pl.inc > SHORT_EPS ? '採購在途 ' + num(pl.inc) + (pl.inc >= gap - SHORT_EPS ? '（夠補）' : '（不夠補）') : '') + (act ? '' : '　請通知採購或作業人員補貨');
   return h('div', {class:'note warn', 'aria-label':'缺貨提示 ' + p.sku, style:'margin:6px 0 0;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap'},
     h('span', {style:'min-width:0;flex:1 1 170px'}, h('b', {text:'⚠ 缺貨：還差 ' + num(gap) + ' ' + (p.unit || '')}),
-      h('small', {style:'display:block;margin-top:2px', text:(ways.length ? '可以用：' + ways.join('、') : '沒有現成的補貨方式（自行生產的商品，也沒有可組裝或拆解的來源）') + (tail ? '　' + tail : '')})),
+      h('small', {style:'display:block;margin-top:2px', text:(ways.length > 1 ? '可以用：' + ways.join('、') : '沒有現成的補貨方式（自行生產的商品，也沒有可組裝或拆解的來源）；帳面數量不對的話，可以調整庫存') + (tail ? '　' + tail : '')})),
     act ? h('button', {class:'btn sm', type:'button', 'aria-label':'處理缺貨 ' + p.sku, onclick:() => openShortage(o)}, '處理缺貨') : null);
 }
 function openShortage(o){
@@ -11481,7 +11484,7 @@ function openShortage(o){
   liveSheet({title:'處理缺貨'}, ['orders', 'porders', 'corders', 'products', 'partners', 'settings', 'displans'], sh => {
     const p = S.products[o.pid]; if (!p) return false;
     const wid = shortWid(o), have = o.have(), gap = r3(o.need - have), unit = p.unit || '', done = !(gap > SHORT_EPS), pl = done ? null : shortagePlan(o.pid, gap, wid);
-    const memo = '缺貨補貨（' + o.label + (o.ref ? ' ' + o.ref : '') + '）', mayBuy = can('purchase') && fxOn('porder'), mayXfer = can('stock') && fxOn('transfer'), mayDis = can('stock') && fxOn('disassembly'), mayAsm = can('stock') && fxOn('assembly');
+    const memo = '缺貨補貨（' + o.label + (o.ref ? ' ' + o.ref : '') + '）', mayBuy = can('purchase') && fxOn('porder'), mayXfer = can('stock') && fxOn('transfer'), mayDis = can('stock') && fxOn('disassembly'), mayAsm = can('stock') && fxOn('assembly'), mayAdj = can('stock') && fxOn('adjust');
     const sec = t => h('div', {class:'sec-h'}, h('h2', {text:t}));
     const card = (aria, ...kids) => h('div', {class:'panel pad', 'aria-label':aria, style:'margin-bottom:12px'}, ...kids);
     const wide = 'margin-top:8px;width:100%';
@@ -11518,7 +11521,12 @@ function openShortage(o){
     /* ---- 拆解補貨 ---- */
     const feas = pl ? pl.dis.filter(op => op.useN > 0) : [], infeas = pl ? pl.dis.filter(op => !(op.useN > 0)) : [];
     const disSec = () => {
-      if (!feas.length && !infeas.length) return null;
+      if (!feas.length && !infeas.length) return [sec('拆解補貨'),
+        card('沒有拆解來源',
+          h('b', {text:'還沒有設定哪個大包裝（或組合商品）含有「' + p.name + '」'}),
+          h('small', {class:'hint', style:'display:block;margin-top:4px', text:'例如 1 箱拆成 24 ' + (unit || '個') + '。設定好之後，這裡會直接算出要拆幾個、拆出多少，按一下就能拆。'}),
+          S.isAdmin && fxOn('disassembly') ? h('button', {class:'btn ghost', style:wide, type:'button', 'aria-label':'設定拆解來源 ' + p.sku, onclick:() => openDisSource(p.id, wid)}, '設定拆解來源（選大包裝商品）')
+            : h('div', {class:'note', style:'margin:8px 0 0', text:'請管理員到大包裝商品的「產品組成（BOM）」加入這個商品，之後這裡就能拆解。'}))];
       return [sec('拆解補貨'),
         ...feas.map(op => { const F = op.F, fu = F.unit || '', left = Math.max(r3(gap - op.useYield), 0), shelf = shelfOf(F, wid);
           return card('拆解方式 ' + F.sku,
@@ -11545,14 +11553,66 @@ function openShortage(o){
           mayAsm ? h('button', {class:'btn', style:wide, type:'button', disabled:!(pl.asmQty > 0), 'aria-label':'組裝 ' + p.sku, onclick:() => openBomOp('assembly', {pid:p.id, qty:pl.asmQty, wh:wid, note:memo})}, '直接組裝' + (pl.asmQty > 0 ? ' ' + num(pl.asmQty) + ' ' + unit : ''))
             : h('div', {class:'note', style:'margin:8px 0 0', text:'你的角色沒有組裝的權限，請通知作業人員處理。'}))];
     };
+    /* ---- 調整庫存（架上實際有貨，只是帳面數量不對） ---- */
+    const adjSec = () => {
+      const book = stockAt(p.id, wid), target = r3(book + gap), shelf = shelfOf(p, wid), ref = o.label + (o.ref ? ' ' + o.ref : '');
+      return [sec('調整庫存'),
+        card('調整庫存方式',
+          h('b', {text:'架上實際有貨，只是帳面數量不對？'}),
+          h('small', {class:'hint', style:'display:block;margin:4px 0 6px', text:'例如進貨漏登、盤點有差、退貨沒入庫。先到' + (shelf ? '架位 ' + shelf : (multiWh() ? whName(wid) : '倉庫')) + '點實際數量，再用盤點調整改成實際的數量。'}),
+          kv('帳面庫存' + (multiWh() ? '（' + whName(wid) + '）' : ''), num(book) + ' ' + unit),
+          kv('實盤至少要', h('b', {'aria-label':'實盤至少要', text:num(target) + ' ' + unit})),
+          h('small', {class:'hint', style:'display:block;margin-top:4px', 'aria-label':'調整說明', text:'實盤數量有 ' + num(target) + ' ' + unit + '，這張' + o.label + '就夠出。調整會留下一張盤點調整單，報表和庫存異動都看得到；沒有實際點過，不要用調整來補缺貨。'}),
+          mayAdj ? h('button', {class:'btn', style:wide, type:'button', 'aria-label':'調整庫存 ' + p.sku, onclick:() => openOrder('adjust', {pid:p.id, wh:wid, note:'缺貨處理：帳面數量更正（' + ref + '）', banner:'缺貨處理（' + ref + '）：先到' + (shelf ? '架位 ' + shelf : '倉庫') + '點「' + p.name + '」的實際數量再輸入。實盤要有 ' + num(target) + ' ' + unit + '，這張單才夠出；沒有實際點過，不要調整。'})}, '調整庫存（輸入實盤數量）')
+            : h('div', {class:'note', style:'margin:8px 0 0', text:'你的角色沒有調整庫存的權限，請通知作業人員。'}))];
+    };
+    /* ---- 最上面：選擇處理方式（按了跳到那一段） ---- */
+    const jump = k => { const el = body.querySelector('[data-way="' + k + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({block:'start', behavior:'smooth'}); };
+    const chooser = () => {
+      const f0 = feas[0], tot = pl.xfer.reduce((a, x) => a + x.stock, 0);
+      const ws = [!pl.self ? {k:'buy', t:'建立採購單', sub:pl.inc >= gap - SHORT_EPS ? '在途 ' + num(pl.inc) + ' 夠補' : '建議 ' + num(pl.buyQty) + ' ' + unit} : null,
+        {k:'dis', t:'拆解', sub:f0 ? '拆 ' + num(f0.useN) + ' ' + (f0.F.unit || '') + ' 得 ' + num(f0.useYield) : (infeas.length ? '成品沒有庫存' : '還沒設定來源')},
+        pl.canAsm ? {k:'asm', t:'直接組裝', sub:pl.asmQty > 0 ? '可組 ' + num(pl.asmQty) + ' ' + unit : '組件不夠'} : null,
+        pl.xfer.length ? {k:'xfer', t:'倉庫調撥', sub:'別的倉庫有 ' + num(r3(tot))} : null,
+        {k:'adj', t:'調整庫存', sub:'帳面數量不對時'}].filter(Boolean);
+      return h('div', {class:'panel pad', 'aria-label':'選擇處理方式', style:'margin-bottom:12px'}, h('b', {text:'選擇處理方式'}),
+        h('div', {style:'display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:8px'}, ws.map(w => h('button', {class:'btn ghost', type:'button', 'aria-label':'方式 ' + w.t, style:'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:auto;min-height:58px;padding:8px 6px;white-space:normal;text-align:center;line-height:1.25', onclick:() => jump(w.k)}, h('b', {text:w.t}), h('small', {class:'hint', style:'font-weight:400', text:w.sub})))),
+        h('small', {class:'hint', style:'display:block;margin-top:8px', text:'可以擇一，也可以搭配（例如先拆解補一部分，其餘再採購）。做完回到這裡，缺口會自動更新。'}));
+    };
+    const way = (k, x) => x ? h('div', {'data-way':k}, x) : null;
     const body = h('div', null, head,
       done ? h('div', {class:'note good', 'aria-label':'缺貨已補足', text:'✓ 庫存已經夠了，可以回到單據繼續。'}) : [
-        h('p', {class:'hint', style:'margin:0 0 10px', text:'下面的方式擇一，或搭配使用（例如先拆解補一部分，其餘再採購）。做完回到這裡，缺口會自動更新。'}),
-        buySec(), disSec(), asmSec(), xferSec()]);
+        chooser(), way('buy', buySec()), way('dis', disSec()), way('asm', asmSec()), way('xfer', xferSec()), way('adj', adjSec())]);
     return {body, foot:[h('button', {class:'btn grow', type:'button', 'aria-label':'回到單據', onclick:() => sh.forceClose()}, done ? '回到單據繼續' : '先不處理，回到單據')]};
   });
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
+function openDisSource(pid, wid){
+  const X = S.products[pid]; if (!X) return toast('找不到這個商品');
+  if (!S.isAdmin) return toast('只有管理員能設定商品的組成');
+  const st = {fid:'', qty:''}, xu = X.unit || '個';
+  const cands = () => activeProducts().filter(F => F.id !== pid && !bomOf(F).some(c => c.pid === pid) && !bomReaches(pid, F.id)).sort(cmpSku)
+    .map(F => ({id:F.id, label:F.sku + ' ' + F.name, sub:(F.unit || '') + '　庫存 ' + num(stockAt(F.id, wid)) + (hasBom(F) ? '　已有組成 ' + bomOf(F).length + ' 項' : '')}));
+  const sh = sheet({title:'設定拆解來源'}), info = h('div', {'aria-label':'拆解來源說明'}), qLabel = h('label');
+  const pick = h('button', {class:'btn ghost', type:'button', style:'width:100%;justify-content:flex-start;overflow:hidden;min-width:0', 'aria-label':'大包裝商品', onclick:() => lineSearchSheet('選大包裝商品', cands, id => { st.fid = id; paint(); })});
+  const qIn = h('input', {class:'in', type:'text', inputmode:'decimal', placeholder:'例：24', 'aria-label':'拆出數量', autocomplete:'off', oninput:e => { st.qty = e.target.value; paint(); }});
+  const paint = () => {
+    const F = S.products[st.fid], q = toNum(st.qty);
+    setKids(pick, h('span', {style:'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0', text:F ? F.sku + ' ' + F.name : '選擇大包裝商品…'}));
+    qLabel.textContent = '1 ' + (F ? (F.unit || '個') : '個大包裝') + '拆出幾' + xu + '「' + X.name + '」';
+    setKids(info, F && hasBom(F) ? h('div', {class:'note warn', style:'margin-top:8px', text:'「' + F.name + '」原本的組成：' + bomOf(F).map(c => S.products[c.pid].name + ' ×' + num(c.qty)).join('、') + '；會再加上「' + X.name + '」。之後拆解或組成「' + F.name + '」時，會一起算這些組件。'}) : null,
+      F && q > 0 ? h('small', {class:'hint', style:'display:block;margin-top:8px', text:'存好之後：拆 1 ' + (F.unit || '個') + '「' + F.name + '」→ 得到 ' + num(q) + ' ' + xu + '「' + X.name + '」（目前庫存 ' + num(stockAt(F.id, wid)) + ' ' + (F.unit || '個') + '）。'}) : null);
+  };
+  put(sh.bodyEl, h('p', {class:'hint', style:'margin:0 0 12px', text:'選一個大包裝（或組合商品），設定 1 個拆開會得到幾個「' + X.name + '」。會加到那個商品的「產品組成（BOM）」，之後缺貨時就能直接拆。'}),
+    fld('大包裝商品', pick), h('div', {class:'f'}, qLabel, qIn), info);
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存拆解來源', onclick:async () => {
+    const F = S.products[st.fid], q = r3(toNum(st.qty));
+    if (!F) return toast('請選擇大包裝商品'); if (!(q > 0)) return toast('請輸入 1 ' + (F.unit || '個') + '拆出幾' + xu);
+    if (bomReaches(pid, F.id)) return toast('「' + X.name + '」的組成裡已經有「' + F.name + '」，不能互相組成');
+    const ok = await run(async () => { await S.db.doc('products/' + F.id).update({bom:[...bomOf(F).map(c => ({pid:c.pid, qty:Number(c.qty)})), {pid, qty:q}]}); return true; });
+    if (ok){ toast('已設定：1 ' + (F.unit || '個') + '「' + F.name + '」拆出 ' + num(q) + ' ' + xu); sh.forceClose(); } }}, '儲存'));
+  paint();
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -12310,7 +12370,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-cf';
+const APP_VERSION = '2026.10.11-cg';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
