@@ -932,7 +932,7 @@ function homeTodo(){
   if (can('stock') && fxOn('replenish') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) add('調庫補貨提示', false, whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存', '可以依規則從「' + whName(pl.src) + '」調庫補貨', openReplenish); }
   if ((can('stock') || S.isAdmin) && fxOn('cycleCount')){ const open = Object.values(S.counts).find(x => x.status === 'open' && x.cycle);
     if (open || Object.values(S.counts).some(x => x.cycle) || Object.keys(S.products).length){ const n = open ? (open.pids || []).length : 0, dn = open ? Object.keys(countTotals(open.id).tot).filter(k => (open.pids || []).includes(k)).length : 0; add('循環盤點', false, open ? '循環盤點進行中：已盤 ' + dn + ' / ' + n + ' 項' : '今天的循環盤點', open ? '點這裡繼續' : '系統已經排好今天要盤的商品', openCycleCount); } }
-  if ((can('pay') || S.isAdmin) && fxOn('monthTax') && Object.values(S.orders).some(o => o.type === 'tax' || (isMonthTax(o) && o.status !== 'void'))){ const LM = prevMonth(billMonth(today(), cutoff())), td = mtaxRows(LM).filter(r => r.st === 'todo' || r.st === 'changed'); if (td.length) add('月結稅金', false, LM + ' 帳的月結稅金還有 ' + td.length + ' 位客戶沒產生', '點這裡產生稅金、套印發票', () => openMonthTax(LM)); }
+  if ((can('pay') || S.isAdmin) && fxOn('monthTax') && Object.values(S.orders).some(o => o.type === 'tax' || (isMonthTax(o) && o.status !== 'void'))){ const LM = prevMonth(billMonth(today(), cutoff())), dupStuck = r => r.dupDocs.length && !r.dupDocs.every(mtaxDupVoidable), td = mtaxRows(LM).filter(r => ((r.st === 'todo' || r.st === 'changed') && !mtaxAutoSoonDone(r)) || dupStuck(r)); if (td.length){ const nw = mtaxAutoOn() ? td.filter(r => mtaxAutoBlock(r)).length : 0; add('月結稅金', false, LM + ' 帳的月結稅金還有 ' + td.length + ' 位客戶' + (td.some(dupStuck) ? '要處理' : td.every(r => r.st === 'changed') ? '要更新' : (td.some(r => r.st === 'changed') ? '沒產生或要更新' : '沒產生')), nw ? nw + ' 位不會自動處理（例如已開發票、已收款、已封存），點這裡處理' : '點這裡產生稅金、套印發票', () => openMonthTax(LM)); } }
   const urg = it.filter(x => x.urgent), rest = it.filter(x => !x.urgent);
   if (!it.length) return h('section', {class:'sec todo-sec', 'aria-label':'待辦事項'}, h('div', {class:'panel pad todo-none', text:'✓ 目前沒有待辦事項'}));
   return h('section', {class:'sec todo-sec', 'aria-label':'待辦事項'}, h('div', {class:'sec-h'}, h('h2', null, '待辦事項', h('span', {class:'todo-n' + (urg.length ? '' : ' calm'), 'aria-label':'待辦數', text:String(it.length)}))),
@@ -1948,7 +1948,7 @@ function openOrderDetail(id){
       (() => { const rets = o.type === 'sale' ? Object.values(S.orders).filter(x => x.type === 'sale_return' && x.srcId === o.id && x.status !== 'void').sort(cmpOrd) : []; return rets.length ? [h('div', {class:'sec-h'}, h('h2', {text:'退貨紀錄（' + rets.length + '）'})), h('div', {class:'panel', style:'margin-bottom:14px'}, rets.map(orderRow))] : null; })(),
       (T.money && !hideBuy) ? h('div', {class:'panel pad', style:'margin-bottom:14px'},
         o.tax && o.type !== 'tax' ? kv('未稅銷售額', money(o.net)) : null, o.tax ? kv(o.type === 'tax' ? '營業稅' : '營業稅（' + (TAXT[o.taxType] || '') + '）', money(o.tax)) : null,
-        isMonthTax(o) ? kv('營業稅', (() => { const md = mtaxDocOf(o), txt = '月底結帳時依整月未稅金額計算' + (md ? '（' + md.no + '，稅金 ' + money(md.tax) + '）' : '（月結稅金還沒產生）'); return (can('pay') || S.isAdmin) && fxOn('monthTax') && pt ? h('button', {style:'text-decoration:underline;text-align:right', 'aria-label':'月結稅金 ' + o.no, onclick:() => openMonthTax(billMonth(o.date, cutoffOf(pt)))}, txt) : h('span', {'aria-label':'月結稅金 ' + o.no, text:txt}); })()) : null,
+        isMonthTax(o) ? kv('營業稅', (() => { const md = mtaxDocOf(o), txt = '月底結帳時依整月未稅金額計算' + (md ? '（' + md.no + '，稅金 ' + money(md.tax) + '）' : mtaxWhenTxt(o)); return (can('pay') || S.isAdmin) && fxOn('monthTax') && pt ? h('button', {style:'text-decoration:underline;text-align:right', 'aria-label':'月結稅金 ' + o.no, onclick:() => openMonthTax(billMonth(o.date, cutoffOf(pt)))}, txt) : h('span', {'aria-label':'月結稅金 ' + o.no, text:txt}); })()) : null,
         isMonthTax(o) && o.taxConv ? kv('改成月底算稅', fmtDT(o.taxConv.at) + (o.taxConv.byName ? '　' + o.taxConv.byName : '') + '（原本稅金 ' + money(o.taxConv.tax) + '）') : null,
         kv('合計', money(total)), kv(T.paidLabel, money(paid)), o.type === 'sale' && o.paidMethod && paid > 0 ? kv('收款方式', o.paidMethod === 'cash' ? '現金（銷貨收現）' : '已結清（非現金）') : null, kv('未結', money(due)),
         T.money === 1 && pt ? kv('所屬帳期', cycleLabel(billMonth(o.date, cutoffOf(pt)), cutoffOf(pt))) : null,
@@ -2197,7 +2197,7 @@ function openPartnerForm(id, type){
     h('div', {class:'sec-h', style:'margin-top:8px'}, h('h2', {text:'帳務與收款'})),
     h('div', {class:'f2'}, fld('付款方式', f.payMethod), fld('結帳日期（選填，覆蓋系統預設）', f.billDay)),
     isCust ? fld('開立發票方式', f.invoiceMode) : null,
-    isCust ? h('small', {class:'hint', 'aria-label':'月結算稅說明', style:'display:block;margin:-4px 0 10px', text:'月結開立（或沒指定、付款方式是月結）、稅別是應稅（未稅價）的客戶：銷貨單不加稅，月底結帳時依整個月的未稅金額算稅（月結稅金），不會有每張單各自四捨五入的差額。要每張銷貨單都加稅，選「隨貨開立」。'}) : null,
+    isCust ? h('small', {class:'hint', 'aria-label':'月結算稅說明', style:'display:block;margin:-4px 0 10px', text:'月結開立（或沒指定、付款方式是月結）、稅別是應稅（未稅價）的客戶：銷貨單不加稅，月底結帳時依整個月的未稅金額算稅（月結稅金' + (mtaxAutoOn() ? '，帳期結束後系統自動產生' : '') + '），不會有每張單各自四捨五入的差額。要每張銷貨單都加稅，選「隨貨開立」。'}) : null,
     isCust ? fld('月結發票比例 %（月底算稅時，發票開銷貨額的幾 %；空白＝100%）', f.invRatio) : null,
     fld('付款天數（月結：結帳日後幾天；天數制：開單日後幾天）', f.term),
     isCust ? h('div', {class:'f2'}, fld('客戶類別', f.custCat), fld('價格等級（空白＝依客戶類別）', f.level)) : null, isCust && buList().length > 1 ? fld('事業部（計算營業績效用）', f.bu) : null, h('div', {class:'f2'}, isCust ? null : fld('分類等級（可套用等級價）', f.level), fld('稅別', f.taxOpt)),
@@ -2281,12 +2281,7 @@ function repBillSection(){
     h('small', {class:'hint', style:'display:block;margin:2px 2px 8px', 'aria-label':'帳款月份範圍', text:cycleLabel(M, cutoff()) + '；有自己結帳日的客戶依他的結帳日'}),
     h('div', {style:'display:flex;flex-wrap:wrap;gap:8px', 'aria-label':'月結帳款金額'}, tile('前期未收', B.prior), tile('本期未稅', B.net), tile('本期稅金', B.tax), tile('本期總額', B.total, true)),
     h('small', {class:'hint', style:'display:block;margin:6px 2px 0', 'aria-label':'月結帳款說明', text:'前期未收＝' + M + ' 以前還沒收的金額；本期＝這個帳款月份的銷貨扣退回（本期稅金含「月結稅金」）。共 ' + B.custN + ' 位客戶、' + B.n + ' 張單據；本期已收 ' + money(B.rec) + '，累計未收（前期未收＋本期未收）' + money(B.cum) + '。'}),
-    (() => { if (!((can('pay') || S.isAdmin) && fxOn('monthTax'))) return null;
-      const td = mtaxRows(M).filter(r => (r.st === 'todo' || r.st === 'changed') && (B.scope !== 'cycle' || billingOf(r.pt) === 'cycle')); if (!td.length) return null;
-      const est = r2(td.reduce((a, r) => a + r.tax - (r.doc ? Number(r.doc.tax) || 0 : 0), 0)), open = M >= billMonth(today(), cutoff());
-      return h('div', {class:'note warn', 'aria-label':'月結稅金還沒產生', style:'margin:8px 0 0;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap'},
-        h('span', {style:'flex:1 1 200px;min-width:0', text:(open ? '這個帳款月份還沒結束。' : '') + td.length + ' 位月結客戶的稅金還沒' + (td.some(r => r.st === 'changed') ? '產生或更新' : '產生') + '（預估' + (est >= 0 ? '再加 ' : '少 ') + money(Math.abs(est)) + '），本期稅金還沒算進去。'}),
-        h('button', {class:'btn ghost sm', 'aria-label':'打開月結稅金 ' + M, onclick:() => openMonthTax(M)}, open ? '看月結稅金' : '產生月結稅金')); })(),
+    mtaxPendNote(M, B.scope === 'cycle' ? pt => billingOf(pt) === 'cycle' : null),
     fxOn('arReport') && (see('report') || can('pay') || S.isAdmin) ? h('button', {class:'btn ghost sm', style:'margin-top:8px', 'aria-label':'看各客戶明細', onclick:() => openArReport(M)}, '看各客戶明細（應收帳款報表）') : null);
 }
 function pRep(){
@@ -2794,7 +2789,7 @@ function exportStatement(pid){
   return saveFile('對帳單_' + pt.name + '_' + today() + '.csv', csvText(rows));
 }
 function openStatement(pid){
-  liveSheet({title:'對帳單'}, ['orders', 'payments', 'notes', 'partners'], sh => {
+  liveSheet({title:'對帳單'}, ['orders', 'payments', 'notes', 'partners', 'settings'], sh => {
     const pt = S.partners[pid]; if (!pt) return false;
     const isAR = pt.type === 'customer', bal = S.d.bal[pid] || 0, ag = aging(pt.type).byP[pid];
     const dues = Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004)
@@ -2808,6 +2803,7 @@ function openStatement(pid){
         h('div', {class:'lg', style:'margin:2px 0 4px', text:pt.name}),
         h('div', {style:'display:flex;justify-content:space-between;align-items:baseline'}, h('span', {text:isAR ? '應收帳款' : '應付帳款'}), h('span', {class:'lg', text:money(bal)})),
         ag && lateOf(ag.b) > 0 ? h('div', {style:'display:flex;justify-content:space-between;margin-top:4px'}, h('small', {text:'其中逾期'}), h('small', {class:'overdue', text:money(lateOf(ag.b))})) : null),
+      isAR ? mtaxStmtPanel(pt) : null,
       h('div', {class:'sec-h'}, h('h2', {text:'未結單據'})),
       dues.length ? h('div', {class:'panel', style:'margin-bottom:14px'}, dues.map(o => {
         const late = daysBetween(dueDateOf(o), t);
@@ -6503,6 +6499,7 @@ function openArReport(month){
       h('div', {class:'sec-h'}, h('h2', {text:'客戶名單（勾選＝納入報表，已選 ' + M.custN + ' / ' + M.list.length + ' 位）'})),
       M.list.length ? h('div', {class:'panel', style:'max-height:42vh;overflow:auto', 'aria-label':'客戶名單'}, listRows) : h('div', {class:'panel empty', text:'沒有符合的客戶'}),
       h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'報表　' + U.month})), summary,
+      U.by === 'bill' ? (() => { const inRep = new Set(M.rows.map(r => r.pt.id)); return mtaxPendNote(U.month, pt => inRep.has(pt.id), '月結稅金還沒算進去', '0 0 10px'); })() : null,
       h('div', {class:'chips', style:'padding-top:0'}, h('small', {class:'hint', style:'align-self:center', text:'列印紙張 A4：'}), [[false, '直式'], [true, '橫式']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.land === k, 'aria-label':'紙張方向 ' + t, onclick:() => { U.land = k; render('orders'); }}, t))),
       U.tab === 'detail' ? h('div', {class:'f', style:'margin:6px 0 10px'}, h('label', {text:'列印時，標籤上收件人的位置：從左邊界往右多少 mm（0 ＝ 貼著左邊）'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:U.labDx ? String(U.labDx) : '', placeholder:'0', 'aria-label':'標籤收件人往右（mm）', style:'height:38px', onchange:e => { U.labDx = Math.min(Math.max(toNum(e.target.value), 0), 120); try { localStorage.setItem('arLabDx1', String(U.labDx)); } catch (_) {} render('orders'); }})) : null,
       h('div', {class:'chips', style:'padding-top:0'}, [['list', '客戶應收／已收／稅金清單'], ['detail', '銷貨單明細']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.tab === k, 'aria-label':'報表 ' + t, onclick:() => { U.tab = k; render('orders'); }}, t))),
@@ -6533,23 +6530,24 @@ const mtaxInvOrder = o => ({id:o.id, no:o.no, type:'tax', partnerId:o.partnerId,
 const mtaxPanel = o => { const pt = S.partners[o.partnerId], rest = r2((Number(o.base) || 0) - (Number(o.invAmt) || 0));
   return h('div', {class:'panel pad', style:'margin-bottom:14px', 'aria-label':'月結稅金內容'},
     kv('帳款月份', pt ? cycleLabel(o.month, cutoffOf(pt)) : o.month), kv('銷貨單', num(o.n || 0) + ' 張（沒有加稅的銷貨單，扣掉銷貨退回）'), kv('銷貨額（未稅）', money(o.base)), kv('發票比例', num(o.ratio) + '%'), kv('發票金額（未稅）', money(o.invAmt)),
-    rest > 0.004 ? kv('沒開發票', money(rest)) : null, kv('稅率', num(o.rate || taxRate()) + '%'), kv('稅金', money(o.tax))); };
+    rest > 0.004 ? kv('沒開發票', money(rest)) : null, kv('稅率', num(o.rate || taxRate()) + '%'), kv('稅金', money(o.tax)),
+    o.auto ? kv('產生方式', '帳期結束後系統自動產生') : null, o.autoAt ? kv('自動更新', fmtDT(o.autoAt)) : null); };
 /* 帳款月份 M 每位客戶的月結稅金：銷貨額＝這個月沒有加稅的銷貨單（扣掉銷貨退回），發票金額＝銷貨額 × 比例，稅金＝發票金額 × 稅率（都四捨五入到元）。
    st：todo＝還沒產生、done＝已產生而且數字一樣、changed＝已產生但銷貨額或比例變了、none＝不用開（銷貨額 0 或比例 0%） */
-function mtaxRows(M){
+function mtaxRows(M, only){   /* only：只算這一位客戶（對帳單用） */
   const by = {};
-  for (const o of Object.values(S.orders)){ if (o.status === 'void' || !o.partnerId || !(o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax')) continue; (by[o.partnerId] = by[o.partnerId] || []).push(o); }
+  for (const o of Object.values(S.orders)){ if (o.status === 'void' || !o.partnerId || (only && o.partnerId !== only) || !(o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax')) continue; (by[o.partnerId] = by[o.partnerId] || []).push(o); }
   const out = [];
-  for (const pt of Object.values(S.partners)){
+  for (const pt of (only ? [S.partners[only]].filter(Boolean) : Object.values(S.partners))){
     if (pt.type !== 'customer') continue;
-    const list = by[pt.id] || [], doc = list.find(o => o.type === 'tax' && o.month === M) || null, ok = mtaxEligible(pt);
+    const list = by[pt.id] || [], docs = list.filter(o => o.type === 'tax' && o.month === M).sort(mtaxKeepCmp), doc = docs[0] || null, ok = mtaxEligible(pt);   /* 同一個月好幾張（不該發生）：留一張，其他的放 dupDocs */
     const c = cutoffOf(pt), mine = list.filter(o => o.type !== 'tax' && billMonth(o.date, c) === M);
     if (!ok && !doc && !mine.some(isMonthTax)) continue;
     const slips = mine.filter(o => ok ? !(Number(o.tax) > 0) && o.taxType !== 'zero' : isMonthTax(o));   /* 現在不是月結開立的客戶：只算「月底算稅」的銷貨單 */
     if (!slips.length && !doc) continue;
     const base = r2(slips.reduce((a, o) => a + TYPES[o.type].money * (Number(o.total) || 0), 0)), ratio = invRatioOf(pt), rate = taxRate();
     const invAmt = base > 0 ? Math.round(base * ratio / 100 + 1e-9) : 0, tax = Math.round(invAmt * rate / 100 + 1e-9);
-    const r = {pt, M, ok, n:slips.length, taxed:mine.length - slips.length, base, ratio, rate, invAmt, tax, rest:r2(Math.max(base, 0) - invAmt), end:cycleRange(M, c)[1], doc};
+    const r = {pt, M, ok, n:slips.length, mon:slips.filter(isMonthTax).length, ex:slips.filter(o => o.taxType === 'exempt').length, dupDocs:docs.slice(1), taxed:mine.length - slips.length, base, ratio, rate, invAmt, tax, rest:r2(Math.max(base, 0) - invAmt), end:cycleRange(M, c)[1], doc};
     r.st = doc ? (Math.abs((Number(doc.tax) || 0) - tax) < 0.005 && Math.abs((Number(doc.base) || 0) - base) < 0.005 && Number(doc.ratio) === ratio ? 'done' : 'changed') : (tax > 0 ? 'todo' : 'none');
     out.push(r);
   }
@@ -6557,9 +6555,9 @@ function mtaxRows(M){
 }
 /* 這位客戶這個帳款月份「已經加稅」的銷貨單、銷貨退回，哪些可以改成月底算稅（每張的稅金拿掉，改由月結稅金一起算）。
    不能改的：含稅價、零稅率、已經記錄發票號碼、已覆核、月份已封存、已收（退）款超過未稅金額 */
-function mtaxConvPlan(pt, M){
+function mtaxConvPlan(pt, M, list){   /* list：這位客戶的單據（已經挑好的話，不用再掃全部） */
   const c = cutoffOf(pt), ok = [], skip = [];
-  for (const o of Object.values(S.orders)){
+  for (const o of (list || Object.values(S.orders))){
     if (o.partnerId !== pt.id || o.status === 'void' || !(o.type === 'sale' || o.type === 'sale_return') || billMonth(o.date, c) !== M || !(Number(o.tax) > 0)) continue;
     const net = r2(Number(o.net) || 0), got = r2((Number(o.paid) || 0) + (S.d.alloc[o.id] || 0));
     const why = o.taxType !== 'taxable' ? '零稅率' : (o.taxMode === 'incl' ? '含稅價' : (o.invNo ? '已開發票 ' + o.invNo : (reviewLock('order', o) ? '已覆核' : (reviewOn() && monthLocked('orders', o.date) ? '月份已封存' : (!(net > 0) ? '沒有未稅金額' : (got > net + 0.004 ? (o.type === 'sale' ? '已收款' : '已退款') + ' ' + money(got) + ' 超過未稅金額' : ''))))));
@@ -6573,29 +6571,35 @@ async function mtaxConvert(pt, M){
   const pl = mtaxConvPlan(pt, M), why = x => x.o.no + '（' + x.why + '）';
   if (!pl.ok.length) return toast(pl.skip.length ? '沒有可以改的：' + pl.skip.map(why).join('、') : '沒有已經加稅的銷貨單');
   const sumTax = r2(pl.ok.reduce((a, x) => a + TYPES[x.o.type].money * x.tax, 0));
-  if (!await dialog({title:'把 ' + pl.ok.length + ' 張已加稅的單據改成月底算稅？', msg:pl.ok.map(x => x.o.no).join('、') + '：每張的稅金拿掉（合計 ' + money(sumTax) + '），金額改成未稅；稅金改由「月結稅金」用整個月的未稅金額一起算。改完再按「產生」或「更新」。' + (pl.skip.length ? '　不能改的 ' + pl.skip.length + ' 張：' + pl.skip.map(why).join('、') + '。' : ''), ok:'改成月底算稅'})) return;
+  if (!await dialog({title:'把 ' + pl.ok.length + ' 張已加稅的單據改成月底算稅？', msg:pl.ok.map(x => x.o.no).join('、') + '：每張的稅金拿掉（合計 ' + money(sumTax) + '），金額改成未稅；稅金改由「月結稅金」用整個月的未稅金額一起算。' + mtaxNextTxt(M) + '。' + (pl.skip.length ? '　不能改的 ' + pl.skip.length + ' 張：' + pl.skip.map(why).join('、') + '。' : ''), ok:'改成月底算稅'})) return;
   let n = 0;
-  const ok = await run(async () => { for (const x of pl.ok){ lockGuardNew('orders', x.o.date); await S.db.doc('orders/' + x.o.id).update({tax:0, total:x.net, taxType:'taxable', taxMode:'month', taxConv:{at:Date.now(), by:S.meId || null, byName:myName(), tax:x.tax, total:Number(x.o.total) || 0}, editedBy:S.meId || null, editedAt:Date.now()}); n++; } return true; });
-  if (ok) toast('已改 ' + n + ' 張，請按「產生」或「更新」月結稅金');
+  const ok = await run(async () => { for (const x of pl.ok){ await mtaxConvOne(x); n++; } return true; });
+  if (ok) toast('已改 ' + n + ' 張，' + (mtaxAutoOn() ? mtaxNextTxt(M) : '請按「產生」或「更新」月結稅金'));
   else if (n) toast('已改 ' + n + ' 張，其他的沒改成功，請再按一次');
 }
 /* 產生、更新或作廢一位客戶這個月的月結稅金 */
-async function mtaxSave(r){
+async function mtaxSave(r, auto){   /* auto：帳期結束後系統自動產生／更新 */
   lockGuardNew('orders', r.end);
   const d = r.doc;
   if (d){
     if (r.tax <= 0){
       if ((S.d.alloc[d.id] || 0) > 0.004) throw new Error(d.no + ' 已經有收款沖銷，請先處理收款再重算');
-      await S.db.doc('orders/' + d.id).update({status:'void', voidBy:S.meId || null, voidAt:Date.now(), voidNote:'月結稅金重算：稅金是 0'}); return 'void';
+      await S.db.doc('orders/' + d.id).update({status:'void', voidBy:S.meId || null, voidAt:Date.now(), voidNote:'月結稅金重算：稅金是 0' + (auto ? '（系統自動）' : ''), voidCalc:true, ...(auto ? {voidAuto:true} : {})}); return 'void';
     }
-    await S.db.doc('orders/' + d.id).update({base:r.base, ratio:r.ratio, rate:r.rate, invAmt:r.invAmt, tax:r.tax, total:r.tax, n:r.n, note:mtaxNote(r), editedBy:S.meId || null, editedAt:Date.now()});
+    await S.db.doc('orders/' + d.id).update({base:r.base, ratio:r.ratio, rate:r.rate, invAmt:r.invAmt, tax:r.tax, total:r.tax, n:r.n, cut:cutoffOf(r.pt), note:mtaxNote(r), editedBy:S.meId || null, editedAt:Date.now(), ...(auto ? {autoAt:Date.now()} : {})});
     return 'update';
   }
   if (r.tax <= 0) return 'skip';
-  const prev = Object.values(S.orders).filter(o => o.type === 'tax' && o.partnerId === r.pt.id && o.month === r.M).length;
+  /* 已經有了（別人或系統剛產生）就不要再產生一張：先看手上的資料，再跟伺服器確認這個代號還沒被用（不用 set 蓋掉別人的單據） */
+  const live = Object.values(S.orders).find(o => o.type === 'tax' && o.partnerId === r.pt.id && o.month === r.M && o.status !== 'void');
+  if (live){ if (auto) return 'skip'; throw Object.assign(new Error(live.no + ' 已經產生了（可能是別人或系統剛產生），請看最新的資料'), {code:'mtax_exists'}); }
+  const idOf = n => 'tx_' + r.pt.id + '_' + r.M + (n > 1 ? '_' + n : '');
+  let n = 1; while (S.orders[idOf(n)]) n++;   /* 第一張 tx_客戶_月份；作廢過才用 _2、_3：兩台同時產生會寫到同一個代號 */
+  const ref = S.db.doc('orders/' + idOf(n)), cur = await ref.get();
+  if (cur.exists || mtaxStale(cur)){ if (auto) return 'skip'; throw Object.assign(new Error('剛剛有人產生了 ' + r.M + ' 帳的月結稅金，請等一下再看'), {code:'mtax_exists'}); }
   const code = String(r.pt.code || '').replace(/[^A-Za-z0-9-]/g, '') || r.pt.id.slice(0, 6);
-  await S.db.doc('orders/tx_' + r.pt.id + '_' + r.M + (prev ? '_' + (prev + 1) : '')).set({type:'tax', no:'TX' + r.M.slice(2, 4) + r.M.slice(5, 7) + '-' + code + (prev ? '-' + (prev + 1) : ''), date:r.end, month:r.M, partnerId:r.pt.id,
-    base:r.base, ratio:r.ratio, rate:r.rate, invAmt:r.invAmt, net:0, tax:r.tax, total:r.tax, paid:0, taxType:'taxable', taxMode:'excl', lines:[], n:r.n, note:mtaxNote(r), status:'posted', ...stamp(), at:Date.now()});
+  await ref.set({type:'tax', no:'TX' + r.M.slice(2, 4) + r.M.slice(5, 7) + '-' + code + (n > 1 ? '-' + n : ''), date:r.end, month:r.M, partnerId:r.pt.id,
+    base:r.base, ratio:r.ratio, rate:r.rate, invAmt:r.invAmt, net:0, tax:r.tax, total:r.tax, paid:0, taxType:'taxable', taxMode:'excl', lines:[], n:r.n, cut:cutoffOf(r.pt), note:mtaxNote(r), status:'posted', ...stamp(), ...(auto ? {auto:true} : {}), at:Date.now()});
   return 'new';
 }
 async function mtaxRun(list){
@@ -6603,9 +6607,262 @@ async function mtaxRun(list){
   const nm = r => r.pt.shortName || r.pt.name, inv = list.filter(r => r.doc && r.doc.invNo), total = r2(list.reduce((a, r) => a + r.tax, 0));
   const title = list.length === 1 ? (list[0].doc ? (list[0].tax > 0 ? '更新 ' : '作廢 ') : '產生 ') + nm(list[0]) + ' 的月結稅金？' : '產生／更新 ' + list.length + ' 位客戶的月結稅金？';
   if (!await dialog({title, msg:'稅金合計 ' + money(total) + '，會記在應收帳款裡。' + (inv.length ? inv.map(r => r.doc.no + '（發票 ' + r.doc.invNo + '）').join('、') + ' 已經記錄發票，金額改了要重開發票。' : ''), ok:'確定'})) return;
-  let n = 0;
-  const ok = await run(async () => { for (const r of list){ await mtaxSave(r); n++; } return true; });
-  if (ok) toast('已完成 ' + n + ' 位客戶的月結稅金');
+  let n = 0; const skipped = [];
+  const ok = await run(async () => { for (const r of list){ try { await mtaxSave(r); n++; } catch (e){ if (e && e.code === 'mtax_exists') skipped.push(r); else throw e; } } return true; });   /* 別人（或系統）剛產生的那位略過，其他照常 */
+  if (ok) toast(skipped.length ? (n ? '已完成 ' + n + ' 位客戶的月結稅金；' : '') + skipped.map(r => r.pt.shortName || r.pt.name).join('、') + ' 剛剛已經有人產生了，略過' : '已完成 ' + n + ' 位客戶的月結稅金');
+}
+/* ===== -cl：月底結帳時自動算月結稅金 =====
+   帳期一結束（過了結帳日），系統就用整個月的未稅金額算好營業稅、產生「月結稅金」單據，不用再自己按「產生」；
+   之後補單、退貨、改發票比例，還沒開發票的也會自動更新（金額一直跟著整個月的未稅金額）。
+   範圍：有「月結・月底算稅」銷貨單的客戶，或之前產生過月結稅金的客戶（只往後接著算，不補以前的月份）；這位客戶本帳款月份往前 3 個月內。
+   不自動改：已記錄發票號碼、已覆核、月份已封存、已收款超過新的稅金 → 留在「月結稅金」畫面和首頁提醒，由人決定。
+   由有「收款與帳款」權限（或管理員）的人打開系統時執行；單據代號固定（tx_客戶_月份），好幾個人同時開著也不會重複產生。 */
+const MTAX_AUTO_BACK = 3, MTAX_WATCH = new Set(['orders', 'partners', 'payments', 'locks']);
+/* 剛打開、從背景回來、恢復連線：先等 10 秒，讓手機／電腦裡存的舊資料和伺服器同步，再自動算 */
+const MTAX_SETTLE = window.__TESTHOOK && typeof window.__mtaxSettle === 'number' ? window.__mtaxSettle : 10000;
+const ymAdd = (bm, k) => { const [y, m] = String(bm).split('-').map(Number), dt = new Date(y, m - 1 + k, 1); return dt.getFullYear() + '-' + pad(dt.getMonth() + 1); };
+const mdTxt = s => Number(String(s).slice(5, 7)) + '/' + Number(String(s).slice(8, 10));
+const mtaxAutoSet = () => S.set.mtaxAuto !== false;
+const mtaxAutoOn = () => mtaxAutoSet() && S.set.taxMode !== 'none';
+/* 從伺服器讀回來的是不是手機裡存的舊資料（沒有網路、還沒同步） */
+const mtaxStale = s => !!(s && s.metadata && s.metadata.fromCache);
+/* 每位客戶的月結稅金（資料換了才重新整理） */
+let mtaxIdx = null, mtaxIdxSrc = null;
+const mtaxDocsOf = pid => { if (mtaxIdxSrc !== S.orders){ mtaxIdx = {}; for (const o of Object.values(S.orders)) if (o.type === 'tax') (mtaxIdx[o.partnerId] = mtaxIdx[o.partnerId] || []).push(o); mtaxIdxSrc = S.orders; } return mtaxIdx[pid] || []; };
+/* 每位客戶最近一次（沒作廢的）月結稅金是哪個帳款月份 */
+const mtaxLastDoc = () => { const m = {}; for (const o of Object.values(S.orders)) if (o.type === 'tax' && o.status !== 'void' && o.month && !(m[o.partnerId] >= o.month)) m[o.partnerId] = o.month; return m; };
+/* 自動處理哪些：這期有「月底算稅」的銷貨單；系統自動產生過的月結稅金（之後的變動）；之前產生過月結稅金的客戶接著往後的月份（不補以前的）。
+   有人手動產生、這期又沒有月底算稅銷貨單的，變動了由人按「更新」 */
+const mtaxAutoScope = (r, last) => r.mon > 0 || !!(r.doc && r.doc.auto) || (!r.doc && !!(last[r.pt.id] && last[r.pt.id] < r.M));
+/* 結帳日 0、1 都是「整個月（月底結帳）」 */
+const cutN = c => (Number(c) < 2 ? 0 : Number(c));
+const cutTxt = c => cutN(c) ? '每月 ' + cutN(c) + ' 日結帳' : '整個月（月底結帳）';
+/* 單據產生時用的結帳日：-cl 起記在單據上（cut）；以前的單據從日期推回去（日期＝帳期最後一天：月底 → 整個月；不然 → 那一天＋1） */
+const mtaxCutOf = (o, c) => {
+  if (o && o.cut !== undefined && o.cut !== null && o.cut !== '' && isFinite(Number(o.cut))) return cutN(o.cut);
+  const ds = String((o && o.date) || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return cutN(c);
+  const [y, m, d] = ds.split('-').map(Number);
+  return d === new Date(y, m, 0).getDate() ? 0 : d + 1;
+};
+/* 同一個月有好幾張時留哪一張：有發票號碼的 → 已收款或已覆核的 → 手動產生的 → 最早的 */
+const mtaxHeld = o => (S.d.alloc[o.id] || 0) > 0.004 || o.reviewed === true || reviewLock('order', o);
+const mtaxKeepCmp = (a, b) => (a.invNo ? 0 : 1) - (b.invNo ? 0 : 1) || (mtaxHeld(a) ? 0 : 1) - (mtaxHeld(b) ? 0 : 1) || (a.auto ? 1 : 0) - (b.auto ? 1 : 0) || (a.at || 0) - (b.at || 0) || String(a.id).localeCompare(String(b.id));
+/* 多出來的那張系統可以自己作廢：系統產生的、沒記錄發票、沒收款、沒覆核 */
+const mtaxDupVoidable = x => !!x.auto && !x.invNo && !mtaxHeld(x);
+/* 作廢的原因是「重算稅金變 0」或「重複」（不是有人特地作廢） */
+const mtaxCalcVoid = o => !!(o.voidAuto || o.voidCalc || /^月結稅金重算|^重複的月結稅金/.test(String(o.voidNote || '')));
+/* 已經產生的月結稅金：自動更新時沿用單據上的發票比例和稅率（之後改設定不回頭改以前的月份），只跟著銷貨額變 */
+function mtaxAutoRow(r){
+  const d = r.doc; if (!d) return r;
+  const keep = (v, dflt) => v !== undefined && v !== null && v !== '' && isFinite(Number(v)) ? Number(v) : dflt;
+  const ratio = keep(d.ratio, r.ratio), rate = keep(d.rate, r.rate);
+  const invAmt = r.base > 0 ? Math.round(r.base * ratio / 100 + 1e-9) : 0, tax = Math.round(invAmt * rate / 100 + 1e-9);
+  return {...r, ratio, rate, invAmt, tax, rest:r2(Math.max(r.base, 0) - invAmt)};
+}
+/* 已經產生的、銷貨額沒變（只是後來改了比例或稅率）→ 自動不動；要套用新設定，由人按「更新」 */
+const mtaxSettingsOnly = r => { if (!r.doc) return false; const a = mtaxAutoRow(r); return Math.abs((Number(r.doc.base) || 0) - a.base) < 0.005 && Math.abs((Number(r.doc.tax) || 0) - a.tax) < 0.005; };
+/* 這一筆為什麼不能自動處理（'' ＝ 可以） */
+function mtaxAutoWhy(r){
+  const d = r.doc, c = cutoffOf(r.pt), a = mtaxAutoRow(r);
+  if (reviewOn() && monthLocked('orders', r.end)) return ymOf(r.end) + ' 已封存';
+  if (!d && reviewOn() && S.set.reviewFrom && r.end < S.set.reviewFrom) return '覆核起始日（' + S.set.reviewFrom + '）以前的月份';
+  if (r.ex > 0 && mtaxDefOK(r.pt)) return '有 ' + r.ex + ' 張免稅的銷貨單，要不要算稅請人工確認';
+  if (r.dupDocs && r.dupDocs.length) return '同一個月有 ' + (r.dupDocs.length + 1) + ' 張月結稅金（' + [d, ...r.dupDocs].map(o => o.no).join('、') + '），' + (r.dupDocs.every(mtaxDupVoidable) ? '系統會作廢多的' : '請作廢多的那張');
+  if (d && mtaxCutOf(d, c) !== cutN(c)) return '結帳日改過（' + d.no + ' 是照' + cutTxt(mtaxCutOf(d, c)) + '算的），請人工確認';
+  const [p1, p2] = cycleRange(r.M, c);
+  for (const o of mtaxDocsOf(r.pt.id)) if (o.status !== 'void' && o.month !== r.M){ const [q1, q2] = cycleRange(o.month, mtaxCutOf(o, c)); if (q1 <= p2 && p1 <= q2) return '結帳日改過，期間和 ' + o.no + ' 重疊，請人工確認'; }
+  if (!d){ const v = mtaxDocsOf(r.pt.id).find(o => o.month === r.M && o.status === 'void' && !mtaxCalcVoid(o)); return v ? v.no + ' 有人作廢過，不會自動再產生' : ''; }
+  if (d.invNo) return '已記錄發票 ' + d.invNo + '，金額變了要重開發票';
+  if (reviewLock('order', d) || d.reviewed === true) return d.no + ' 已覆核';
+  const al = r2(S.d.alloc[d.id] || 0);
+  if (al > 0.004 && (a.tax <= 0 || al > a.tax + 0.004)) return d.no + ' 已收款 ' + money(al) + '，比新的稅金多';
+  return '';
+}
+/* 不會自動處理的原因（畫面、首頁待辦用）：不能自動的，或只是改了比例、稅率 */
+const mtaxAutoBlock = r => mtaxAutoWhy(r) || (r.st === 'changed' && mtaxSettingsOnly(r) ? '發票比例或稅率改過（' + r.doc.no + ' 還是照 ' + num(mtaxAutoRow(r).ratio) + '%、稅率 ' + num(mtaxAutoRow(r).rate) + '% 算），要套用請按「更新」' : '');
+/* 這一筆現在要不要自動處理：還沒產生的要等帳期結束；已經產生的，銷貨額變了才更新 */
+function mtaxAutoFit(r, t, last){
+  if (r.st !== 'todo' && r.st !== 'changed') return false;
+  if (!mtaxAutoScope(r, last || mtaxLastDoc())) return false;
+  const cur = billMonth(t, cutoffOf(r.pt));
+  if (r.M > cur || r.M < ymAdd(cur, -MTAX_AUTO_BACK)) return false;
+  if (!r.doc && !(r.end < t)) return false;
+  if (r.doc && mtaxSettingsOnly(r)) return false;
+  return !mtaxAutoWhy(r);
+}
+function mtaxAutoPlan(){
+  if (!Object.values(S.orders).some(o => o.status !== 'void' && (o.type === 'tax' || isMonthTax(o)))) return [];
+  const t = today(), last = mtaxLastDoc(), cuts = new Set([cutoff()]), months = new Set(), out = [];
+  for (const pt of Object.values(S.partners)) if (pt.type === 'customer') cuts.add(cutoffOf(pt));
+  for (const c of cuts){ const cur = billMonth(t, c); for (let i = 0; i <= MTAX_AUTO_BACK; i++) months.add(ymAdd(cur, -i)); }
+  for (const M of [...months].sort()) for (const r of mtaxRows(M)) if (mtaxAutoFit(r, t, last)) out.push(r);
+  return out;
+}
+/* 同一位客戶、同一個月有兩張以上沒作廢的（兩台電腦同時產生、網路很慢時）：留一張（有發票號碼的 → 已收款或已覆核的 → 手動的 → 最早的），
+   其他系統自動產生、還沒記錄發票、沒收款、沒覆核的自動作廢；作廢不了的，月結稅金畫面和首頁待辦提醒由人處理 */
+function mtaxAutoDups(){
+  const g = {}, out = [];
+  for (const o of Object.values(S.orders)) if (o.type === 'tax' && o.status !== 'void' && o.month) (g[o.partnerId + '|' + o.month] = g[o.partnerId + '|' + o.month] || []).push(o);
+  for (const l of Object.values(g)) if (l.length > 1){ l.sort(mtaxKeepCmp); for (const x of l.slice(1)) if (mtaxDupVoidable(x)) out.push(x); }
+  return out;
+}
+let mtaxAutoT = 0, mtaxAutoT0 = 0, mtaxAutoBusy = false, mtaxAutoAgain = false, mtaxAutoWait = 0, mtaxAutoReadyAt = 0, mtaxAutoLast = 0;
+const mtaxAutoErr = {}, mtaxAutoEv = [], mtaxFromCache = {};
+/* 資料變動：250 毫秒內的算同一次；5 秒內有 5 次以上＝正在大量寫入（匯入、還原備份、清除資料），先等它停 */
+function mtaxAutoTouch(){ const n = Date.now(); if (n - mtaxAutoLast > 250){ mtaxAutoEv.push(n); mtaxAutoLast = n; } while (mtaxAutoEv.length && n - mtaxAutoEv[0] > 5000) mtaxAutoEv.shift(); }
+const mtaxAutoHeavy = () => mtaxAutoEv.filter(t => Date.now() - t < 5000).length >= 5;
+/* 剛打開、從背景回來、恢復連線：先等資料和伺服器同步 */
+function mtaxAutoSettle(){ mtaxAutoReadyAt = Date.now() + MTAX_SETTLE; mtaxAutoSoon(MTAX_SETTLE + 300); }
+/* 資料一直在變時（大家同時在開單），最多等 8 秒就檢查一次（真的在大量寫入的話，檢查時會再往後等） */
+function mtaxAutoSoon(ms){
+  const now = Date.now(); if (!mtaxAutoT0) mtaxAutoT0 = now;
+  clearTimeout(mtaxAutoT);
+  mtaxAutoT = setTimeout(() => { mtaxAutoT0 = 0; mtaxAutoRun().catch(e => console.error(e)); }, now - mtaxAutoT0 > 8000 ? 0 : (ms === undefined ? 1500 : ms));
+}
+const mtaxAutoCanRun = () => !!S.db && !!S.canWrite && (can('pay') || S.isAdmin) && fxOn('monthTax') && mtaxAutoOn();
+/* 首頁待辦：這一筆系統馬上會自動處理，就不用列出來 */
+const mtaxAutoSoonDone = r => mtaxAutoCanRun() && ready() && !(mtaxAutoErr[r.pt.id + '|' + r.M] > Date.now()) && mtaxAutoFit(r, today());
+async function mtaxAutoRun(){
+  if (mtaxAutoBusy){ mtaxAutoAgain = true; return []; }
+  if (!S.db) return [];
+  if (!ready()){ if (mtaxAutoWait++ < 90) mtaxAutoSoon(2000); return []; }
+  if (!mtaxAutoCanRun()) return [];
+  const now = Date.now();
+  if (now < mtaxAutoReadyAt){ mtaxAutoSoon(mtaxAutoReadyAt - now + 200); return []; }
+  if (mtaxAutoHeavy()){ mtaxAutoSoon(3000); return []; }
+  if (Object.values(mtaxFromCache).some(Boolean) && now < mtaxAutoReadyAt + 60e3){ mtaxAutoSoon(5000); return []; }   /* 畫面上的資料還是手機裡存的舊資料：等和伺服器同步（沒有變動的話不會再通知，最多等 1 分鐘） */
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return [];
+  const dups = mtaxAutoDups(), plan = mtaxAutoPlan().filter(r => !(mtaxAutoErr[r.pt.id + '|' + r.M] > now));
+  if (!plan.length && !dups.length) return [];
+  mtaxAutoBusy = true; const done = [];
+  try {
+    /* 先問伺服器：自動有沒有被管理員關掉、是不是在用舊資料（沒有網路） */
+    const ss = await S.db.doc('settings/main').get();
+    if (mtaxStale(ss)){ mtaxAutoSoon(60e3); return []; }
+    const sv = (ss.exists && ss.data()) || {};
+    if (sv.mtaxAuto === false || sv.taxMode === 'none') return [];
+    for (const x of dups){
+      try {
+        const s2 = await S.db.doc('orders/' + x.id).get(), v = (s2.exists && s2.data()) || null;
+        if (mtaxStale(s2) || !v || v.status === 'void' || v.invNo || v.reviewed === true) continue;
+        await S.db.doc('orders/' + x.id).update({status:'void', voidAuto:true, voidBy:S.meId || null, voidAt:Date.now(), voidNote:'重複的月結稅金（系統自動作廢）'});
+        done.push({r:{M:x.month, tax:0}, k:'dup'});
+      } catch (e){ console.error(e); }
+    }
+    for (const r0 of plan){
+      const key = r0.pt.id + '|' + r0.M, r = mtaxRows(r0.M, r0.pt.id)[0];   /* 每一筆寫之前重新算：別人可能剛改過 */
+      if (!r || !mtaxAutoFit(r, today())) continue;
+      try { const x = await mtaxAutoSave(r); if (x) done.push(x); }
+      catch (e){ console.error(e); mtaxAutoErr[key] = Date.now() + 30 * 60e3; }
+    }
+  } finally {
+    mtaxAutoBusy = false;
+    if (mtaxAutoAgain){ mtaxAutoAgain = false; mtaxAutoSoon(); }
+  }
+  if (done.length){
+    const ms = [...new Set(done.map(x => x.r.M))].sort(), cnt = k => done.filter(x => x.k === k).length, tax = r2(done.filter(x => x.k === 'new' || x.k === 'update').reduce((a, x) => a + x.r.tax, 0));
+    toast('已自動算好 ' + ms.join('、') + ' 帳的月結稅金：' + [cnt('new') ? '產生 ' + cnt('new') + ' 位客戶' : '', cnt('update') ? '更新 ' + cnt('update') + ' 位' : '', cnt('void') ? '作廢 ' + cnt('void') + ' 張' : '', cnt('dup') ? '作廢重複的 ' + cnt('dup') + ' 張' : ''].filter(Boolean).join('、') + (tax ? '（稅金 ' + money(tax) + '）' : ''));
+  }
+  return done;
+}
+/* 自動寫一筆：寫之前再跟伺服器確認一次（月份有沒有封存、單據在伺服器上是不是和手上看到的一樣；已開發票、已覆核就不動） */
+async function mtaxAutoSave(r0){
+  const r = mtaxAutoRow(r0);
+  const lk = await S.db.doc('locks/' + ymOf(r.end)).get();
+  if (mtaxStale(lk) || (reviewOn() && lk.exists && (lk.data() || {}).orders)) return null;
+  if (r.doc){
+    const s2 = await S.db.doc('orders/' + r.doc.id).get(), v = (s2.exists && s2.data()) || null;
+    if (mtaxStale(s2) || !v || v.status === 'void' || v.invNo || v.reviewed === true || Math.abs((Number(v.tax) || 0) - (Number(r.doc.tax) || 0)) > 0.004 || Math.abs((Number(v.base) || 0) - (Number(r.doc.base) || 0)) > 0.004) return null;   /* 伺服器上的已經不一樣：等最新的資料再算 */
+  }
+  const k = await mtaxSave(r, true);
+  return k === 'skip' ? null : {r, k};
+}
+/* 月底算稅的銷貨單：還沒有月結稅金時，什麼時候算 */
+const mtaxWhenTxt = o => { const pt = S.partners[o.partnerId], c = cutoffOf(pt), end = cycleRange(billMonth(o.date, c), c)[1]; return mtaxAutoOn() && end >= today() ? '（帳期 ' + mdTxt(end) + ' 結束後自動算）' : '（月結稅金還沒產生）'; };
+/* 營運報表、應收帳款報表、回傳表：帳款月份 M 還沒算進去的月結稅金（還沒產生或要更新） */
+function mtaxPendNote(M, pick, aria, mg){
+  if (!fxOn('monthTax')) return null;
+  const td = mtaxRows(M).filter(r => (r.st === 'todo' || r.st === 'changed') && (!pick || pick(r.pt))); if (!td.length) return null;
+  const est = r2(td.reduce((a, r) => a + r.tax - (r.doc ? Number(r.doc.tax) || 0 : 0), 0)), open = M >= billMonth(today(), cutoff()), last = mtaxLastDoc();
+  const auto = open && mtaxAutoOn() && td.every(r => mtaxAutoScope(r, last));
+  const txt = auto ? '這個帳款月份還沒結束：' + td.length + ' 位月結客戶的營業稅，會在帳期結束後自動用整個月的未稅金額算（預估 ' + money(est) + '），本期稅金還沒算進去。'
+    : (open ? '這個帳款月份還沒結束。' : '') + td.length + ' 位月結客戶的稅金還沒' + (td.some(r => r.st === 'changed') ? '產生或更新' : '產生') + '（預估' + (est >= 0 ? '再加 ' : '少 ') + money(Math.abs(est)) + '），本期稅金還沒算進去。';
+  return h('div', {class:'note warn', 'aria-label':aria || '月結稅金還沒產生', style:'margin:' + (mg || '8px 0 0') + ';display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap'},
+    h('span', {style:'flex:1 1 200px;min-width:0', text:txt}),
+    can('pay') || S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'打開月結稅金 ' + M, onclick:() => openMonthTax(M)}, open ? '看月結稅金' : '產生月結稅金') : null);
+}
+/* 對帳單：月結客戶的營業稅（上一期的月結稅金、本期還沒結帳的預估） */
+function mtaxStmtPanel(pt){
+  if (!pt || pt.type !== 'customer' || !fxOn('monthTax')) return null;
+  const t = today(), c = cutoffOf(pt), cur = billMonth(t, c), last = mtaxLastDoc(), auto = mtaxAutoOn(), canDo = can('pay') || S.isAdmin;
+  const row = (M, tag) => {
+    const r = mtaxRows(M, pt.id)[0]; if (!r || (!r.n && !r.doc)) return null;
+    const d = r.doc, why = mtaxAutoBlock(r), sc = auto && mtaxAutoScope(r, last), isOpen = r.end >= t, late = r.st === 'changed' || (r.st === 'todo' && !isOpen) || r.dupDocs.length > 0;
+    const txt = r.st === 'done' ? '月結稅金 ' + d.no + '：未稅 ' + money(r.base) + (r.ratio !== 100 ? '，發票 ' + num(r.ratio) + '%' : '') + '，稅金 ' + money(d.tax) + (d.invNo ? '，發票 ' + d.invNo : '') + (r.dupDocs.length ? '；' + why : '')
+      : r.st === 'changed' ? '月結稅金 ' + d.no + '（稅金 ' + money(d.tax) + '）：銷貨額或比例變了，應該是 ' + money(r.tax) + (sc ? (why ? '；不會自動更新：' + why : '；系統會自動更新') : '')
+      : r.st === 'todo' ? '未稅 ' + money(r.base) + '（' + r.n + ' 張），營業稅預估 ' + money(r.tax) + (isOpen ? '；帳期 ' + mdTxt(r.end) + ' 結束後' + (sc ? '自動用整個月的未稅金額算' : '到「月結稅金」產生') : '，月結稅金還沒產生')
+      : '未稅 ' + money(r.base) + '，' + (r.base <= 0 ? '不用算稅' : '發票比例 0%，不開發票');
+    const act = r.st === 'done' ? h('button', {class:'btn ghost sm', 'aria-label':tag + '月結稅金單據', onclick:() => openOrderDetail(d.id)}, '單據')
+      : late && canDo ? h('button', {class:'btn sm', 'aria-label':(r.st === 'todo' ? '產生' : '更新') + tag + '月結稅金', onclick:() => mtaxRun([r])}, r.st === 'todo' ? '產生' : (r.tax > 0 ? '更新' : '作廢')) : null;
+    return h('div', {class:'row', style:'grid-template-columns:minmax(0,1fr) auto;align-items:center', 'aria-label':tag + '營業稅'},
+      h('span', {style:'min-width:0'}, h('b', {text:tag + '　' + cycleLabel(M, c)}), h('br'), h('small', {class:late ? 'overdue' : 'hint', text:txt})), act || h('span'));
+  };
+  const rows = [row(ymAdd(cur, -1), '上期'), row(cur, '本期')].filter(Boolean);
+  if (!rows.length) return null;
+  return [h('div', {class:'sec-h'}, h('h2', {text:'營業稅（月結）'})), h('div', {class:'panel', style:'margin-bottom:6px', 'aria-label':'月結營業稅'}, rows),
+    h('small', {class:'hint', style:'display:block;margin:0 2px 14px', 'aria-label':'月結營業稅說明', text:'月結客戶的銷貨單不加稅，帳期結束後用整個月的未稅金額一起算營業稅（月結稅金），不會有每張單各自四捨五入的差額。'})];
+}
+/* 匯出對帳單的副標題：上期月結稅金還沒產生、本期稅金月底才算 */
+function mtaxStmtNote(pt){
+  if (!pt || pt.type !== 'customer' || !fxOn('monthTax')) return '';
+  const c = cutoffOf(pt), cur = billMonth(today(), c), out = [];
+  const rl = mtaxRows(ymAdd(cur, -1), pt.id)[0], rc = mtaxRows(cur, pt.id)[0];
+  if (rl && (rl.st === 'todo' || rl.st === 'changed') && rl.tax > 0) out.push(rl.M + ' 帳月結稅金還沒' + (rl.doc ? '更新' : '產生') + '（預估 ' + money(rl.tax) + '）');
+  if (rc && !rc.doc && rc.n && rc.tax > 0) out.push('本期（' + rc.M + ' 帳）營業稅月底結帳時依整月未稅金額計算（預估 ' + money(rc.tax) + '）');
+  return out.length ? '　' + out.join('；') : '';
+}
+/* 已加稅的單據改成月底算稅（一張） */
+const mtaxConvOne = x => { lockGuardNew('orders', x.o.date); return S.db.doc('orders/' + x.o.id).update({tax:0, total:x.net, taxType:'taxable', taxMode:'month', taxConv:{at:Date.now(), by:S.meId || null, byName:myName(), tax:x.tax, total:Number(x.o.total) || 0}, editedBy:S.meId || null, editedAt:Date.now()}); };
+const mtaxNextTxt = M => !mtaxAutoOn() ? '改完再按「產生」或「更新」' : (M >= billMonth(today(), cutoff()) ? '帳期結束後系統會自動產生月結稅金' : '月結稅金會自動產生或更新');
+/* 帳款月份 M：預設月底算稅的客戶（月結、應稅未稅價）裡，還有已經加稅的銷貨單可以改的 → [{pt, pl}]（訂單只掃一次） */
+function mtaxConvAll(M){
+  const by = {}, out = [];
+  for (const o of Object.values(S.orders)) if (o.partnerId && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return') && Number(o.tax) > 0) (by[o.partnerId] = by[o.partnerId] || []).push(o);
+  for (const [pid, list] of Object.entries(by)){ const pt = S.partners[pid]; if (!pt || pt.type !== 'customer' || !mtaxDefOK(pt)) continue; const pl = mtaxConvPlan(pt, M, list); if (pl.ok.length || pl.skip.length) out.push({pt, pl}); }
+  return out.sort((a, b) => String(a.pt.code || '').localeCompare(String(b.pt.code || ''), 'zh-TW', {numeric:true}) || cmpName(a.pt, b.pt));
+}
+/* 月結稅金畫面：月結客戶這個月還有已經加稅的銷貨單（例如改版以前開的）→ 一次全部改成月底算稅（管理員） */
+function mtaxConvAllBtn(all, M){
+  if (!S.isAdmin) return null;
+  const plans = mtaxConvAll(M).filter(x => x.pl.ok.length);
+  if (!plans.length || (plans.length === 1 && all.some(r => r.pt.id === plans[0].pt.id && r.taxed))) return null;   /* 只有一位、而且那一位下面已經有按鈕 */
+  const n = plans.reduce((a, x) => a + x.pl.ok.length, 0);
+  return h('div', {class:'panel pad', style:'margin:0 0 8px', 'aria-label':'已加稅的單據'},
+    h('small', {class:'hint', style:'display:block;margin-bottom:6px', text:'這個帳款月份有 ' + plans.length + ' 位月結客戶的銷貨單已經加稅（每張各自算稅、各自四捨五入）。改成月底算稅，就和其他單一起用整個月的未稅金額算。'}),
+    h('button', {class:'btn ghost', style:'width:100%;white-space:normal;height:auto;min-height:42px;padding:8px 12px', 'aria-label':'全部改成月底算稅', onclick:() => mtaxConvertAll(M)}, '全部改成月底算稅（' + plans.length + ' 位客戶、' + n + ' 張）'));
+}
+async function mtaxConvertAll(M){
+  if (!S.isAdmin) return toast('只有管理員可以把銷貨單改成月底算稅');
+  const allPl = mtaxConvAll(M), plans = allPl.filter(x => x.pl.ok.length);
+  if (!plans.length) return toast('沒有可以改的單據');
+  const n = plans.reduce((a, x) => a + x.pl.ok.length, 0), skip = allPl.reduce((a, x) => a + x.pl.skip.length, 0);
+  const sumTax = r2(plans.reduce((a, x) => a + x.pl.ok.reduce((b, y) => b + TYPES[y.o.type].money * y.tax, 0), 0));
+  if (!await dialog({title:'把 ' + plans.length + ' 位客戶、' + n + ' 張已加稅的單據改成月底算稅？', msg:plans.map(x => (x.pt.shortName || x.pt.name) + ' ' + x.pl.ok.length + ' 張').join('、') + '：每張的稅金拿掉（合計 ' + money(sumTax) + '），金額改成未稅；稅金改由「月結稅金」用整個月的未稅金額一起算。' + mtaxNextTxt(M) + '。' + (skip ? '　不能改的 ' + skip + ' 張（已開發票、已覆核、月份封存、含稅價、已收款超過未稅金額）維持原樣。' : ''), ok:'全部改成月底算稅'})) return;
+  let k = 0;
+  const ok = await run(async () => { for (const x of plans) for (const y of x.pl.ok){ await mtaxConvOne(y); k++; } return true; });
+  if (ok) toast('已改 ' + k + ' 張，' + (mtaxAutoOn() ? mtaxNextTxt(M) : '請按「產生」或「更新」月結稅金'));
+  else if (k) toast('已改 ' + k + ' 張，其他的沒改成功，請再按一次');
+}
+/* 月結稅金畫面最上面：自動產生的開關（管理員）與說明 */
+function mtaxAutoBox(){
+  const on = mtaxAutoSet(), none = S.set.taxMode === 'none';
+  const desc = none ? '系統設定是「不計營業稅」，不會自動產生。' : on ? '帳期一結束（過了結帳日），系統就用整個月的未稅金額算好稅金、產生月結稅金；之後補單、退貨也會自動更新。已開發票、已覆核、已封存、已收款超過稅金的不自動改，會在這裡提醒。只算有「月結・月底算稅」銷貨單、或產生過月結稅金的客戶。' : '關閉時，帳期結束後要到這裡按「產生」。';
+  return h('div', {class:'panel pad', style:'margin:10px 0 0', 'aria-label':'自動產生月結稅金'},
+    S.isAdmin ? h('label', {class:'check', style:'margin:0;font-weight:700'}, h('input', {type:'checkbox', checked:on, 'aria-label':'帳期結束後自動產生月結稅金', onchange:async e => {
+      const v = e.target.checked, ok = await run(async () => { try { await S.db.doc('settings/main').update({mtaxAuto:v}); } catch (_) { await S.db.doc('settings/main').set({...(S.setRaw || {}), mtaxAuto:v}); } return true; });
+      if (ok){ toast(v ? '已開啟：帳期結束後自動產生月結稅金' : '已關閉：帳期結束後要自己按「產生」'); if (v) mtaxAutoSoon(300); } else e.target.checked = !v; }}), '帳期結束後自動產生（建議開啟）')
+      : h('b', {text:'帳期結束後自動產生：' + (on ? '開啟' : '關閉（管理員可以打開）')}),
+    h('small', {class:'hint', style:'display:block;margin-top:4px', 'aria-label':'自動產生說明', text:desc}));
 }
 function openMonthTax(month){
   if (!fxGate('monthTax')) return;
@@ -6613,10 +6870,14 @@ function openMonthTax(month){
   const U = {month:month || prevMonth(billMonth(today(), cutoff())), q:''};
   liveSheet({title:'月結稅金'}, ['orders', 'partners', 'settings', 'payments'], sh => {
     const all = mtaxRows(U.month), todo = all.filter(r => r.st === 'todo'), chg = all.filter(r => r.st === 'changed'), canPt = can('partner') || S.isAdmin;
+    const lastDoc = mtaxLastDoc(), tNow = today(), autoOn = mtaxAutoOn(), auSc = r => autoOn && mtaxAutoScope(r, lastDoc);
     const sum = (l, k) => r2(l.reduce((a, r) => a + (r[k] || 0), 0)), nm = r => r.pt.shortName || r.pt.name;
     const mv = d => { const [y, m] = U.month.split('-').map(Number), dt = new Date(y, m - 1 + d, 1); U.month = dt.getFullYear() + '-' + pad(dt.getMonth() + 1); render('orders'); };
     const tile = (t, v, cls) => h('div', {style:'flex:1;min-width:96px;padding:8px 10px;background:var(--soft);border-radius:10px'}, h('small', {class:'hint', text:t}), h('div', {style:'font-weight:800;font-size:15px', class:cls || '', text:v}));
-    const stTxt = r => r.st === 'done' ? '已產生 ' + r.doc.no + (r.doc.invNo ? '，發票 ' + r.doc.invNo : '') : r.st === 'changed' ? '已產生 ' + r.doc.no + '（稅金 ' + money(r.doc.tax) + '），銷貨額或比例變了，現在應該是 ' + money(r.tax) : r.st === 'todo' ? '還沒產生' : (r.base <= 0 ? '銷貨額是 0，不用開' : '比例 0%，不開發票');
+    const stTxt = r => r.st === 'done' ? '已產生 ' + r.doc.no + (r.doc.auto ? '（自動）' : '') + (r.doc.invNo ? '，發票 ' + r.doc.invNo : '')
+      : r.st === 'changed' ? '已產生 ' + r.doc.no + '（稅金 ' + money(r.doc.tax) + '），銷貨額或比例變了，現在應該是 ' + money(r.tax) + (auSc(r) ? (mtaxAutoBlock(r) ? '；不會自動更新：' + mtaxAutoBlock(r) : '；系統會自動更新') : '')
+      : r.st === 'todo' ? (auSc(r) ? (mtaxAutoBlock(r) ? '還沒產生（不會自動產生：' + mtaxAutoBlock(r) + '）' : (r.end >= tNow ? '帳期 ' + mdTxt(r.end) + ' 結束後自動產生' : '還沒產生（系統會自動產生）')) : '還沒產生')
+      : (r.base <= 0 ? '銷貨額是 0，不用開' : '比例 0%，不開發票');
     const ratioIn = r => h('label', {style:'display:inline-flex;gap:4px;align-items:center;margin:0'}, h('span', {class:'hint', text:'比例'}),
       h('input', {class:'in', type:'text', inputmode:'decimal', value:String(r.ratio), 'aria-label':'發票比例 ' + nm(r), style:'height:34px;width:64px', onchange:async e => {
         const v = pctIn(e.target.value);
@@ -6631,6 +6892,8 @@ function openMonthTax(month){
           pl.ok.length ? h('button', {class:'btn ghost sm', style:'margin-top:4px', 'aria-label':'改成月底算稅 ' + nm(r), onclick:() => mtaxConvert(r.pt, r.M)}, '改成月底算稅（' + pl.ok.length + ' 張）') : null); })() : null,
       !r.ok ? h('small', {class:'hint', style:'display:block', text:'這位客戶現在不是「月結開立」'}) : null,
       h('small', {class:r.st === 'changed' ? 'overdue' : 'hint', style:'display:block;margin-top:2px', 'aria-label':'狀態 ' + nm(r), text:stTxt(r)}),
+      r.dupDocs.length ? h('div', {'aria-label':'重複 ' + nm(r), style:'margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center'}, h('small', {class:'overdue', style:'flex:1 1 100%', text:mtaxAutoWhy(r)}),
+        ...r.dupDocs.map(x => h('button', {class:'btn ghost sm', 'aria-label':'看單據 ' + x.no, onclick:() => openOrderDetail(x.id)}, x.no))) : null,
       h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px'},
         canPt ? ratioIn(r) : h('small', {class:'hint', text:'比例 ' + num(r.ratio) + '%'}),
         r.st === 'todo' || r.st === 'changed' ? h('button', {class:'btn sm', 'aria-label':(r.st === 'todo' ? '產生 ' : '更新 ') + nm(r), onclick:() => mtaxRun([r])}, r.st === 'todo' ? '產生' : (r.tax > 0 ? '更新' : '作廢')) : null,
@@ -6641,9 +6904,11 @@ function openMonthTax(month){
     const body = h('div', null,
       h('div', {style:'display:flex;gap:8px;align-items:center'}, h('button', {class:'ic', 'aria-label':'上個月', onclick:() => mv(-1)}, '‹'), h('input', {class:'in', type:'month', value:U.month, 'aria-label':'帳款月份', style:'flex:1', onchange:e => { if (e.target.value){ U.month = e.target.value; render('orders'); } }}), h('button', {class:'ic', 'aria-label':'下個月', onclick:() => mv(1)}, '›')),
       h('small', {class:'hint', 'aria-label':'月份範圍', text:cycleLabel(U.month, cutoff()) + '；有自己結帳日的客戶，依他的結帳日算'}),
+      mtaxAutoBox(),
       h('div', {style:'display:flex;flex-wrap:wrap;gap:8px;margin:10px 0', 'aria-label':'月結稅金合計'}, tile('客戶', all.length + ' 位'), tile('銷貨額（未稅）', money(sum(all, 'base'))), tile('發票金額', money(sum(all, 'invAmt'))), tile('稅金', money(sum(all, 'tax'))),
         sum(all, 'rest') > 0.004 ? tile('沒開發票', money(sum(all, 'rest')), 'soon') : null, tile('還沒產生', todo.length + ' 位', todo.length ? 'overdue' : '')),
       all.length > 6 ? h('label', {class:'search', style:'margin:0 0 8px'}, icon('search'), h('input', {type:'search', placeholder:'搜尋客戶編號或名稱', value:U.q, autocomplete:'off', 'aria-label':'搜尋客戶', oninput:e => { U.q = e.target.value; filt(); }})) : null,
+      mtaxConvAllBtn(all, U.month),
       listBox,
       h('p', {class:'hint', style:'margin-top:10px', text:'哪些客戶：開立發票方式是「月結開立」，或沒指定但付款方式是月結；「隨貨開立」「不開發票」的不算。這些客戶（應稅、未稅價）開銷貨單時預設「月結・月底算稅」：單據不加稅，這裡用整個月的未稅金額一起算，不會有每張單各自四捨五入的差額。銷貨額只算沒有加稅的銷貨單（扣掉銷貨退回）。稅金＝發票金額 × ' + num(taxRate()) + '%，四捨五入到元。'}),
       h('p', {class:'hint', text:'產生後是一張「月結稅金」單據，日期是帳款月份最後一天，會算進應收帳款（對帳單、應收帳款報表、回傳表、收款沖帳）。比例在客戶資料的「月結發票比例」設定，也可以直接在這裡改。'}),
@@ -6713,6 +6978,7 @@ function openArReturn(){
       h('label', {class:'check', style:'margin:6px 0'}, h('input', {type:'checkbox', checked:U.empty, 'aria-label':'也列沒有帳款的客戶', onchange:e => { U.empty = e.target.checked; render('orders'); }}), '也列這個月沒有帳款、也沒有前期未收的客戶'),
       h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'合計（' + M.custN + ' 位客戶）'})),
       h('div', {'aria-label':'回傳表合計', style:'display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px'}, tile('前期未收', money(M.prior)), tile('應收帳款', money(M.net)), tile('稅金', money(M.tax)), tile('合計', money(M.total))),
+      U.by === 'bill' ? (() => { const inRep = new Set(M.offices.flatMap(g => g.rows.map(r => r.pt.id))); return mtaxPendNote(U.month, pt => inRep.has(pt.id), '月結稅金還沒算進去', '0 0 12px'); })() : null,
       M.offices.length ? M.offices.map(groupEl) : h('div', {class:'panel empty', text:'這個月份、這個營業所沒有客戶帳款'}));
     return {body, foot:[h('button', {class:'btn grow', 'aria-label':'列印回傳表', disabled:!M.offices.length, onclick:() => { const m = arReturnModel(U); printNow(arReturnHTML(m, false), '應收帳款回傳表_' + m.month + '.html', () => arReturnHTML(m, true)); }}, '列印 A4（每營業所一頁）'), h('button', {class:'btn ghost', 'aria-label':'匯出回傳表', disabled:!M.offices.length, onclick:() => openExport(dsArReturn(arReturnModel(U)))}, icon('down'), '匯出')]};
   });
@@ -7980,7 +8246,7 @@ function openLineCheck(){
   watchBox(); pingFn();
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, backupForTest:{openBackup:() => openBackup(), bkDue:() => bkDue(), bkLast:() => bkLast(), cloudOkAt:() => cloudOkAt(), homeTodo:() => homeTodo(), openAlerts:() => openAlerts()}, pickHelpForTest:{pickHelpPlan:(...x) => pickHelpPlan(...x), pickItems:o => pickItems(o), itemSpeech:(...x) => itemSpeech(...x), postAssembly:(...x) => postAssembly(...x), openAsmStep:(...x) => openAsmStep(...x), openPickOrder:(...x) => openPickOrder(...x), openShelfEditor:() => openShelfEditor(), openCount:id => openCount(id)}, labelDateForTest:{labelToken:(...x) => labelToken(...x), labelDecode:(...x) => labelDecode(...x), labelQrText:(...x) => labelQrText(...x), labelLook:x => labelLook(x), ensureLabelKey:() => ensureLabelKey(), labelKey:() => labelKey(), scanQ:x => scanQ(x), findByCode:x => findByCode(x), prodByCode:x => prodByCode(x), openLabelDate:() => openLabelDate(), openLabelPrint:x => openLabelPrint(x), labelHTML:(...x) => labelHTML(...x), qrEncode:(...x) => qrEncode(...x), qrSvg:(...x) => qrSvg(...x), openReturnForm:x => openReturnForm(x), openReturnDetail:x => openReturnDetail(x)}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, monthTaxForTest:{showRemindPreview:p => showRemindPreview(p), openAlerts:() => openAlerts(), openOrderDetail:x => openOrderDetail(x), openPartner:x => openPartner(x), mtaxDefOK:p => mtaxDefOK(p), isMonthTax:o => isMonthTax(o), mtaxDocOf:o => mtaxDocOf(o), mtaxConvPlan:(p, M) => mtaxConvPlan(p, M), mtaxConvert:(p, M) => mtaxConvert(p, M), taxSplit:(...x) => taxSplit(...x), taxLine:(...x) => taxLine(...x), orderTax:o => orderTax(o, invOpt()), repBillSection:() => repBillSection(), mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, backupForTest:{openBackup:() => openBackup(), bkDue:() => bkDue(), bkLast:() => bkLast(), cloudOkAt:() => cloudOkAt(), homeTodo:() => homeTodo(), openAlerts:() => openAlerts()}, pickHelpForTest:{pickHelpPlan:(...x) => pickHelpPlan(...x), pickItems:o => pickItems(o), itemSpeech:(...x) => itemSpeech(...x), postAssembly:(...x) => postAssembly(...x), openAsmStep:(...x) => openAsmStep(...x), openPickOrder:(...x) => openPickOrder(...x), openShelfEditor:() => openShelfEditor(), openCount:id => openCount(id)}, labelDateForTest:{labelToken:(...x) => labelToken(...x), labelDecode:(...x) => labelDecode(...x), labelQrText:(...x) => labelQrText(...x), labelLook:x => labelLook(x), ensureLabelKey:() => ensureLabelKey(), labelKey:() => labelKey(), scanQ:x => scanQ(x), findByCode:x => findByCode(x), prodByCode:x => prodByCode(x), openLabelDate:() => openLabelDate(), openLabelPrint:x => openLabelPrint(x), labelHTML:(...x) => labelHTML(...x), qrEncode:(...x) => qrEncode(...x), qrSvg:(...x) => qrSvg(...x), openReturnForm:x => openReturnForm(x), openReturnDetail:x => openReturnDetail(x)}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, mtaxAutoForTest:{mtaxAutoRun:() => mtaxAutoRun(), mtaxAutoPlan:() => mtaxAutoPlan(), mtaxAutoOn:() => mtaxAutoOn(), mtaxAutoFit:(r, t) => mtaxAutoFit(r, t || today()), mtaxAutoWhy:r => mtaxAutoWhy(r), mtaxAutoBlock:r => mtaxAutoBlock(r), mtaxAutoRow:r => mtaxAutoRow(r), mtaxAutoDups:() => mtaxAutoDups(), mtaxAutoSettle:() => mtaxAutoSettle(), mtaxAutoTouch:() => mtaxAutoTouch(), mtaxAutoHeavy:() => mtaxAutoHeavy(), mtaxCutOf:(o, c) => mtaxCutOf(o, c), mtaxKeepCmp:(a, b) => mtaxKeepCmp(a, b), fromCache:() => mtaxFromCache, mtaxRun:l => mtaxRun(l), mtaxAutoSoon:ms => mtaxAutoSoon(ms), mtaxStmtPanel:p => mtaxStmtPanel(p), mtaxStmtNote:p => mtaxStmtNote(p), mtaxPendNote:(...x) => mtaxPendNote(...x), mtaxWhenTxt:o => mtaxWhenTxt(o), openStatement:x => openStatement(x), dsStatement:x => dsStatement(x), openArReport:x => openArReport(x), openArReturn:() => openArReturn(), mtaxConvertAll:(...x) => mtaxConvertAll(...x), mtaxConvAll:M => mtaxConvAll(M), mtaxConvert:(...x) => mtaxConvert(...x), mtaxRows:(M, p) => mtaxRows(M, p), openMonthTax:M => openMonthTax(M), homeTodo:() => homeTodo(), openOrderDetail:x => openOrderDetail(x), repBillSection:() => repBillSection(), openPartnerForm:(id, t) => openPartnerForm(id, t), busy:() => mtaxAutoBusy, errs:() => mtaxAutoErr}, monthTaxForTest:{showRemindPreview:p => showRemindPreview(p), openAlerts:() => openAlerts(), openOrderDetail:x => openOrderDetail(x), openPartner:x => openPartner(x), mtaxDefOK:p => mtaxDefOK(p), isMonthTax:o => isMonthTax(o), mtaxDocOf:o => mtaxDocOf(o), mtaxConvPlan:(p, M) => mtaxConvPlan(p, M), mtaxConvert:(p, M) => mtaxConvert(p, M), taxSplit:(...x) => taxSplit(...x), taxLine:(...x) => taxLine(...x), orderTax:o => orderTax(o, invOpt()), repBillSection:() => repBillSection(), mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -12791,7 +13057,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ck';
+const APP_VERSION = '2026.10.11-cl';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -15190,7 +15456,7 @@ function dsStatement(pid){
   }
   ent.sort((a, b) => a.date.localeCompare(b.date) || a.at - b.at);
   let run_ = 0; const rows = ent.map(e => { run_ = r2(run_ + e.amt); return [e.date, e.no, e.memo, e.bm, e.amt > 0 ? e.amt : null, e.amt < 0 ? -e.amt : null, run_]; });
-  return {title:'對帳單－' + pt.name, sub:PLABEL[pt.type] + '　' + termText(pt) + '　餘額 ' + money(S.d.bal[pid] || 0) + '　' + today(), filename:'對帳單_' + pt.name,
+  return {title:'對帳單－' + pt.name, sub:PLABEL[pt.type] + '　' + termText(pt) + '　餘額 ' + money(S.d.bal[pid] || 0) + mtaxStmtNote(pt) + '　' + today(), filename:'對帳單_' + pt.name,
     sections:[{name:'對帳單', cols:[XC('日期', 'text', 12), XC('單號', 'text', 20), XC('摘要', 'text', 20), XC('帳期', 'text', 10), XC('增加', 'money', 12), XC('減少', 'money', 12), XC('餘額', 'money', 12)], rows}]};
 }
 
@@ -15533,6 +15799,7 @@ async function init(){
   const watch = (key, path) => db.collection(path).onSnapshot(snap => {
     const m = {}; snap.docs.forEach(d => { m[d.id] = {...d.data(), id:d.id}; });
     S[key] = m; S.loaded[key] = true; recompute(); render(key); if (key === 'vehicles'){ seedTripVehicles(); seedTripBeds(); }
+    if (MTAX_WATCH.has(key)){ mtaxFromCache[key] = !!(snap.metadata && snap.metadata.fromCache); mtaxAutoTouch(); mtaxAutoSoon(); }
   }, bad);
   watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); watch('promos', 'promos'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); if (S.isAdmin || !FB_MODE){ watch('alerts', 'alerts'); db.doc('sys/backup').onSnapshot(snap => { S.cbk = snap.exists ? snap.data() : null; render('settings'); }, () => {}); } else S.loaded.alerts = true; /* 系統提醒、雲端備份狀態只有管理員讀得到；其他人去讀會被擋，畫面會誤報「連線中斷」 */ watch('handovers', 'handovers'); watchShelves(db); setTimeout(registerMe, 2500);
   db.doc('settings/roles').onSnapshot(snap => { S.roles = snap.exists ? snap.data() : {}; S.loaded.roles = true; render('roles'); }, () => { S.loaded.roles = true; render('roles'); });
@@ -15542,8 +15809,12 @@ async function init(){
   db.doc('settings/invoice').onSnapshot(snap => { S.invCfg = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/main').onSnapshot(snap => {
     S.setRaw = snap.exists ? snap.data() : {}; S.set = {...SET_DEFAULT, ...S.setRaw};
-    S.loaded.settings = true; render('settings'); seedTripVehicles(); seedTripBeds();
+    S.loaded.settings = true; render('settings'); seedTripVehicles(); seedTripBeds(); mtaxAutoSoon();
   }, bad);
+  mtaxAutoSettle();
+  setInterval(() => mtaxAutoSoon(0), 10 * 60e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) mtaxAutoSettle(); });
+  window.addEventListener('online', () => mtaxAutoSettle());
 }
 init();
 })();
