@@ -1024,7 +1024,7 @@ function pHome(){
 
 /* ================= 庫存 ================= */
 function invItems(){
-  const q = S.ui.invQ.trim().toLowerCase(), lv = S.ui.invLvl;
+  const q = scanQ(S.ui.invQ).trim().toLowerCase(), lv = S.ui.invLvl;
   return Object.values(S.products).filter(p => {
     if (lv === 'off'){ if (p.active !== false) return false; } else if (p.active === false) return false;
     if (S.ui.invCat && p.category !== S.ui.invCat) return false;
@@ -1627,7 +1627,7 @@ function openOrder(type, pre){
     if (inp) { inp.focus(); inp.select(); }
   }
   function paintPick(q){
-    q = q.trim().toLowerCase();
+    q = scanQ(q).trim().toLowerCase();
     if (!q){ pickBox.replaceChildren(); return []; }
     const hits = activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8);
     pickBox.replaceChildren(...(hits.length ? hits.map(p => h('button', {class:'row', onclick:() => { addLine(p.id); searchIn.value = ''; paintPick(''); }},
@@ -2959,6 +2959,10 @@ try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {c
 
 /* ================= 條碼盤點 ================= */
 function findByCode(code){
+  const p = findByCodeRaw(code); if (p) return p;
+  const L = labelDecode(code); return L ? findByCodeRaw(L.code) : null;   // 產品標籤上有製造日期代碼（編號*代碼）
+}
+function findByCodeRaw(code){
   const c = String(code || '').trim().toLowerCase();
   if (!c) return null;
   const ps = activeProducts();
@@ -3152,7 +3156,7 @@ function openCount(sid){
       else if (hits.length > 1) say('找到 ' + hits.length + ' 筆，請從下方點選', '');
       else { handle(q); scanIn.value = ''; paintPick(''); scanIn.focus(); }
     }});
-  const searchProducts = q => { q = q.trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 6) : []; };
+  const searchProducts = q => { q = scanQ(q).trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 6) : []; };
   function paintPick(q){
     const hits = searchProducts(q);
     setKids(pickBox, hits.map(p => h('button', {class:'row', onclick:() => { handle(p.sku); scanIn.value = ''; paintPick(''); }}, h('span', null, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('small', {text:'點選加入'}))));
@@ -3611,7 +3615,7 @@ function openDocEditor(kind, pre){
     const i = st.lines.findIndex(l => l.pid === pid), inp = linesBox.children[i] && linesBox.children[i].querySelector('input');
     if (inp){ inp.focus(); inp.select(); }
   }
-  const search = q => { q = q.trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
+  const search = q => { q = scanQ(q).trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
   function paintPick(q){
     const hits = search(q);
     setKids(pickBox, q.trim() ? (hits.length ? hits.map(p => h('button', {class:'row', onclick:() => { addLine(p.id); searchIn.value = ''; paintPick(''); }},
@@ -5768,12 +5772,15 @@ const qrDataCw = (ver, ei) => Math.floor(qrRawModules(ver) / 8) - QR_ECC_CW[ei][
 const qrMul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--){ z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z & 0xFF; };
 function qrDivisor(deg){ const res = new Array(deg).fill(0); res[deg - 1] = 1; let root = 1; for (let i = 0; i < deg; i++){ for (let j = 0; j < res.length; j++){ res[j] = qrMul(res[j], root); if (j + 1 < res.length) res[j] ^= res[j + 1]; } root = qrMul(root, 2); } return res; }
 function qrRemainder(data, div){ const res = div.map(() => 0); for (const b of data){ const f = b ^ res.shift(); res.push(0); div.forEach((c, i) => { res[i] ^= qrMul(c, f); }); } return res; }
+const QR_AN = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
 function qrEncode(text, eclKey){
-  const ei = {L:0, M:1, Q:2, H:3}[eclKey || 'M'], bytes = Array.from(new TextEncoder().encode(String(text)));
+  const ei = {L:0, M:1, Q:2, H:3}[eclKey || 'M'], str = String(text), an = str.length > 0 && [...str].every(c => QR_AN.includes(c)), bytes = an ? [] : Array.from(new TextEncoder().encode(str));
+  const ccBits = v => an ? (v < 10 ? 9 : (v < 27 ? 11 : 13)) : (v < 10 ? 8 : 16), dataBits = an ? 11 * Math.floor(str.length / 2) + 6 * (str.length % 2) : bytes.length * 8;
   let ver = 1;
-  for (;; ver++){ if (ver > 40) throw new Error('內容太長，無法做成 QR Code'); if (4 + (ver < 10 ? 8 : 16) + bytes.length * 8 <= qrDataCw(ver, ei) * 8) break; }
+  for (;; ver++){ if (ver > 40) throw new Error('內容太長，無法做成 QR Code'); if (4 + ccBits(ver) + dataBits <= qrDataCw(ver, ei) * 8) break; }
   const bits = []; const put = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >>> i) & 1); };
-  put(4, 4); put(bytes.length, ver < 10 ? 8 : 16); bytes.forEach(b => put(b, 8));
+  if (an){ put(2, 4); put(str.length, ccBits(ver)); for (let i = 0; i + 1 < str.length; i += 2) put(QR_AN.indexOf(str[i]) * 45 + QR_AN.indexOf(str[i + 1]), 11); if (str.length % 2) put(QR_AN.indexOf(str[str.length - 1]), 6); }
+  else { put(4, 4); put(bytes.length, ccBits(ver)); bytes.forEach(b => put(b, 8)); }
   const cap = qrDataCw(ver, ei) * 8; put(0, Math.min(4, cap - bits.length)); while (bits.length % 8) bits.push(0);
   for (let pad = 0xEC; bits.length < cap; pad ^= 0xEC ^ 0x11) put(pad, 8);
   const data = []; for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
@@ -5815,6 +5822,89 @@ function qrSvg(text, mm, eclKey){
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ' + (n + 4) + ' ' + (n + 4) + '" width="' + mm + 'mm" height="' + mm + 'mm" shape-rendering="crispEdges"><path d="' + d + '" fill="#000"/></svg>';
 }
 
+/* ================= 產品標籤 QR Code 裡的製造日期（只有本系統看得懂） =================
+   QR Code 內容＝產品編號＋「*」＋6 碼代碼，例：S319NA4111*7KX3QM。
+   6 碼＝「日期（2000-01-01 起算的天數）＋檢查碼」共 30 位元，用公司自己的金鑰（系統設定 labelKey，管理員第一次打開產品標籤列印時自動建立）
+   和產品編號做 4 輪 Feistel 打亂，再用 32 個不會看錯的字（沒有 0 1 I O）寫出來：
+   沒有金鑰看不出日期；同一天、不同產品的代碼不一樣；相鄰兩天的代碼也完全不像。檢查碼對不上就當作不是本系統印的標籤。 */
+const LBL_A = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ', LBL_EPOCH = Date.UTC(2000, 0, 1), LBL_RE = /^(.+)\*([2-9A-HJ-NP-Z]{6})$/i;
+const lblHalf = s => String(s == null ? '' : s).replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).trim();
+const lblHash = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15; return h >>> 0; };
+const lblCodeKey = c => lblHalf(c).toUpperCase();
+const lblF = (key, code, i, x) => lblHash(key + '|' + code + '|' + i + '|' + x) & 0x7FFF;
+function lblPerm(key, code, v, dec){   // v：30 位元＝(L << 15) | R
+  let L = (v >>> 15) & 0x7FFF, R = v & 0x7FFF;
+  if (!dec) for (let i = 0; i < 4; i++){ const t = R; R = L ^ lblF(key, code, i, R); L = t; }
+  else for (let i = 3; i >= 0; i--){ const t = L; L = R ^ lblF(key, code, i, L); R = t; }
+  return ((L << 15) | R) >>> 0;
+}
+const lblChk = (key, code, d) => lblHash(key + '#' + code + '#' + d) & 0x7FFF;
+const labelKey = () => { const k = S.set && S.set.labelKey; return typeof k === 'string' && k.length >= 12 ? k : ''; };
+/* 管理員：還沒有金鑰就建立一把（只建立一次，之後不會換；換了舊標籤就看不出日期） */
+async function ensureLabelKey(){
+  if (labelKey()) return labelKey();
+  if (!S.isAdmin || !S.canWrite) return '';
+  const a = new Uint8Array(20); try { crypto.getRandomValues(a); } catch (_) { for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256); }
+  const k = [...a].map(b => LBL_A[b & 31]).join('');
+  try { await S.db.doc('settings/main').update({labelKey:k}); S.set.labelKey = k; if (S.setRaw) S.setRaw.labelKey = k; return k; } catch (e) { console.error(e); return ''; }
+}
+function labelToken(code, date, key){
+  key = key || labelKey(); const c = lblCodeKey(code); if (!key || !c || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return '';
+  const d = Math.round((Date.parse(date + 'T00:00:00Z') - LBL_EPOCH) / 864e5); if (!(d >= 0 && d < 32768)) return '';
+  let v = lblPerm(key, c, ((d << 15) | lblChk(key, c, d)) >>> 0, false), out = '';
+  for (let i = 0; i < 6; i++){ out = LBL_A[v & 31] + out; v >>>= 5; }
+  return out;
+}
+/* 解讀掃到的內容：不是「編號*6 碼」的格式 → null；是的話回傳 {code, tok, date, ok}（ok＝檢查碼對得上，date 才有值） */
+function labelDecode(text, key){
+  const m = LBL_RE.exec(lblHalf(text)); if (!m) return null;
+  const code = m[1].trim(), tok = m[2].toUpperCase(); key = key === undefined ? labelKey() : key;
+  if (!code) return null;
+  let v = 0; for (const ch of tok) v = v * 32 + LBL_A.indexOf(ch);
+  if (!key) return {code, tok, date:'', ok:false, nokey:true};
+  const c = lblCodeKey(code), p = lblPerm(key, c, v >>> 0, true), d = p >>> 15;
+  if ((p & 0x7FFF) !== lblChk(key, c, d)) return {code, tok, date:'', ok:false};
+  return {code, tok, date:new Date(LBL_EPOCH + d * 864e5).toISOString().slice(0, 10), ok:true};
+}
+/* 標籤 QR Code 的內容：勾了「加入製造日期」而且有金鑰 → 編號*代碼；否則只有編號（和以前一樣） */
+const labelQrOn = cfg => cfg.qrDate !== false && !!labelKey();
+const labelQrText = (p, cfg) => { const sku = String(p.sku || ''), t = sku && labelQrOn(cfg) ? labelToken(sku, cfg.mdate || today()) : ''; return t ? sku + '*' + t : sku; };
+/* 搜尋框：掃到有製造日期的標籤，用前面的產品編號來找 */
+const scanQ = q => { const s = String(q == null ? '' : q), L = labelDecode(s); if (!L) return s; return (L.ok || prodByCodeRaw(L.code)) && !prodByCodeRaw(s) ? L.code : s; };
+const lblAgeTxt = n => n < 0 ? '（在今天之後）' : (n === 0 ? '今天' : n + ' 天' + (n >= 730 ? '（約 ' + Math.round(n / 36.525) / 10 + ' 年）' : (n >= 60 ? '（約 ' + Math.round(n / 30.44) + ' 個月）' : '')));
+/* 查一張標籤：kind＝date（有製造日期）、nodate（沒有製造日期的標籤）、bad（代碼對不上）、unknown（找不到產品） */
+function labelLook(text){
+  const t = lblHalf(text); if (!t) return null;
+  const L = labelDecode(t), full = prodByCodeRaw(t);
+  let r;
+  if (L && L.ok) r = {p:prodByCodeRaw(L.code), code:L.code, date:L.date, kind:'date'};
+  else if (full) r = {p:full, code:t, date:'', kind:'nodate'};
+  else if (L){ const p = prodByCodeRaw(L.code); r = {p, code:L.code, date:'', kind:p ? 'bad' : 'unknown', nokey:!!L.nokey}; }
+  else r = {p:null, code:t, date:'', kind:'unknown'};
+  const nm = r.p ? r.p.name : '產品編號 ' + r.code;
+  r.t = t; r.ok = r.kind === 'date';
+  r.msg = r.kind === 'date' ? '製造日期 ' + r.date + '（' + nm + '）' : (r.kind === 'nodate' ? nm + '：這張標籤沒有製造日期' : (r.kind === 'bad' ? (r.nokey ? '系統還沒有製造日期的金鑰，看不出日期' : '製造日期代碼對不上，可能不是本公司系統印的標籤') : '找不到產品編號「' + r.code + '」'));
+  return r;
+}
+function openLabelDate(){
+  if (!fxGate('labelDate')) return;
+  const st = {list:[]}, sh = sheet({title:'標籤製造日期查詢'}), out = h('div', {'aria-label':'查詢結果'});
+  const card = r => { const p = r.p, age = r.date ? daysBetween(r.date, today()) : 0;
+    return h('div', {class:'panel pad', style:'margin-bottom:10px', 'aria-label':'結果 ' + r.code},
+      h('b', {text:p ? p.name : '（找不到產品）'}), h('small', {class:'hint', style:'display:block', text:p ? p.sku + (p.unit ? '　' + p.unit : '') : '產品編號 ' + r.code}),
+      r.kind === 'date' ? [kv('製造日期', h('b', {'aria-label':'製造日期', style:'font-size:18px', text:r.date})), kv('距今', lblAgeTxt(age))]
+        : h('div', {class:'note' + (r.kind === 'nodate' ? '' : ' warn'), style:'margin:8px 0 0', 'aria-label':'查詢說明', text:r.kind === 'nodate' ? '這張標籤沒有製造日期（舊標籤，或列印時沒有勾「QR Code 加入製造日期」）。' : r.msg}),
+      h('small', {class:'hint', style:'display:block;margin-top:4px;word-break:break-all', text:'標籤內容：' + r.t})); };
+  const paint = () => setKids(out, st.list.length ? st.list.map(card) : h('div', {class:'panel empty', text:'掃描產品標籤上的 QR Code，這裡會顯示製造日期。'}));
+  const handle = code => { const r = labelLook(code); if (!r) return {ok:false, msg:'請掃描產品標籤'}; st.list = [r, ...st.list].slice(0, 20); paint(); return {ok:r.ok, msg:r.msg}; };
+  const inp = h('input', {class:'in', type:'text', autocomplete:'off', 'aria-label':'標籤內容', 'data-enter':'own', placeholder:'掃描標籤或貼上內容', style:'flex:1;min-width:0',
+    onkeydown:e => { if (e.key !== 'Enter') return; e.preventDefault(); const v = inp.value.trim(); if (!v) return; const r = handle(v); beep(r.ok); inp.value = ''; }});
+  put(sh.bodyEl, h('p', {class:'hint', style:'margin:0 0 10px', text:'產品標籤列印時勾了「QR Code 加入製造日期」，日期會藏在 QR Code 裡：一般手機掃描只看到一串代碼，用這裡掃描才會顯示製造日期。'}),
+    h('div', {style:'display:flex;gap:8px;align-items:center;margin-bottom:12px'}, inp, h('button', {class:'btn ghost', type:'button', 'aria-label':'相機掃描', style:'flex:none', onclick:() => openCamera(c => { const r = handle(c); beep(r.ok); return r; })}, '相機掃描')),
+    out);
+  paint(); setTimeout(() => { try { inp.focus(); } catch (_) {} }, 50);
+  return {handle};
+}
 /* ================= 產品自黏標籤：產品名稱＋產品編號 QR Code ================= */
 const LABEL_PRESETS = {
   r40x30:{name:'連續標籤紙　寬 4×高 3 公分（40×30 mm）', w:40, h:30}, r100x50:{name:'連續標籤紙　寬 10×高 5 公分（100×50 mm）', w:100, h:50}, r150x100:{name:'連續標籤紙　寬 15×高 10 公分（150×100 mm）', w:150, h:100},
@@ -5824,7 +5914,7 @@ const LABEL_PRESETS = {
   s4x10:{name:'A4 貼紙　4×10＝40 張（48.5×25.4）', w:48.5, h:25.4, cols:4, rows:10, gx:0, gy:0}, s5x13:{name:'A4 貼紙　5×13＝65 張（38.1×21.2）', w:38.1, h:21.2, cols:5, rows:13, gx:2.5, gy:0},
   s2x5:{name:'A4 貼紙　2×5＝10 張（99.1×57）', w:99.1, h:57, cols:2, rows:5, gx:2.5, gy:0}, custom:{name:'自訂尺寸（捲筒）', w:60, h:40}
 };
-const LABEL_KEY = 'labelPrefs1', LABEL_DEF = {preset:'r60x40', w:60, h:40, showCode:true, showPrice:false, layout:'left', fs:1, qs:1, skip:0, showSpec:true};
+const LABEL_KEY = 'labelPrefs1', LABEL_DEF = {preset:'r60x40', w:60, h:40, showCode:true, showPrice:false, layout:'left', fs:1, qs:1, skip:0, showSpec:true, qrDate:true};
 const loadLabelPrefs = () => { try { return {...LABEL_DEF, ...JSON.parse(localStorage.getItem(LABEL_KEY) || '{}')}; } catch (_) { return {...LABEL_DEF}; } };
 const saveLabelPrefs = c => { try { localStorage.setItem(LABEL_KEY, JSON.stringify(c)); } catch (_) {} };
 function labelSpec(cfg){ const pr = LABEL_PRESETS[cfg.preset] || LABEL_PRESETS.r60x40; return pr.cols ? pr : {...pr, w:cfg.preset === 'custom' ? Math.max(Number(cfg.w) || 60, 15) : pr.w, h:cfg.preset === 'custom' ? Math.max(Number(cfg.h) || 40, 10) : pr.h}; }
@@ -5873,7 +5963,7 @@ function labelHTML(items, cfg, opt){
   const textH = left ? h - 2 * pad : h - 2 * pad - q - pad, textW = Math.max(left ? w - q - 3 * pad : w - 2 * pad, 8), lm = f => f * 0.3528 * 1.15;
   const one = p => { const sku = String(p.sku || ''), spec = cfg.showSpec !== false ? String(p.labelSpec || '').trim() : '', cpl = Math.max(Math.floor(textW / (cfs * 0.3528 * 0.62)), 4), cl = cfg.showCode ? Math.min(Math.ceil(sku.length / cpl), 2) : 0, sl = spec ? Math.min(Math.max(Math.ceil(spec.length * cfs * 0.3528 * 1.02 / textW), 1), 2) : 0, gaps = ((cfg.showCode ? 1 : 0) + (cfg.showPrice ? 1 : 0) + (spec ? 1 : 0)) * 0.5;
     const nl = Math.max(1, Math.floor((textH - gaps - cl * lm(cfs) - sl * lm(cfs) - (cfg.showPrice ? lm(cfs) : 0)) / lm(nfs)));
-    return '<div class="lb' + (left ? '' : ' top') + '"><div class="q">' + qrSvg(sku, Math.round(q * 100) / 100, 'M') + '</div><div class="t"><div class="tc"><div class="n" style="max-height:' + Math.round(nl * 1.15 * 100) / 100 + 'em">' + e(p.name) + '</div>' + (spec ? '<div class="s">' + e(spec) + '</div>' : '') + (cfg.showCode ? '<div class="c">' + e(p.sku) + '</div>' : '') + (cfg.showPrice ? '<div class="pr">' + e(S.set.cur || 'NT$') + num(p.price || 0) + '</div>' : '') + '</div></div></div>'; };
+    return '<div class="lb' + (left ? '' : ' top') + '"><div class="q">' + qrSvg(labelQrText(p, cfg), Math.round(q * 100) / 100, 'M') + '</div><div class="t"><div class="tc"><div class="n" style="max-height:' + Math.round(nl * 1.15 * 100) / 100 + 'em">' + e(p.name) + '</div>' + (spec ? '<div class="s">' + e(spec) + '</div>' : '') + (cfg.showCode ? '<div class="c">' + e(p.sku) + '</div>' : '') + (cfg.showPrice ? '<div class="pr">' + e(S.set.cur || 'NT$') + num(p.price || 0) + '</div>' : '') + '</div></div></div>'; };
   const list = []; items.forEach(x => { for (let i = 0; i < x.qty; i++) list.push(x.p); });
   const css = '*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.lb{position:relative;width:' + w + 'mm;height:' + h + 'mm;overflow:hidden;background:#fff;page-break-inside:avoid;break-inside:avoid}' +
@@ -5899,18 +5989,27 @@ function openLabelPrint(pre){
   pre = pre || {};
   if (!can('print') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const cfg = loadLabelPrefs(), st = {sel:{}, q:''};
+  cfg.mdate = today();   // 製造日期：預設今天（列印日），每次打開都從今天開始
+  if (cfg.qrDate !== false && !labelKey() && S.isAdmin) ensureLabelKey().then(k => { if (k){ paintSet(); upd(); } });
+  /* QR Code 加入製造日期：日期藏在 QR Code 裡（編號*6 碼代碼），只有本系統掃描看得懂 */
+  const mdateBox = h('div', {'aria-label':'製造日期設定'});
+  const paintMdate = () => { const k = labelKey(), on = cfg.qrDate !== false, it = items()[0], ex = it ? labelQrText(it.p, cfg) : '';
+    setKids(mdateBox, h('label', {class:'check'}, h('input', {type:'checkbox', checked:on && (!!k || S.isAdmin), disabled:!k && !S.isAdmin, 'aria-label':'加入製造日期', onchange:async e => { cfg.qrDate = e.target.checked; if (cfg.qrDate && !labelKey()) await ensureLabelKey(); paintMdate(); upd(); }}), 'QR Code 加入製造日期（只有本系統看得懂）'),
+      on && k ? h('div', {class:'f', style:'margin:2px 0 0 28px'}, h('label', {text:'製造日期（預設＝今天列印的日期）'}), h('input', {class:'in', type:'date', value:cfg.mdate, max:today(), min:'2000-01-01', 'aria-label':'製造日期', style:'max-width:220px', onchange:e => { cfg.mdate = e.target.value || today(); upd(); }})) : null,
+      h('small', {class:'hint', style:'display:block;margin:2px 0 6px 28px', 'aria-label':'製造日期說明', text:!k && !S.isAdmin ? '要先由管理員打開一次「產品標籤列印」，系統建立製造日期的金鑰後才能使用。' : (on ? '一般手機掃描只會看到「產品編號*6 碼代碼」' + (ex && ex.includes('*') ? '（例：' + ex + '）' : '') + '，看不出日期；用本系統的「標籤製造日期查詢」或退貨登記掃描，才會顯示製造日期。' : 'QR Code 只有產品編號（和以前一樣）。')})); };
+
   for (const id of pre.pids || []) if (S.products[id]) st.sel[id] = 1;
   const sh = sheet({title:'列印產品標籤'}), listBox = h('div'), sumBox = h('div'), prevBox = h('div'), setBox = h('div');
   let qrF = null;
   const prods = () => activeProducts().sort(cmpSku);
   const items = () => Object.entries(st.sel).map(([id, qty]) => ({p:S.products[id], qty:Math.max(Math.round(Number(qty) || 0), 0)})).filter(x => x.p && x.qty > 0);
   const total = () => items().reduce((a, x) => a + x.qty, 0);
-  const upd = () => { if (qrF) qrF.refresh(); saveLabelPrefs(cfg); const it = items(), n = total(), sp = labelSpec(cfg);
+  const upd = () => { if (qrF) qrF.refresh(); saveLabelPrefs(cfg); if (typeof paintMdate === 'function') paintMdate(); const it = items(), n = total(), sp = labelSpec(cfg);
     setKids(sumBox, h('div', {class:'panel pad'}, kv('已選商品', it.length + ' 項'), kv('標籤張數', n + ' 張'), sp.cols ? kv('A4 貼紙頁數', Math.max(Math.ceil((n + (Number(cfg.skip) || 0)) / (sp.cols * sp.rows)), n ? 1 : 0) + ' 頁') : kv('規格', sp.w + '×' + sp.h + ' mm 捲筒')));
     const pv = it.slice(0, 4).map(x => ({p:x.p, qty:1})); setKids(prevBox, pv.length ? h('iframe', {title:'標籤預覽', style:'width:100%;height:' + (sp.cols ? 180 : Math.min(Math.max(sp.h * 3.6 * labelPreviewZoom(sp) * Math.min(pv.length, 2) + 30, 140), 340)) + 'px;border:1px solid var(--line);border-radius:10px;background:#fff', srcdoc:labelHTML(pv, cfg, {preview:true})}) : h('div', {class:'panel empty', text:'先在上面選商品，這裡會顯示標籤的樣子'}));
     goBtn.disabled = !n; goBtn.textContent = n ? '列印標籤（' + n + ' 張）' : '列印標籤'; };
   const fillList = () => {
-    const q = st.q.trim().toLowerCase(), list = prods().filter(p => !q || (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).slice(0, 80);
+    const q = scanQ(st.q).trim().toLowerCase(), list = prods().filter(p => !q || (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).slice(0, 80);
     setKids(listBox, list.length ? h('div', {class:'panel'}, list.map(p => { const on = st.sel[p.id] !== undefined;
       return h('div', {class:'row', style:'align-items:center'}, h('button', {style:'min-width:0;text-align:left;flex:1', 'aria-pressed':on, 'aria-label':'選取 ' + p.sku, onclick:() => { if (on) delete st.sel[p.id]; else st.sel[p.id] = 1; fillList(); upd(); }},
         h('b', {text:(on ? '☑ ' : '☐ ') + p.name}), h('br'), h('small', {text:p.sku + '　庫存 ' + num(stockOf(p.id)) + ' ' + (p.unit || '') + (p.labelSpec ? '　' + p.labelSpec : '')})),
@@ -5925,10 +6024,11 @@ function openLabelPrint(pre){
       (qrF = labelQrField(cfg, upd, labelNeedProd)).el,
       h('div', {class:'f'}, h('label', {text:'字體大小'}), h('div', {class:'chips', style:'padding:6px 0 0'}, [[0, '小'], [1, '中'], [2, '大']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':Number(cfg.fs) === k, 'aria-label':'字體 ' + t, onclick:() => { cfg.fs = k; paintSet(); upd(); }}, t)))),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showSpec !== false, 'aria-label':'顯示標籤規格文字', onchange:e => { cfg.showSpec = e.target.checked; upd(); }}), '印出商品資料裡的「標籤規格」（沒填的商品就不印這一行）'),
-      h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showCode, 'aria-label':'顯示產品編號文字', onchange:e => { cfg.showCode = e.target.checked; upd(); }}), '同時印出產品編號文字（QR Code 內容就是產品編號）'),
+      mdateBox,
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showCode, 'aria-label':'顯示產品編號文字', onchange:e => { cfg.showCode = e.target.checked; upd(); }}), '同時印出產品編號文字（只印編號，不會印出製造日期）'),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.showPrice, 'aria-label':'顯示售價', onchange:e => { cfg.showPrice = e.target.checked; upd(); }}), '印出售價'));
   };
-  const goBtn = h('button', {class:'btn grow', disabled:true, onclick:() => { const it = items(); if (!it.length) return toast('請先選商品'); saveLabelPrefs(cfg); printNow(labelHTML(it, cfg, {}), '產品標籤.html', () => labelHTML(it, cfg, {standalone:true})); }}, '列印標籤');
+  const goBtn = h('button', {class:'btn grow', disabled:true, onclick:() => { const it = items(); if (!it.length) return toast('請先選商品'); if (labelQrOn(cfg) && !labelToken('X', cfg.mdate)) return toast('製造日期不正確，請重新選擇'); saveLabelPrefs(cfg); printNow(labelHTML(it, cfg, {}), '產品標籤.html', () => labelHTML(it, cfg, {standalone:true})); }}, '列印標籤');
   put(sh.bodyEl, h('p', {class:'note', text:'每張標籤有產品編號的 QR Code、產品名稱和標籤規格（商品資料裡填的）。勾選商品、填要印幾張，選好標籤規格就可以列印。'}),
     h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋品名、料號、條碼', autocomplete:'off', 'aria-label':'搜尋商品', oninput:e => { st.q = e.target.value; fillList(); }})),
     h('div', {class:'btns', style:'margin:8px 0'}, h('button', {class:'btn ghost sm', onclick:() => { const q = st.q.trim().toLowerCase(); prods().filter(p => !q || (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).slice(0, 80).forEach(p => { if (st.sel[p.id] === undefined) st.sel[p.id] = 1; }); fillList(); upd(); }}, '全選目前列出的'),
@@ -7299,7 +7399,7 @@ async function wipeRun(items, scope, setProgress, shouldStop){
     }
   }
   // settings: 清交易資料時保留；全部清除時重設，但保留「是否要登入」的設定和角色權限、成員
-  const keepLogin = S.setRaw && S.setRaw.loginOn !== undefined ? {loginOn:S.setRaw.loginOn} : {};
+  const keepLogin = {...(S.setRaw && S.setRaw.loginOn !== undefined ? {loginOn:S.setRaw.loginOn} : {}), ...(S.setRaw && S.setRaw.labelKey ? {labelKey:S.setRaw.labelKey} : {})};
   const log = {at:Date.now(), by:S.meId || null, byName:myName(), scope, deleted:done, failed:fail};
   try {
     if (scope === 'all'){ for (const k of ['invoice', 'slipform', 'slipform_south', 'backup']) { try { await S.db.doc('settings/' + k).delete(); } catch (_) {} } await S.db.doc('settings/main').set({...keepLogin, lastWipe:log}); }
@@ -7822,7 +7922,7 @@ function openLineCheck(){
   watchBox(); pingFn();
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, monthTaxForTest:{mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, labelDateForTest:{labelToken:(...x) => labelToken(...x), labelDecode:(...x) => labelDecode(...x), labelQrText:(...x) => labelQrText(...x), labelLook:x => labelLook(x), ensureLabelKey:() => ensureLabelKey(), labelKey:() => labelKey(), scanQ:x => scanQ(x), findByCode:x => findByCode(x), prodByCode:x => prodByCode(x), openLabelDate:() => openLabelDate(), openLabelPrint:x => openLabelPrint(x), labelHTML:(...x) => labelHTML(...x), qrEncode:(...x) => qrEncode(...x), qrSvg:(...x) => qrSvg(...x), openReturnForm:x => openReturnForm(x), openReturnDetail:x => openReturnDetail(x)}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, monthTaxForTest:{mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -8151,7 +8251,7 @@ function openReturnForm(pre){
   pre = pre || {};
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const ex = pre.edit || null, src0 = pre.srcOrder && S.orders[pre.srcOrder] ? S.orders[pre.srcOrder] : null;
-  const st = {date:ex ? ex.date : today(), partnerId:ex ? ex.partnerId || '' : (src0 ? src0.partnerId || '' : (pre.partnerId || '')), srcId:ex ? ex.srcId || '' : (src0 ? src0.id : ''), items:ex ? (ex.items || []).map(i => ({...i})) : [], reason:ex ? ex.reason || '' : '', note:ex ? ex.note || '' : ''};
+  const st = {date:ex ? ex.date : today(), partnerId:ex ? ex.partnerId || '' : (src0 ? src0.partnerId || '' : (pre.partnerId || '')), srcId:ex ? ex.srcId || '' : (src0 ? src0.id : ''), items:ex ? (ex.items || []).map(i => ({...i, ...(Array.isArray(i.mfgs) ? {mfgs:[...i.mfgs], scans:i.mfgs.length} : {})})) : [], reason:ex ? ex.reason || '' : '', note:ex ? ex.note || '' : ''};
   if (src0 && !ex) st.items = (src0.lines || []).filter(l => S.products[l.pid]).map(l => ({pid:l.pid, name:l.name, sku:l.sku, unit:l.unit || '', qty:Number(l.qty) || 1, reason:''}));
   const sh = sheet({title:ex ? '編輯退貨登記 ' + ex.no : '新增退貨登記'}), itemsBox = h('div'), srcBox = h('div'), pickBox = h('div');
   const partnerSel = h('select', {class:'in', 'aria-label':'客戶', onchange:e => { st.partnerId = e.target.value; st.srcId = ''; paintSrc(); }}, h('option', {value:'', text:'請選擇客戶'}), ...Object.values(S.partners).filter(p => p.type === 'customer').sort(cmpName).map(p => h('option', {value:p.id, text:p.name})));
@@ -8164,9 +8264,17 @@ function openReturnForm(pre){
   }
   function paintItems(){
     setKids(itemsBox, st.items.length ? h('div', {class:'panel'}, st.items.map((it, i) => h('div', {class:'ln'}, h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:center'}, h('b', {text:it.name}), h('button', {class:'ic sm', 'aria-label':'移除商品 ' + (i + 1), onclick:() => { st.items.splice(i, 1); paintItems(); }}, icon('x'))),
+      Array.isArray(it.mfgs) && it.mfgs.length ? h('small', {class:'hint', style:'display:block', 'aria-label':'製造日期 ' + (i + 1), text:'製造日期 ' + it.mfgs.join('、') + '（掃標籤）'}) : null,
       h('div', {class:'f2', style:'margin-top:6px'}, fld('退回數量', h('input', {class:'in', type:'text', inputmode:'decimal', value:it.qty, 'aria-label':'退回數量 ' + (i + 1), onfocus:e => e.target.select(), oninput:e => { it.qty = toNum(e.target.value); }})), fld('故障情形', h('input', {class:'in', value:it.reason || '', placeholder:'例：不能開機', 'aria-label':'故障情形 ' + (i + 1), autocomplete:'off', oninput:e => { it.reason = e.target.value; }})))))) : h('div', {class:'note', text:'還沒有商品。選對應的銷貨單，或用下面搜尋加入。'}));
   }
-  const searchIn = h('input', {type:'search', placeholder:'搜尋品名、料號，加入退貨商品', autocomplete:'off', 'aria-label':'搜尋商品', oninput:e => { const q = e.target.value.trim().toLowerCase(); setKids(pickBox, q ? h('div', {class:'panel'}, activeProducts().filter(p => (p.name + ' ' + p.sku).toLowerCase().includes(q)).slice(0, 8).map(p => h('button', {class:'row pick-row', 'aria-label':'加入 ' + p.sku, onclick:() => { const f = st.items.find(x => x.pid === p.id); if (f) f.qty = r3(f.qty + 1); else st.items.push({pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', qty:1, reason:''}); e.target.value = ''; setKids(pickBox); paintItems(); }}, h('span', null, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('small', {text:'加入'})))) : null); }});
+  /* 掃到有製造日期的產品標籤：加入這項商品（已經有就不重複加），並記下製造日期；同一項掃了幾張不同的標籤，數量至少是掃到的張數 */
+  const addRet = (p, date) => { let f = st.items.find(x => x.pid === p.id); if (!f){ f = {pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', qty:0, reason:'', mfgs:[]}; st.items.push(f); }
+    if (date){ f.mfgs = Array.isArray(f.mfgs) ? f.mfgs : []; f.scans = (f.scans || 0) + 1; if (!f.mfgs.includes(date)) f.mfgs.push(date); f.qty = Math.max(Number(f.qty) || 0, f.scans); } else f.qty = r3((Number(f.qty) || 0) + 1);
+    paintItems(); return f; };
+  const retScan = v => { const L = labelDecode(v); if (!L || !L.ok) return null; const p = findByCode(L.code); if (!p) return null; addRet(p, L.date); return {p, date:L.date}; };
+  const searchIn = h('input', {type:'search', placeholder:'品名、料號，或掃標籤', autocomplete:'off', 'aria-label':'搜尋商品', 'data-enter':'own',
+    onkeydown:e => { if (e.key !== 'Enter') return; e.preventDefault(); const v = e.target.value.trim(); if (!v) return; if (retScan(v)){ e.target.value = ''; setKids(pickBox); return; } const p = findByCode(v); if (p){ addRet(p, ''); e.target.value = ''; setKids(pickBox); } },
+    oninput:e => { if (retScan(e.target.value)){ e.target.value = ''; setKids(pickBox); return; } const q = scanQ(e.target.value).trim().toLowerCase(); setKids(pickBox, q ? h('div', {class:'panel'}, activeProducts().filter(p => (p.name + ' ' + p.sku).toLowerCase().includes(q)).slice(0, 8).map(p => h('button', {class:'row pick-row', 'aria-label':'加入 ' + p.sku, onclick:() => { const f = st.items.find(x => x.pid === p.id); if (f) f.qty = r3(f.qty + 1); else st.items.push({pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', qty:1, reason:''}); e.target.value = ''; setKids(pickBox); paintItems(); }}, h('span', null, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('small', {text:'加入'})))) : null); }});
   let saving = false;
   const saveBtn = h('button', {class:'btn grow', onclick:async () => {
     if (saving) return;
@@ -8178,7 +8286,7 @@ function openReturnForm(pre){
     const ok = await run(async () => {
       if (newPh.length) await savePhotoDocs(newPh);
       const photos = [...(ex && ex.photos ? ex.photos : []), ...newPh.map(photoMeta)];
-      const base = {date:st.date, partnerId:st.partnerId, srcId:src ? src.id : '', srcNo:src ? src.no : '', items:items.map(i => ({pid:i.pid, name:i.name, sku:i.sku, unit:i.unit || '', qty:i.qty, reason:(i.reason || '').trim()})), reason:st.reason.trim(), note:st.note.trim(), photos};
+      const base = {date:st.date, partnerId:st.partnerId, srcId:src ? src.id : '', srcNo:src ? src.no : '', items:items.map(i => ({pid:i.pid, name:i.name, sku:i.sku, unit:i.unit || '', qty:i.qty, reason:(i.reason || '').trim(), ...(Array.isArray(i.mfgs) && i.mfgs.length ? {mfgs:i.mfgs.slice(0, 50)} : {})})), reason:st.reason.trim(), note:st.note.trim(), photos};
       if (ex) await S.db.doc('returns/' + ex.id).update({...base, updatedAt:Date.now()});
       else { const no = 'RT' + st.date.slice(2).replace(/-/g, '') + '-' + rid(); await S.db.collection('returns').doc().set({...base, no, status:'received', action:'', log:[{s:'received', d:today(), t:Date.now(), by:S.meId || null, byName:myName(), note:'收到退貨'}], ...stamp(), at:Date.now()}); toast('已登記退貨 ' + no); }
       return true; });
@@ -8188,7 +8296,8 @@ function openReturnForm(pre){
   put(sh.bodyEl, h('p', {class:'note', text:'客戶把東西送回來時先在這裡登記，之後決定要「排除故障後退還客戶」還是「直接退款」。'}),
     fld('收到日期', h('input', {class:'in', type:'date', value:st.date, 'aria-label':'收到日期', onchange:e => { st.date = e.target.value || today(); }})),
     h('div', {class:'f'}, h('label', {text:'客戶'}), pk.el), srcBox, h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'退回的商品'})), itemsBox,
-    h('label', {class:'search', style:'margin-top:8px'}, icon('search'), searchIn), pickBox,
+    h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:8px'}, h('label', {class:'search', style:'flex:1;min-width:0;margin:0'}, icon('search'), searchIn),
+      h('button', {class:'btn ghost sm', type:'button', 'aria-label':'相機掃描退貨商品', style:'flex:none', onclick:() => openCamera(c => { const r = retScan(c); if (r) return {ok:true, msg:'✓ ' + r.p.name + '　製造日期 ' + r.date}; const p = findByCode(c); if (p){ addRet(p, ''); return {ok:true, msg:'✓ ' + p.name + '（標籤沒有製造日期）'}; } return {ok:false, msg:'找不到這個商品'}; })}, '相機掃描')), pickBox,
     fld('退貨原因／故障描述', h('input', {class:'in', value:st.reason, placeholder:'客戶怎麼說', 'aria-label':'退貨原因', autocomplete:'off', oninput:e => { st.reason = e.target.value; }})),
     h('div', {class:'f'}, h('label', {text:'照片（最多 ' + PH_MAX + ' 張）'}), photoPk.el), fld('備註', h('input', {class:'in', value:st.note, 'aria-label':'備註', autocomplete:'off', oninput:e => { st.note = e.target.value; }})));
   sh.footEl.append(saveBtn); paintSrc(); paintItems();
@@ -8204,7 +8313,7 @@ function openReturnDetail(id){
       h('div', {class:'panel pad', style:'margin-bottom:14px'}, kv('狀態', h('b', {text:RT_ST[r.status] || r.status})), kv('處理方式', r.action ? RT_ACT[r.action] : '還沒決定'), kv('客戶', pt ? pt.name : '—'),
         src ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(src.id)}, src.no)) : null, r.reason ? kv('退貨原因', r.reason) : null, r.note ? kv('備註', r.note) : null,
         kv('登記者', (r.byName || who(r.by)) + (r.at ? '，' + fmtDT(r.at) : '')), reviewKv('return', r)),
-      h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '')})), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
+      h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '')}), Array.isArray(i.mfgs) && i.mfgs.length ? [h('br'), h('small', {class:'hint', 'aria-label':'製造日期', text:'製造日期 ' + i.mfgs.join('、')})] : null), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
       r.action === 'repair' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'檢測與維修'}), h('div', {style:'height:6px'}), kv('故障原因', r.diagnosis || '—'), kv('維修內容', r.repairNote || '—'), r.repairBy ? kv('維修的人／廠商', r.repairBy) : null, r.repairCost ? kv('維修費用', money(r.repairCost)) : null, r.fixedDate ? kv('修好日期', r.fixedDate) : null, r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
       r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
       r.action === 'return' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'原物退還'}), h('div', {style:'height:6px'}), kv('處理', '檢測沒有故障（或客戶不要退了），原物退還客戶'), r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
@@ -9192,7 +9301,7 @@ function openShelfAdjust(opt){
   }
   /* 輸入文字時的選單：現在要的是架位就列架位，要的是商品就列商品 */
   function suggest(q){
-    q = q.trim().toLowerCase(); if (!q) return [];
+    q = scanQ(q).trim().toLowerCase(); if (!q) return [];
     if (wantShelf()) return shelfDocs(st.wh).filter(s => s.active !== false && (s.code + ' ' + (s.note || '')).toLowerCase().includes(q)).slice(0, 8).map(s => ({title:s.code, sub:(s.note ? s.note + '　' : '') + shelfProducts(s.wh, s.code).length + ' 項商品', pick:() => onShelf(s.wh, s.code, false)}));
     return activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '') + ' ' + (p.category || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 6).map(p => ({title:p.name, sub:p.sku + (shelfExplicit(p, st.wh) ? '　現在：' + shelfExplicit(p, st.wh) : '　還沒有架位'), pick:() => onProduct(p)}));
   }
@@ -10598,7 +10707,8 @@ function homeFavs(){
 /* ================= 揀貨：每項商品掃 QR Code 確認、可略過；庫存不足時提示拆解補貨 ================= */
 const scanReqOn = () => S.set.pickScan !== false;
 function beep(ok){ try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = beep.ctx = beep.ctx || new AC(), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = ok ? 1100 : 240; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (ok ? 0.09 : 0.35)); } catch (_) {} }
-const prodByCode = code => { const c = String(code || '').trim().toLowerCase(); return c ? Object.values(S.products).find(p => String(p.sku).toLowerCase() === c || (p.barcode && String(p.barcode).toLowerCase() === c)) || null : null; };
+const prodByCodeRaw = code => { const c = String(code || '').trim().toLowerCase(); return c ? Object.values(S.products).find(p => String(p.sku).toLowerCase() === c || (p.barcode && String(p.barcode).toLowerCase() === c)) || null : null; };
+const prodByCode = code => { const p = prodByCodeRaw(code); if (p) return p; const L = labelDecode(code); return L ? prodByCodeRaw(L.code) : null; };
 function disOptions(pid, need, wid){
   const out = [], seen = new Set();
   const mk = (F, y, plan) => { const per = Number(y) || 0; if (!(per > 0)) return; const n = Math.max(Math.ceil(need / per - 1e-9), Number(plan && plan.minQty) || 1), fs = stockAt(F.id, wid); seen.add(F.id); out.push({F, per, n, yield:r3(n * per), fstock:fs, ok:fs >= n - 0.0004 || !!S.set.allowNeg, plan:plan || null}); };
@@ -10650,7 +10760,8 @@ function openPickOrder(orderId, opts){
   }
   function onScan(code){
     const c = String(code || '').trim(); if (!c) return {ok:false, msg:'請掃描或輸入商品編號'};
-    const lc = c.toLowerCase(), it = items.find(i => String(i.sku).toLowerCase() === lc || String((S.products[i.pid] || {}).barcode || '').toLowerCase() === lc);
+    const hitOf = x => items.find(i => String(i.sku).toLowerCase() === x || String((S.products[i.pid] || {}).barcode || '').toLowerCase() === x), Lb = labelDecode(c);
+    const lc = (Lb && !hitOf(c.toLowerCase()) && hitOf(Lb.code.toLowerCase()) ? Lb.code : c).toLowerCase(), it = hitOf(lc);
     if (!it){ const so = Object.values(S.orders).find(x => String(x.no || '').toLowerCase() === lc); if (so){ beep(false); return {ok:false, msg:so.id === orderId ? '這是目前這張單據的單號（' + so.no + '），請掃商品條碼' : '✗ 這是另一張銷貨單的 QR Code（' + so.no + '），請先完成或關閉目前這張再掃'}; } const p = prodByCode(c); beep(false); speakNow(p ? '掃錯了，這張單據沒有' + p.name : '掃錯了，找不到商品', cfg); return {ok:false, msg:p ? '✗ 掃到「' + p.name + '」，這張單據沒有這個商品，請檢查' : '✗ 找不到這個條碼：' + c}; }
     if (pickHandled(pk, it.pid)){ beep(false); return {ok:false, msg:'「' + it.name + '」已經揀過了'}; }
     const cu = cur(); beep(true); mark(it, it.qty, {scanned:true, code:c});
@@ -12106,7 +12217,7 @@ function openQuoteForm(ex){
   const addLineQ = (pid, q) => { const ex1 = st.lines.find(l => l.pid === pid); let ln; if (ex1){ ex1.qty = String(r3(toNum(ex1.qty) + q)); autoP(ex1); ln = ex1; } else { ln = {pid, qty:String(q), price:'0', manual:false}; autoP(ln); st.lines.push(ln); } famRefreshQ(ln); paintLines(); };
   const addLine = p => addLineQ(p.id, 1);
   const histQ = histPanel({hasPartner:() => !!st.partnerId, getHist:() => getHistQ(st.partnerId), added:pid => st.lines.some(l => l.pid === pid), add:(pid, q) => addLineQ(pid, q), conv:ex1 => r2(convQ(ex1))});
-  const hits = q => { q = q.trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
+  const hits = q => { q = scanQ(q).trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
   const searchIn = h('input', {placeholder:'搜尋商品名稱或料號', autocomplete:'off', 'aria-label':'搜尋商品', oninput:e => setKids(pickBox, hits(e.target.value).map(p => h('button', {class:'row', onclick:() => { addLine(p); searchIn.value = ''; setKids(pickBox); }}, h('span', null, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('small', {text:money(p.price || 0)})))),
     onkeydown:e => { if (e.key === 'Enter'){ e.preventDefault(); const h1 = hits(searchIn.value)[0]; if (h1){ addLine(h1); searchIn.value = ''; setKids(pickBox); } } }});
   const partnerSel = h('select', {class:'in', 'aria-label':'客戶', onchange:e => { st.partnerId = e.target.value; for (const l of st.lines) autoP(l); paintLines(); }}, h('option', {value:'', text:'請選擇客戶'}), ...Object.values(S.partners).filter(p => p.type === 'customer').sort(cmpName).map(p => h('option', {value:p.id, text:(p.shortName || p.name) + (p.level ? '（' + p.level + '）' : '')})));
@@ -12370,7 +12481,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-cg';
+const APP_VERSION = '2026.10.11-ch';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -12407,7 +12518,8 @@ const FN = {
   products:{l:'產品基本資料', kw:'商品 產品 品項 料號 查庫存 庫存 條碼', need:[]},
   prodIO:{l:'產品基本資料匯出與匯入', kw:'匯入 匯出 產品 商品 Excel xlsx CSV 條碼 售價 進價 安全庫存 批次 更新 主檔', need:['export']},
   newProduct:{l:'新增產品', kw:'新增商品 建立商品 新品 開新料號'},
-  labels:{l:'產品標籤列印', kw:'標籤 貼紙 QR 條碼 列印 自黏', need:['print']},
+  labels:{l:'產品標籤列印', kw:'標籤 貼紙 QR 條碼 列印 自黏 製造日期', need:['print']},
+  labelDate:{l:'標籤製造日期查詢', kw:'製造日期 出廠日期 生產日期 標籤 QR 掃描 保固', need:[], d:'掃描產品標籤的 QR Code，看製造日期'},
   assembly:{l:'產品組裝作業', kw:'組裝 組成 BOM 生產 加工 組合', need:['stock']},
   disassembly:{l:'產品拆解作業', kw:'拆解 拆箱 拆組 BOM', need:['stock']},
   disPlans:{l:'拆解作業設定', kw:'拆解 設定 方案 揀貨', need:['stock']},
@@ -12467,7 +12579,7 @@ const FN_CATS = [
   ['銷售與訂單', 'doc', [['開單', ['sale', 'sale_return']], ['報價與訂單', ['quote', 'corder', 'lineOrders']], ['查詢與售後', ['docs', 'returns']], ['價格設定', ['priceLevels', 'priceIO']]]],
   ['採購與進貨', 'cart', [['採購', ['purchaseSug', 'porder']], ['進貨', ['purchase', 'purchase_return']], ['成本', ['costPage']]]],
   ['庫存與倉儲', 'box', [['庫存作業', ['stocktake', 'cycleCount', 'adjust', 'transfer', 'replenish']], ['揀貨與架位', ['picking', 'shelfAdjust', 'shelfMgmt', 'shelfEditor']], ['規則與關帳', ['whRules', 'closing']]]],
-  ['商品與組裝', 'tag', [['商品資料', ['products', 'prodIO', 'newProduct', 'labels']], ['組裝與拆解', ['assembly', 'disassembly', 'disPlans']]]],
+  ['商品與組裝', 'tag', [['商品資料', ['products', 'prodIO', 'newProduct', 'labels', 'labelDate']], ['組裝與拆解', ['assembly', 'disassembly', 'disPlans']]]],
   ['配送與車輛', 'truck', [['出車與送貨', ['driverRun', 'dispatch', 'deliveryList']], ['車輛', ['vehicles', 'fuelCards']], ['績效', ['tripStats']]]],
   ['收款與帳款', 'wallet', [['應收帳款', ['ar', 'settle', 'batchSettle', 'monthTax']], ['外務收款', ['fieldPay', 'handover', 'fieldQueue', 'collectSum']], ['應付帳款', ['ap']], ['帳款報表', ['arReport', 'arReturn']]]],
   ['票據與現金', 'lock', [['票據', ['notes', 'collections']], ['現金與保管', ['cash', 'custody']]]],
@@ -12562,7 +12674,7 @@ function menuGroups(){
   const goTab = (tab, ui) => () => { S.tab = tab; if (ui) Object.assign(S.ui, ui); window.scrollTo(0, 0); draw(); };
   const M = (label, ok, fn, desc) => ({label, ok:!!ok, fn, desc:desc || ''});
   const raw = [
-    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品基本資料匯出與匯入', S.isAdmin || see('export'), openImport, '把全部商品匯出成 Excel，改好直接匯入，一次新增或更新商品（條碼、售價、安全庫存…）'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
+    ['客戶與產品', [M('客戶管理', true, openCustomerMgmt, '客戶資料、業務、地區、付款方式'), M('供應商管理', true, openSupplierMgmt, '供應商資料、付款方式、應付帳款'), M('客戶資料匯入', can('partner'), () => openPartnerImport('customer'), '用 CSV 批次建立或更新客戶'), M('資料匯入匯出', can('partner') || S.isAdmin, openDataHub, '客戶、供應商、產品基本資料的匯出、匯入、更新，集中在一頁'), M('產品基本資料', true, goTab('inv'), '商品清單與庫存'), M('產品基本資料匯出與匯入', S.isAdmin || see('export'), openImport, '把全部商品匯出成 Excel，改好直接匯入，一次新增或更新商品（條碼、售價、安全庫存…）'), M('產品標籤列印', can('print'), () => openLabelPrint(), '產品名稱與編號 QR Code 自黏標籤'), M('標籤製造日期查詢', true, () => openLabelDate(), '掃描產品標籤的 QR Code，看製造日期'), M('新增產品', S.isAdmin, () => openProductForm(), '建立新商品')]],
     ['訂購', [M('國內報價作業', can('sale'), goTab('buy', {buySeg:'qt'}), '報價單，可轉客戶訂單'), M('國內訂單作業', can('sale'), goTab('buy', {buySeg:'co'}), '客戶訂單、未交查詢'), M('採購建議作業', can('purchase'), goTab('buy', {buySeg:'sug'}), '依安全庫存與最小量自動建議'), M('國內採購單', can('purchase'), goTab('buy', {buySeg:'po'}), '採購單、收貨進貨')]],
     ['進銷', [M('單據查詢', tabAllowed('ord'), goTab('ord'), '所有銷貨、進貨、退貨單據的清單，搜尋、覆核、列印'), M('LINE 訂單審核', can('sale') || S.isAdmin, openLineOrders, '客人用 LINE 傳來的訂單，管理者審核通過才建立客戶訂單，並通知客人'), M('銷貨作業', can('sale'), () => openOrder('sale')), M('銷貨退回作業', can('sale'), () => openOrder('sale_return')), M('進貨作業', can('purchase'), () => openOrder('purchase'), '含回頭車才數與運費'), M('進貨退回作業', can('purchase'), () => openOrder('purchase_return')),
       M('庫存轉倉作業', can('stock'), () => openTransfer()), M('庫存盤點作業', can('stock'), openStocktakes), M('循環盤點', can('stock') || S.isAdmin, openCycleCount, '每天自動排出最值得盤的商品（依風險評分），依架位排好，掃碼盤點'), M('庫存調整作業', can('stock'), () => openOrder('adjust'))]],
@@ -14311,7 +14423,7 @@ function openTransfer(pre){
     const i = st.lines.findIndex(l => l.pid === pid), inp = linesBox.children[i] && linesBox.children[i].querySelector('input');
     if (inp){ inp.focus(); inp.select(); }
   }
-  const search = q => { q = q.trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
+  const search = q => { q = scanQ(q).trim().toLowerCase(); return q ? activeProducts().filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q)).sort(cmpSku).slice(0, 8) : []; };
   function paintPick(q){
     const hits = search(q);
     setKids(pickBox, q.trim() ? (hits.length ? hits.map(p => h('button', {class:'row', onclick:() => { addLine(p.id); searchIn.value = ''; paintPick(''); }}, h('span', null, h('b', {text:p.name}), h('br'), h('small', {text:p.sku})), h('small', {text:whName(st.from) + ' 庫存 ' + num(stockAt(p.id, st.from))}))) : h('div', {class:'empty', text:'找不到符合的商品'})) : null);
