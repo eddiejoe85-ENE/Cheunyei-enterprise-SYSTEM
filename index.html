@@ -6609,10 +6609,12 @@ function arStmtHTML(M, opt, standalone){
     const topH = r2((opt.env ? H.env : 0) + headH + H.meta + custIn + 3.5);
     /* 每張單據：品項一行一行，最後一行「貨物金額＋加扣款＋稅金＝合計」 */
     const groups = r.docs.map(d => {
-      const ls = d.o.type === 'tax' ? [{name:mtaxDesc(d.o), qty:null, unit:'', price:null, amt:null}] : (d.o.lines || []).map(l => ({name:(l.name || '') + (l.gift && !/贈品/.test(l.name || '') ? '（贈品）' : ''), qty:l.qty, unit:l.unit || '', price:l.price, amt:r2(d.sg * amtOf(l.qty, l.price))}));
       const lead = '<td class="nw">' + e(rocD(d.o.date)) + '</td><td class="nw">' + e(d.o.no) + '</td>', leadCont = '<td class="nw">（續）</td><td class="nw">' + e(d.o.no) + '</td>';
+      /* -cq：月結稅金照列一行：說明＋稅金金額 */
+      if (d.o.type === 'tax'){ const t = mtaxDesc(d.o); return [{h:r2(1.7 + 4.2 * linesIn(t, nameW + 30, 9)), html:() => '<tr class="st tx">' + lead + '<td colspan="3" class="wr">' + e(t) + '</td><td class="r">' + n0(d.sg * d.tax) + '</td></tr>'}]; }
+      const ls = (d.o.lines || []).map(l => ({name:(l.name || '') + (l.gift && !/贈品/.test(l.name || '') ? '（贈品）' : ''), qty:l.qty, unit:l.unit || '', price:l.price, amt:r2(d.sg * amtOf(l.qty, l.price))}));
       const rows = (ls.length ? ls : [{name:'', qty:null, unit:'', price:null, amt:null}]).map((l, i) => ({h:rowH(linesIn(l.name || ' ', nameW - 2, 9.5)), html:first => '<tr>' + (i === 0 ? lead : (first ? leadCont : '<td></td><td></td>')) + '<td class="wr">' + e(l.name) + '</td><td class="r">' + (l.qty == null ? '' : e(num(d.sg * Number(l.qty))) + e(l.unit)) + '</td><td class="r">' + (l.price == null ? '' : n0(l.price)) + '</td><td class="r">' + (l.amt == null ? '' : n0(l.amt)) + '</td></tr>'}));
-      rows.push({h:H.st, html:() => '<tr class="st"><td></td><td colspan="4"><span>貨物金額:</span><span class="r">' + n0(d.sg * d.goods) + '</span><span>+ 加扣款</span><span class="r">' + n0(d.sg * d.adj) + '</span><span>+ 稅金</span><span class="r">' + n0(d.sg * d.tax) + '</span><span>= 合計</span></td><td class="r">' + n0(d.sg * d.total) + '</td></tr>'});
+      rows.push({h:H.st, html:() => '<tr class="st"><td></td><td colspan="4" class="stl">未稅總額</td><td class="r">' + n0(d.sg * r2(d.total - d.tax)) + '</td></tr>'});   /* -cq：每筆只印未稅總額 */
       return rows;
     });
     /* 排版：一頁一頁放，放不下就換下一張 */
@@ -6638,8 +6640,6 @@ function arStmtHTML(M, opt, standalone){
       putBlock(H.sec, '<div class="sec">本期收款</div>');
       for (const p of r.pays){ const row = {h:H.pay, html:() => '<tr><td>' + e(rocD(p.pm.date)) + '</td><td>' + e(p.pm.no || '') + '</td><td>' + e((p.pm.dir === 'out' ? '退款・' : '') + (METHODS[p.pm.method] || '')) + '</td><td class="r">' + n0(p.sign * (Number(p.pm.amount) || 0)) + '</td><td class="r">' + n0(p.sign * ((Number(p.pm.discount) || 0) + (Number(p.pm.extra) || 0))) + '</td><td class="r">' + n0(p.sign * p.used) + '</td><td class="r">' + n0(p.sign * p.left) + '</td></tr>'}; brk(needT('pay') + row.h); putRow('pay', row); }
     }
-    brk(H.box);
-    putBlock(H.box, '<table class="box"><thead><tr><th>前期金額</th><th>前期訂金</th><th>預收訂金</th><th>本期應收</th></tr></thead><tbody><tr>' + ['prior', 'depPre', 'depCur', 'recv'].map(k => '<td class="r' + (k === 'recv' ? ' b' : '') + '">' + n0(r[k]) + '</td>').join('') + '</tr></tbody></table>');
     if (S.set.slipNote){ const nh = r2(3 + 4.6 * String(S.set.slipNote).split('\n').reduce((a, t) => a + linesIn(t || ' ', cw, 9.5), 0)); if (nh <= AV - H.cont) brk(nh); putBlock(nh, '<div class="note">' + e(S.set.slipNote) + '</div>'); }
     const N = pages.length;
     return pages.map((p, i) => {
@@ -6655,7 +6655,7 @@ function arStmtHTML(M, opt, standalone){
     '.conth{display:flex;justify-content:space-between;gap:4mm;line-height:4.6mm;padding-bottom:1mm;margin-bottom:2mm;border-bottom:.2mm solid #000;white-space:nowrap;overflow:hidden}.conth span:first-child{overflow:hidden;text-overflow:ellipsis}' +
     '.lst{table-layout:fixed}.lst th{border-top:.35mm solid #000;border-bottom:.35mm solid #000;font-weight:400;padding:.8mm 1mm;line-height:4.2mm;text-align:left;white-space:nowrap;overflow:hidden}.lst th.r{text-align:right}' +
     '.lst td{padding:.5mm 1mm;line-height:4.2mm;vertical-align:top;font-size:9.5pt;white-space:nowrap;overflow:hidden}.lst td.r{overflow:visible}.lst td.wr{white-space:normal;word-break:break-all;overflow-wrap:anywhere}' +
-    '.lst .st td{border-bottom:.2mm solid #000;padding-bottom:1mm;font-size:9pt}.lst .st span{display:inline-block;margin-right:1.5mm}.lst .st span.r{min-width:13mm}' +
+    '.lst .st td{border-bottom:.2mm solid #000;padding-bottom:1mm;font-size:9pt}.lst .st td.stl{text-align:right;font-weight:700;padding-right:3mm}.lst .st.tx td{font-size:9pt}' +
     '.ptot{text-align:right;border-top:.35mm solid #000;padding:1mm 1mm 0;line-height:4.6mm;font-weight:700;margin-bottom:2mm;white-space:nowrap}.sec{font-weight:700;margin:2mm 0 1mm;line-height:4.6mm}.pay td{font-size:9pt}' +
     '.box{margin-top:3mm;border:.35mm solid #000;table-layout:fixed}.box th,.box td{border:.2mm solid #000;padding:1mm 2mm;text-align:center;line-height:4.6mm}.box td{line-height:5.2mm}.box td.r{text-align:right}.box td.b{font-weight:700;font-size:11pt}.note{margin-top:3mm;line-height:4.6mm;white-space:pre-wrap;word-break:break-all}';
   return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>應收帳款對帳單 ' + e(months) + '</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>' + e(arStmtBar(key)) + '</span></div>' : '') + M.rows.map(customer).join('') + '</body></html>';
@@ -6674,11 +6674,12 @@ function dsArStatement(M){
   const cols = [XC('客戶編號', 'text', 10), XC('客戶名稱', 'text', 20), XC('帳款日期', 'text', 10), XC('帳款單號', 'text', 16), XC('產品名稱', 'text', 34), XC('數量', 'qty', 8), XC('單位', 'text', 5), XC('單價', 'money', 10), XC('金額', 'money', 12)], rows = [];
   for (const r of M.rows){
     for (const d of r.docs){
-      const ls = d.o.type === 'tax' ? [{name:mtaxDesc(d.o), qty:null, unit:'', price:null, amt:null}] : (d.o.lines || []).map(l => ({name:l.name || '', qty:d.sg * Number(l.qty), unit:l.unit || '', price:l.price, amt:r2(d.sg * amtOf(l.qty, l.price))}));
-      ls.forEach((l, i) => rows.push([r.pt.code || '', r.pt.name, i === 0 ? rocD(d.o.date) : '', i === 0 ? d.o.no : '', l.name, l.qty, l.unit, l.price, l.amt]));
-      rows.push([r.pt.code || '', r.pt.name, '', '', '貨物金額 ' + n0(d.sg * d.goods) + ' + 加扣款 ' + n0(d.sg * d.adj) + ' + 稅金 ' + n0(d.sg * d.tax) + ' = 合計', null, '', null, d.sg * d.total]);
+      if (d.o.type === 'tax'){ rows.push([r.pt.code || '', r.pt.name, rocD(d.o.date), d.o.no, mtaxDesc(d.o), null, '', null, d.sg * d.tax]); continue; }
+      (d.o.lines || []).forEach((l, i) => rows.push([r.pt.code || '', r.pt.name, i === 0 ? rocD(d.o.date) : '', i === 0 ? d.o.no : '', l.name || '', d.sg * Number(l.qty), l.unit || '', l.price, r2(d.sg * amtOf(l.qty, l.price))]));
+      rows.push([r.pt.code || '', r.pt.name, '', '', '未稅總額', null, '', null, d.sg * r2(d.total - d.tax)]);
     }
-    rows.push([r.pt.code || '', r.pt.name + '　小計', '', '', '前期金額 ' + n0(r.prior) + '　前期訂金 ' + n0(r.depPre) + '　預收訂金 ' + n0(r.depCur) + '　本期應收', null, '', null, r.recv]);
+    const T = r.docs.reduce((t, d) => ({goods:t.goods + d.sg * d.goods, adj:t.adj + d.sg * d.adj, tax:t.tax + d.sg * d.tax, total:t.total + d.sg * d.total}), {goods:0, adj:0, tax:0, total:0});
+    rows.push([r.pt.code || '', r.pt.name + '　本期合計', '', '', '貨物金額 ' + n0(r2(T.goods)) + ' + 加扣款 ' + n0(r2(T.adj)) + ' + 稅金 ' + n0(r2(T.tax)) + ' = 合計', null, '', null, r2(T.total)]);
   }
   return {title:'應收帳款對帳單', sub:'帳款月份 ' + arBookMonthTxt(M.U) + '　共 ' + M.custN + ' 位客戶　列印日期 ' + rocD(today()), filename:'應收帳款對帳單_' + M.U.from + (M.U.to !== M.U.from ? '_' + M.U.to : ''), landscape:true, sections:[{name:'對帳單', cols, rows}]};
 }
@@ -13384,7 +13385,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-cp';
+const APP_VERSION = '2026.10.11-cq';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
