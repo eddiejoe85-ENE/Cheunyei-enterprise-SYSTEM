@@ -1385,11 +1385,12 @@ function openOrder(type, pre){
     st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {}),
       pm:!!l.pm, price0:Number(l.price) || 0, promo0:l.promoId && !l.gift ? {id:l.promoId, name:l.promoName || '', base:Number(l.basePrice) || 0} : null, ...(l.gift ? {gift:true, promoId:l.promoId || null, promoName:l.promoName || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
-    const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
+    const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' || type === 'sale_return' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
   }
   const stockEff = pid => stockAt(pid, st.wh) + ((editO && orderWh(editO) === st.wh) ? (oldQty[pid] || 0) : 0);
   st.payTouched = false;
   if (!editO && type === 'sale') st.pay = custPayDefault(partnerOf());
+  if (!editO && type === 'sale_return') st.pay = retPayDefault(partnerOf());   /* -cr：銷貨退回＝銷貨的負值，跟著客戶的付款方式 */
   if (!editO && buyT(type)) st.pay = 'none';
   st.ship = {addr:'', contact:'', phone:'', spot:'', special:'', only:false, method:'送貨', touched:{}};
   const shipFill = () => { const pt = partnerOf() || {}, t = st.ship.touched, si = storeInfoOf(pt, st.store); if (!t.addr) st.ship.addr = si.addr || pt.shipAddress || pt.address || ''; if (!t.contact) st.ship.contact = si.contact || pt.contactName || ''; if (!t.phone) st.ship.phone = si.phone || pt.contactPhone || pt.phone || ''; if (!t.spot) st.ship.spot = si.spot || pt.shipSpot || ''; if (!t.method) st.ship.method = shipDefault(pt); };
@@ -1490,13 +1491,14 @@ function openOrder(type, pre){
       if (bad.length){ st.lines = st.lines.filter(l => !bad.includes(l.co)); st.cos = st.cos.filter(c => !bad.includes(c.id)); setCoNote(); paintLines(); toast('換了客戶，已拿掉原本帶入的訂單品項'); } }
     if (coBox) paintCo();
     if (!editO && type === 'sale' && !st.payTouched){ st.pay = custPayDefault(partnerOf()); paidIn.style.display = st.pay === 'part' ? '' : 'none'; paintPay(); }
+    if (!editO && type === 'sale_return' && !st.payTouched){ st.pay = retPayDefault(partnerOf()); paidIn.style.display = st.pay === 'part' ? '' : 'none'; paintPay(); }
     if (type === 'sale'){ st.store = editO && editO.partnerId === st.partnerId ? st.store : ''; }
     if (type === 'sale' && !editO){ st.ship.special = ''; st.ship.only = false; shipFill(); paintShip(); }
     if (type === 'sale' && !editO && !st.driverTouched){ st.driver = (partnerOf() || {}).driver || ''; paintDriver(); }
     if (type === 'sale'){ st.store = editO && editO.partnerId === st.partnerId ? st.store : ''; paintStamp(); }
     if (type === 'sale_return'){ st.srcSale = ''; paintRet(); }
     if (type === 'purchase'){ st.srcPO = ''; for (const k of Object.keys(srcMap)) delete srcMap[k]; paintPO(); }
-    payHint.textContent = payHintTxt(); calc();
+    payHint.textContent = payHintTxt(); paintBill(); calc();
   }
   /* ---- 銷貨單帶入客戶訂單：可以一次選好幾張（同一位客戶）；帶入後還可以自己加商品 ---- */
   const coBox = type === 'sale' && !editO ? h('div', {class:'f', style:'margin-top:8px', 'aria-label':'帶入客戶訂單'}) : null;
@@ -1562,7 +1564,8 @@ function openOrder(type, pre){
   /* 存檔時，從每一行記的訂單算出這張銷貨單的來源訂單（第一張記在 srcId；好幾張時另外記 srcIds） */
   const coSrcOf = (lines, upd) => { const ids = [...new Set(lines.filter(l => l.co).map(l => l.co))]; if (!ids.length) return null; const nos = ids.map(id => (lines.find(l => l.co === id) || {}).coNo || (S.corders[id] || {}).no || '');
     return {srcId:ids[0], srcNo:nos[0], srcKind:'co', ...(ids.length > 1 || upd ? {srcIds:ids.length > 1 ? ids : [], srcNos:ids.length > 1 ? nos : []} : {})}; };
-  const payHintTxt = () => type === 'sale' && st.partnerId && partnerOf() ? '客戶付款方式：' + termText(partnerOf()) + '，預設「' + (custPayDefault(partnerOf()) === 'none' ? '月結（記入應收帳款）' : '銷貨收現') + '」，可自行更改' : '';
+  const payHintTxt = () => type === 'sale' && st.partnerId && partnerOf() ? '客戶付款方式：' + termText(partnerOf()) + '，預設「' + (custPayDefault(partnerOf()) === 'none' ? '月結（記入應收帳款）' : '銷貨收現') + '」，可自行更改'
+    : type === 'sale_return' && st.partnerId && partnerOf() ? '客戶付款方式：' + termText(partnerOf()) + '，預設「' + (retPayDefault(partnerOf()) === 'none' ? '沖減應收（銷貨的負值）' : '已退款') + '」；只有真的把錢退給客戶才選「已退款」' : '';
   const payHint = h('small', {class:'hint'});
   const shipBox = type === 'sale' ? h('div', {class:'f', style:'margin-top:8px'}) : null;
   const driverBox = type === 'sale' ? h('div', {class:'f'}) : null;
@@ -1750,7 +1753,8 @@ function openOrder(type, pre){
     totEl.textContent = isAdj ? '差異 ' + diffs + ' 項' : (buyT(type) && !buyOn() ? '共 ' + refs.length + ' 項' : '合計 ' + money(st.total));
     if (T.money && !(buyT(type) && !buyOn())){
       taxBox.textContent = taxLine(ts, st.taxType, st.taxMode);
-      payInfo.textContent = st.pay === 'cash' ? '銷貨收現：現金 ' + money(st.total) + '，記入零用金' : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
+      payInfo.textContent = type === 'sale_return' ? (st.pay === 'none' ? '沖減應收帳款 ' + money(st.total) + '（銷貨的負值：客戶的應收帳款減少）' : st.pay === 'full' ? '已退款 ' + money(st.total) + '（已經把錢退給客戶，應收帳款不變）' : '已退款 ' + money(Math.min(mInt(toNum(st.paid)), st.total)) + '，其餘 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)) + ' 沖減應收帳款') :
+        st.pay === 'cash' ? '銷貨收現：現金 ' + money(st.total) + '，記入零用金' : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
     }
   }
   const TAXOPT = [['taxable', 'excl', '應稅・未稅價'], ['taxable', 'incl', '應稅・含稅價'], ['zero', 'excl', '零稅率'], ['exempt', 'excl', '免稅']];
@@ -1761,7 +1765,7 @@ function openOrder(type, pre){
   const paidIn = h('input', {class:'in', type:'text', inputmode:'decimal', placeholder:T.paidLabel + '金額', 'aria-label':T.paidLabel + '金額', style:'display:none;margin-top:8px', oninput:e => { st.paid = e.target.value; calc(); }});
   const payChips = h('div', {class:'chips', style:'padding-top:0'});
   const paintPay = () => {
-    payChips.replaceChildren(...(type === 'sale' ? [['none', '月結'], ['cash', '銷貨收現'], ['full', '已結清'], ['part', '部分']] : [['full', '已結清'], ['part', '部分'], ['none', '未結']]).map(([k, t]) =>
+    payChips.replaceChildren(...(type === 'sale' ? [['none', '月結'], ['cash', '銷貨收現'], ['full', '已結清'], ['part', '部分']] : type === 'sale_return' ? [['none', '沖減應收'], ['full', '已退款'], ['part', '部分退款']] : [['full', '已結清'], ['part', '部分'], ['none', '未結']]).map(([k, t]) =>
       h('button', {class:'chip', 'aria-pressed':st.pay === k, onclick:() => { st.pay = k; st.payTouched = true; paidIn.style.display = k === 'part' ? '' : 'none'; paintPay(); calc(); }}, t)));
   };
 
@@ -1780,8 +1784,16 @@ function openOrder(type, pre){
   const sh = sheet({title:editO ? '修改' + T.label + ' ' + editO.no : T.label, guard:() => st.lines.length ? dialog({title:editO ? '放棄修改？' : '放棄這張單據？', msg:editO ? '這次的修改不會保存。' : '已輸入的內容不會保存。', ok:'放棄', danger:true}) : true, onclose:() => { if (liveS) live.delete(liveS); }});
   if (liveS) live.add(liveS);
   const dateIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'日期', onchange:e => { st.date = e.target.value || today(); if (!st.delivTouched || st.deliv < st.date) st.deliv = st.date; repriceAll(); paintBill(); paintShip(); }});
-  const billInfo = h('small', {class:'hint'});
-  const paintBill = () => { const pt = S.partners[st.partnerId]; billInfo.textContent = T.money === 1 && T.partner ? '所屬帳期：' + cycleLabel(billMonth(st.date, cutoffOf(pt)), cutoffOf(pt)) : ''; };
+  /* -ct：銷貨單、銷貨退回可以指定帳款月份；沒有指定就依日期和客戶的結帳日 */
+  const bmOn = (type === 'sale' || type === 'sale_return') && !!T.partner;
+  st.bm = editO && BM_RE.test(String(editO.bm || '')) ? editO.bm : '';
+  const bmAuto = () => billMonth(st.date, cutoffOf(S.partners[st.partnerId]));
+  const bmIn = bmOn ? h('input', {class:'in', type:'month', 'aria-label':'帳款月份', style:'max-width:190px;height:40px', onchange:e => { const v = e.target.value; st.bm = BM_RE.test(v) && v !== bmAuto() ? v : ''; paintBill(); }}) : null;
+  const bmReset = bmOn ? h('button', {class:'btn plain sm', type:'button', 'aria-label':'帳款月份改回依日期', onclick:() => { st.bm = ''; paintBill(); }}, '改回依日期') : null;
+  const billInfo = h('small', {class:'hint', 'aria-label':'所屬帳期'});
+  const paintBill = () => { const pt = S.partners[st.partnerId], c = cutoffOf(pt), M = st.bm || bmAuto();
+    if (bmIn){ bmIn.value = M; bmReset.style.display = st.bm ? '' : 'none'; }
+    billInfo.textContent = T.money === 1 && T.partner ? (bmOn ? cycleLabel(M, c) + (st.bm ? '（指定；依日期是 ' + bmAuto() + ' 帳）' : '（依日期和客戶的結帳日）') : '所屬帳期：' + cycleLabel(M, c)) : ''; };
   const taxWrap = T.money ? h('div', {class:'f', style:'margin-top:14px'}, taxBox) : null;
   const payWrap = T.money ? h('div', {class:'f'}, h('label', {text:'收付款'}), payChips, paidIn, payInfo, payHint) : null;
   const buyBtn = buyT(type) && see('cost') ? h('button', {class:'btn ghost sm', 'aria-label':'切換單價顯示', onclick:() => { S.ui.showBuy = !S.ui.showBuy; paintLines(); applyBuyVis(); }}, '顯示單價與金額') : null;
@@ -1794,7 +1806,7 @@ function openOrder(type, pre){
     h('div', {class:'f2'},
       fld('日期', dateIn),
       partnerSel ? h('div', {class:'f', style:'min-width:0'}, h('label', {text:PLABEL[T.partner]}), h('div', {style:'display:flex;gap:6px;align-items:flex-start'}, pk.el, h('button', {class:'ic', style:'border:1px solid var(--line);flex:none', 'aria-label':'新增' + PLABEL[T.partner], onclick:() => { newPtRow.style.display = newPtRow.style.display === 'none' ? 'flex' : 'none'; }}, icon('plus'))), newPtRow) : null),
-    billInfo,
+    bmOn ? h('div', {class:'f', style:'margin:2px 0 6px'}, h('label', {text:'帳款月份'}), h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, bmIn, bmReset), billInfo) : billInfo,
     coBox, retBox, poBox, shipBox, driverBox, stampBox, buyBtn ? h('div', {class:'f'}, buyBtn) : null,
     whSel ? fld('倉庫', whSel) : null,
     histP ? histP.el : null,
@@ -1892,7 +1904,7 @@ function openOrder(type, pre){
         for (const x of editO.lines || []) if (!pids.has(x.pid) && returnedQty(editO.id, x.pid) > 0.0004) return toast('「' + x.name + '」已有退貨，不能移除');
       }
       saving = true; saveBtn.disabled = true;
-      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
       saving = false; saveBtn.disabled = false;
       if (ok){ toast('已更新 ' + editO.no); sh.forceClose(); }
       return;
@@ -1902,7 +1914,7 @@ function openOrder(type, pre){
     if (phList.length){ const okP = await run(async () => { await savePhotoDocs(phList); return true; }); if (!okP){ saving = false; saveBtn.disabled = false; return; } }
     const doc = await run(() => createOrder(type, {date:st.date, partnerId:st.partnerId, lines, total, paid, note:st.note.trim(),
       tax:T.money ? {net:ts.net, tax:ts.tax, type:st.taxType, mode:st.taxType === 'taxable' ? st.taxMode : 'excl'} : null,
-      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
+      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
     saving = false; saveBtn.disabled = false;
     if (!doc && phList.length) deletePhotoDocs(phList.map(x => x.id));
     if (doc && pre.rtn) S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no)}).catch(() => null);
@@ -1956,10 +1968,11 @@ function openOrderDetail(id){
       (() => { const rets = o.type === 'sale' ? Object.values(S.orders).filter(x => x.type === 'sale_return' && x.srcId === o.id && x.status !== 'void').sort(cmpOrd) : []; return rets.length ? [h('div', {class:'sec-h'}, h('h2', {text:'退貨紀錄（' + rets.length + '）'})), h('div', {class:'panel', style:'margin-bottom:14px'}, rets.map(orderRow))] : null; })(),
       (T.money && !hideBuy) ? h('div', {class:'panel pad', style:'margin-bottom:14px'},
         o.tax && o.type !== 'tax' ? kv('未稅銷售額', money(o.net)) : null, o.tax ? kv(o.type === 'tax' ? '營業稅' : '營業稅（' + (TAXT[o.taxType] || '') + '）', money(o.tax)) : null,
-        isMonthTax(o) ? kv('營業稅', (() => { const md = mtaxDocOf(o), txt = '月底結帳時依整月未稅金額計算' + (md ? '（' + md.no + '，稅金 ' + money(md.tax) + '）' : mtaxWhenTxt(o)); return (can('pay') || S.isAdmin) && fxOn('monthTax') && pt ? h('button', {style:'text-decoration:underline;text-align:right', 'aria-label':'月結稅金 ' + o.no, onclick:() => openMonthTax(billMonth(o.date, cutoffOf(pt)))}, txt) : h('span', {'aria-label':'月結稅金 ' + o.no, text:txt}); })()) : null,
+        isMonthTax(o) ? kv('營業稅', (() => { const md = mtaxDocOf(o), txt = '月底結帳時依整月未稅金額計算' + (md ? '（' + md.no + '，稅金 ' + money(md.tax) + '）' : mtaxWhenTxt(o)); return (can('pay') || S.isAdmin) && fxOn('monthTax') && pt ? h('button', {style:'text-decoration:underline;text-align:right', 'aria-label':'月結稅金 ' + o.no, onclick:() => openMonthTax(docBillMonth(o, pt))}, txt) : h('span', {'aria-label':'月結稅金 ' + o.no, text:txt}); })()) : null,
         isMonthTax(o) && o.taxConv ? kv('改成月底算稅', fmtDT(o.taxConv.at) + (o.taxConv.byName ? '　' + o.taxConv.byName : '') + '（原本稅金 ' + money(o.taxConv.tax) + '）') : null,
+        o.type === 'sale_return' && o.retConv ? kv('改成沖減應收', fmtDT(o.retConv.at) + (o.retConv.byName ? '　' + o.retConv.byName : '') + '（原本記成已退款 ' + money(o.retConv.paid) + '）') : null,
         kv('合計', money(total)), kv(T.paidLabel, money(paid)), o.type === 'sale' && o.paidMethod && paid > 0 ? kv('收款方式', o.paidMethod === 'cash' ? '現金（銷貨收現）' : '已結清（非現金）') : null, kv('未結', money(due)),
-        T.money === 1 && pt ? kv('所屬帳期', cycleLabel(billMonth(o.date, cutoffOf(pt)), cutoffOf(pt))) : null,
+        T.money === 1 && pt ? kv('所屬帳期', cycleLabel(docBillMonth(o, pt), cutoffOf(pt)) + (BM_RE.test(String(o.bm || '')) && (o.type === 'sale' || o.type === 'sale_return') ? '（指定的帳款月份）' : '')) : null,
         T.money === 1 && pt && due > 0.004 && !isVoid ? kv('到期日', dueDateOf(o) + (daysBetween(dueDateOf(o), today()) > 0 ? '（逾期 ' + daysBetween(dueDateOf(o), today()) + ' 天）' : '')) : null) : null,
       pays.length ? [h('div', {class:'sec-h'}, h('h2', {text:'沖銷紀錄'})),
         h('div', {class:'panel'}, pays.map(pm => h('button', {class:'mv', style:'grid-template-columns:1fr auto', onclick:() => openPaymentDetail(pm.id)},
@@ -2264,7 +2277,7 @@ function repBill(month, scope){
   for (const o of Object.values(S.orders)){
     if (o.status === 'void' || !(o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax')) continue;
     const pt = S.partners[o.partnerId]; if (!okPt(pt)) continue;
-    const m = billMonth(o.date, cutoffOf(pt)), sg = TYPES[o.type].money;
+    const m = docBillMonth(o, pt), sg = TYPES[o.type].money;
     if (m === M){ const total = sg * (Number(o.total) || 0), tax = sg * (Number(o.tax) || 0), rec = sg * effPaid(o); out.total += total; out.tax += tax; out.net += total - tax; out.rec += rec; out.n++; cust.add(pt.id); }
     else if (m < M){ const d = sg * dueOf(o); if (Math.abs(d) > 0.004){ out.prior += d; cust.add(pt.id); } }
   }
@@ -2356,7 +2369,7 @@ const lateOf = b => r2(b.slice(1).reduce((a, x) => a + x, 0));
 function allocPanel(){
   let rows = [], pid = null, cb = () => {}, cbFilter = null;
   const chipBox = h('div'), listBox = h('div'), list = h('div', null, chipBox, listBox);
-  const docBM = o => { const p = S.partners[o.partnerId]; return billingOf(p) === 'cycle' ? billMonth(o.date, cutoffOf(p)) : String(o.date || '').slice(0, 7); };
+  const docBM = o => { const p = S.partners[o.partnerId]; return billingOf(p) === 'cycle' || BM_RE.test(String(o.bm || '')) ? docBillMonth(o, p) : String(o.date || '').slice(0, 7); };
   const openOrders = () => Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004)
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || ((a.at || 0) - (b.at || 0)));
   const vis = () => rows.filter(r => !api.month || r.bm === api.month);
@@ -2783,7 +2796,7 @@ function exportStatement(pid){
     if (o.partnerId !== pid || o.status === 'void') continue;
     const T = TYPES[o.type]; if (!T || !T.money) continue;
     const a = r2(T.money * ((o.total || 0) - (o.paid || 0)));
-    if (a) ent.push({date:o.date, at:o.at || 0, no:o.no, memo:T.label, amt:a, bm:billMonth(o.date, cutoffOf(pt))});
+    if (a) ent.push({date:o.date, at:o.at || 0, no:o.no, memo:T.label, amt:a, bm:docBillMonth(o, pt)});
   }
   for (const pm of Object.values(S.payments)){
     if (pm.partnerId !== pid || pm.status === 'void') continue;
@@ -2816,7 +2829,7 @@ function openStatement(pid){
       dues.length ? h('div', {class:'panel', style:'margin-bottom:14px'}, dues.map(o => {
         const late = daysBetween(dueDateOf(o), t);
         return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
-          h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:'到期 ' + dueDateOf(o) + '　' + billMonth(o.date, cutoffOf(pt)) + ' 帳'})),
+          h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:'到期 ' + dueDateOf(o) + '　' + docBillMonth(o, pt) + ' 帳'})),
           h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:'未到期'})));
       })) : h('div', {class:'panel empty', style:'margin-bottom:14px', text:'沒有未結單據'}),
       notes.length ? [h('div', {class:'sec-h'}, h('h2', {text:'未結票據'})), h('div', {class:'panel', style:'margin-bottom:14px'}, notes.map(noteRow))] : null,
@@ -4015,7 +4028,7 @@ function refSlipHTML(o, standalone, P){
   const n0 = x => (Number(x) || 0).toLocaleString('zh-TW', {maximumFractionDigits:2});
   const lines = o.lines || [], pages = Math.max(1, Math.ceil((lines.length + 1) / REF_ROWS)), total = o.total || 0, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : r2(total - tax);
   const salesName = pt.salesRep || ((S.employees[pt.salesEmp] || {}).name) || '', madeBy = o.byName || whoName(o.by), wh = whName(o.wh);
-  const month = rocYM(billMonth(o.date, cutoffOf(pt))), ship = [o.shipMethod ? '交貨方式: ' + o.shipMethod : '交貨方式:', slipNoteOf(o)].filter(Boolean).join('　');
+  const month = rocYM(docBillMonth(o, pt)), ship = [o.shipMethod ? '交貨方式: ' + o.shipMethod : '交貨方式:', slipNoteOf(o)].filter(Boolean).join('　');
   const spec = l => (S.products[l.pid] || {}).labelSpec ? ' ' + (S.products[l.pid] || {}).labelSpec : '';
   const qrOn = (o.type === 'sale' || o.type === 'sale_return') && !(P && P.qr === false), qrBox = qrOn ? '<div class="oqr" style="position:absolute;right:2mm;top:5mm;width:13mm;height:13mm">' + qrSvg(String(o.no || ''), 13, 'M') + '</div>' : '';
   const pageHtml = pg => {
@@ -6416,10 +6429,10 @@ function arCustomers(U){
   const q = U.q.trim().toLowerCase();
   return Object.values(S.partners).filter(p => p.type === 'customer' && AR_DIMS.every(d => !U.f[d.k] || !U.f[d.k].size || U.f[d.k].has(d.get(p) || AR_BLANK)) && (!q || (String(p.code || '') + ' ' + p.name + ' ' + (p.shortName || '')).toLowerCase().includes(q))).sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true}) || cmpName(a, b));
 }
-const arOrdersOf = (pt, U) => Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax') && (U.by === 'cal' ? String(o.date).slice(0, 7) === U.month : billMonth(o.date, cutoffOf(pt)) === U.month)).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.no).localeCompare(String(b.no)));
+const arOrdersOf = (pt, U) => Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax') && (U.by === 'cal' ? String(o.date).slice(0, 7) === U.month : docBillMonth(o, pt) === U.month)).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.no).localeCompare(String(b.no)));
 function arFig(o){ const sg = TYPES[o.type].money, total = r2(sg * (o.total || 0)), tax = r2(sg * (Number(o.tax) || 0)), rec = r2(sg * effPaid(o)); return {o, sg, total, tax, net:r2(total - tax), rec, due:r2(total - rec), lines:(o.lines || []).map(l => ({sku:l.sku || '', name:l.name || '', qty:l.qty, unit:l.unit || '', price:l.price, amt:r2(sg * amtOf(l.qty, l.price))}))}; }
 const arSum = (list, k) => r2(list.reduce((a, x) => a + (x[k] || 0), 0));
-const arMonthOf = (o, pt, U) => U.by === 'cal' ? String(o.date).slice(0, 7) : billMonth(o.date, cutoffOf(pt));
+const arMonthOf = (o, pt, U) => U.by === 'cal' ? String(o.date).slice(0, 7) : docBillMonth(o, pt);
 const arPriorOf = (pt, U) => r2(Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax') && arMonthOf(o, pt, U) < U.month).reduce((a, o) => a + TYPES[o.type].money * dueOf(o), 0));
 /* 訂金（-co）：收款沒有沖到單據的部分（預收款，照目前的沖帳）。這個帳款月份以前收的＝前期訂金，這個帳款月份收的＝預收訂金；之後才收的不算。退款是負的。 */
 function arDepOf(pt, U, list){
@@ -6492,9 +6505,11 @@ function arBookIndex(){
 }
 function arBookOf(pt, U, I){
   I = I || arBookIndex();
-  const [a, b] = arBookRange(pt, U), sg = o => TYPES[o.type].money;
-  const docs = (I.docs[pt.id] || []).filter(o => String(o.date || '') <= b), byId = Object.fromEntries(docs.map(o => [o.id, o])), st = {};
-  const bump = (id, when, amt) => { const x = st[id] || (st[id] = {pre:0, cur:0}); if (when < a) x.pre = r2(x.pre + amt); else x.cur = r2(x.cur + amt); };
+  const [a, b] = arBookRange(pt, U), sg = o => TYPES[o.type].money, isBill = U.by !== 'cal';
+  /* -ct：依結帳日時，單據照「帳款月份」分前期、本期（可以指定）；日曆月份照日期 */
+  const isPre = o => isBill ? docBillMonth(o, pt) < U.from : String(o.date || '') < a;
+  const docs = (I.docs[pt.id] || []).filter(o => isBill ? docBillMonth(o, pt) <= U.to : String(o.date || '') <= b), byId = Object.fromEntries(docs.map(o => [o.id, o])), st = {}, preSet = new Set(docs.filter(isPre).map(o => o.id));
+  const bump = (id, when, amt) => { const x = st[id] || (st[id] = {pre:0, cur:0}); if (when < a && preSet.has(id)) x.pre = r2(x.pre + amt); else x.cur = r2(x.cur + amt); };
   for (const o of docs) if (Number(o.paid) > 0.004) bump(o.id, String(o.date), Number(o.paid));   /* 開單時收現（退款） */
   let depPre = 0, depCur = 0; const pays = [];
   for (const pm of (I.pays[pt.id] || []).filter(x => String(x.date || '') <= b).sort((x, y) => String(x.date).localeCompare(String(y.date)) || ((x.at || 0) - (y.at || 0)))){
@@ -6505,7 +6520,7 @@ function arBookOf(pt, U, I){
     if (Math.abs(left) > 0.004){ if (pd < a) depPre = r2(depPre + sign * left); else depCur = r2(depCur + sign * left); }
     if (pd >= a) pays.push({pm, sign, gross, used, left});
   }
-  const pre = docs.filter(o => String(o.date) < a), cur = docs.filter(o => String(o.date) >= a).sort((x, y) => String(x.date).localeCompare(String(y.date)) || String(x.no).localeCompare(String(y.no)));
+  const pre = docs.filter(o => preSet.has(o.id)), cur = docs.filter(o => !preSet.has(o.id)).sort((x, y) => String(x.date).localeCompare(String(y.date)) || String(x.no).localeCompare(String(y.no)));
   const prior = r2(pre.reduce((t, o) => t + sg(o) * ((Number(o.total) || 0) - ((st[o.id] || {}).pre || 0)), 0));
   const sales = r2(cur.filter(o => o.type !== 'sale_return').reduce((t, o) => t + (Number(o.total) || 0), 0));
   const rets = r2(cur.filter(o => o.type === 'sale_return').reduce((t, o) => t + (Number(o.total) || 0), 0));
@@ -6581,7 +6596,7 @@ const emOf = t => { let em = 0; for (const ch of String(t == null ? '' : t)) { c
 const linesIn = (t, wmm, pt) => Math.max(1, Math.ceil(emOf(t) * pt * 0.3528 * 1.06 / Math.max(wmm, 5)));
 /* 報表抬頭（rptHeadHTML）的高度 mm：標誌 14、公司名稱 19pt、第二個名稱 14pt、地址電話 9pt、標題 17pt */
 const rptHeadH = () => { const logo = /^data:image\//.test(String(S.set.logo || '')), co2 = !!String(S.set.co2 || '').trim(); return r2(Math.max(logo ? 14 : 0, 7.71 + (co2 ? 6.67 : 0)) + (S.set.addr || S.set.tel || S.set.fax ? 4.79 : 0) + 11.6 + 0.8); };
-const AR_STMT_H = {th:6.6, st:6, ptot:8, sec:7.6, pay:5.2, box:18, cont:8, meta:6.6, env:44};
+const AR_STMT_H = {th:7.6, st:7.4, ptot:9, sec:8.4, pay:6.2, box:18, cont:8.6, meta:7, env:44};   /* -cr：字體加大（明細 11pt）後的高度 mm */
 function arStmtCss(P, key, off){
   const cw = r2(P.w - P.ml - P.mr);
   return '@page{size:' + P.w + 'mm ' + P.h + 'mm;margin:0}' + RPT_CSS +
@@ -6593,28 +6608,28 @@ const arStmtBar = key => key === 'cont' ? '　印表機選點陣式印表機（E
 function arStmtHTML(M, opt, standalone){
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
   const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = key === 'cont' ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0}, H = AR_STMT_H;
-  const cw = r2(P.w - P.ml - P.mr), AV = r2(P.h - P.mt - P.mb - 3), nameW = r2(cw - 94.5), headH = rptHeadH(), months = arBookMonthTxt(M.U), rowH = n => r2(1 + 4.2 * n);
+  const cw = r2(P.w - P.ml - P.mr), AV = r2(P.h - P.mt - P.mb - 3), nameW = r2(cw - 112), headH = rptHeadH(), months = arBookMonthTxt(M.U), rowH = n => r2(1 + 5.2 * n);
   /* -cp：拿掉單別、幣別（單號後面的 NT$）、已沖帳款、未沖帳款 */
-  const COLS = '<colgroup><col style="width:18.5mm"><col style="width:27mm"><col><col style="width:17mm"><col style="width:15mm"><col style="width:17mm"></colgroup>';
+  const COLS = '<colgroup><col style="width:21mm"><col style="width:33mm"><col><col style="width:19mm"><col style="width:18mm"><col style="width:21mm"></colgroup>';
   const TH = '<thead><tr><th>帳款日期</th><th>帳款單號</th><th>產品名稱</th><th class="r">數　量</th><th class="r">單　價</th><th class="r">金　額</th></tr></thead>';
-  const PCOLS = '<colgroup><col style="width:18.5mm"><col style="width:30mm"><col style="width:24mm"><col><col><col><col></colgroup>';
+  const PCOLS = '<colgroup><col style="width:21mm"><col style="width:33mm"><col style="width:24mm"><col><col><col><col></colgroup>';
   const PTH = '<thead><tr><th>收款日期</th><th>收款單號</th><th>方式</th><th class="r">收款金額</th><th class="r">折讓</th><th class="r">沖帳金額</th><th class="r">預收（訂金）</th></tr></thead>';
   const customer = r => {
     const pt = r.pt, addr = custMailAddr(pt), title2 = String(pt.taxTitle || '').trim(), name2 = title2 && title2 !== pt.name ? title2 : '';
     const env = opt.env ? '<div class="env"><div class="to" style="left:' + (Math.max(Number(opt.dx) || 0, 0)) + 'mm"><div>' + e(addr.replace(/^\s*\d{3,6}\s*/, '')) + '</div><div>' + e(pt.name) + '</div>' + (name2 ? '<div>' + e(name2) + '</div>' : '') + '</div></div>' : '';
     const rights = ['帳款月份: ' + months, '客戶編號: ' + (pt.code || ''), pt.phone ? '電　　話: ' + pt.phone : '', pt.fax ? '傳　　真: ' + pt.fax : '', pt.taxId ? '統一編號: ' + pt.taxId : ''].filter(Boolean);
-    const lW = Math.max(cw - (Math.max(...rights.map(emOf)) * 10 * 0.3528 + 1) - 6, 40);
-    const custIn = r2(4.76 * Math.max(linesIn('客　　戶: ' + pt.name, lW, 10) + (name2 ? linesIn(name2, lW - 16, 10) : 0) + (addr ? linesIn(addr, lW - 16, 10) : 0), rights.length) + 0.6);
+    const lW = Math.max(cw - (Math.max(...rights.map(emOf)) * 11.5 * 0.3528 + 1) - 6, 40);
+    const custIn = r2(5.4 * Math.max(linesIn('客　　戶: ' + pt.name, lW, 11.5) + (name2 ? linesIn(name2, lW - 18, 11.5) : 0) + (addr ? linesIn(addr, lW - 18, 11.5) : 0), rights.length) + 0.6);
     const info = '<div class="cust" style="height:' + custIn + 'mm"><div class="cl"><div><span class="k">客　　戶:</span> ' + e(pt.name) + '</div>' + (name2 ? '<div class="ind">' + e(name2) + '</div>' : '') + (addr ? '<div class="ind">' + e(addr) + '</div>' : '') + '</div><div class="cr">' + rights.map(t => '<div>' + e(t) + '</div>').join('') + '</div></div>';
     const topH = r2((opt.env ? H.env : 0) + headH + H.meta + custIn + 3.5);
     /* 每張單據：品項一行一行，最後一行「貨物金額＋加扣款＋稅金＝合計」 */
     const groups = r.docs.map(d => {
       const lead = '<td class="nw">' + e(rocD(d.o.date)) + '</td><td class="nw">' + e(d.o.no) + '</td>', leadCont = '<td class="nw">（續）</td><td class="nw">' + e(d.o.no) + '</td>';
       /* -cq：月結稅金照列一行：說明＋稅金金額 */
-      if (d.o.type === 'tax'){ const t = mtaxDesc(d.o); return [{h:r2(1.7 + 4.2 * linesIn(t, nameW + 30, 9)), html:() => '<tr class="st tx">' + lead + '<td colspan="3" class="wr">' + e(t) + '</td><td class="r">' + n0(d.sg * d.tax) + '</td></tr>'}]; }
+      if (d.o.type === 'tax'){ const t = mtaxDesc(d.o); return [{h:r2(1.7 + 5.2 * linesIn(t, nameW + 35, 10.5)), html:() => '<tr class="st tx">' + lead + '<td colspan="3" class="wr">' + e(t) + '</td><td class="r">' + n0(d.sg * d.tax) + '</td></tr>'}]; }
       const ls = (d.o.lines || []).map(l => ({name:(l.name || '') + (l.gift && !/贈品/.test(l.name || '') ? '（贈品）' : ''), qty:l.qty, unit:l.unit || '', price:l.price, amt:r2(d.sg * amtOf(l.qty, l.price))}));
-      const rows = (ls.length ? ls : [{name:'', qty:null, unit:'', price:null, amt:null}]).map((l, i) => ({h:rowH(linesIn(l.name || ' ', nameW - 2, 9.5)), html:first => '<tr>' + (i === 0 ? lead : (first ? leadCont : '<td></td><td></td>')) + '<td class="wr">' + e(l.name) + '</td><td class="r">' + (l.qty == null ? '' : e(num(d.sg * Number(l.qty))) + e(l.unit)) + '</td><td class="r">' + (l.price == null ? '' : n0(l.price)) + '</td><td class="r">' + (l.amt == null ? '' : n0(l.amt)) + '</td></tr>'}));
-      rows.push({h:H.st, html:() => '<tr class="st"><td></td><td colspan="4" class="stl">未稅總額</td><td class="r">' + n0(d.sg * r2(d.total - d.tax)) + '</td></tr>'});   /* -cq：每筆只印未稅總額 */
+      const rows = (ls.length ? ls : [{name:'', qty:null, unit:'', price:null, amt:null}]).map((l, i) => ({h:rowH(linesIn(l.name || ' ', nameW - 2, 11)), html:first => '<tr>' + (i === 0 ? lead : (first ? leadCont : '<td></td><td></td>')) + '<td class="wr">' + e(l.name) + '</td><td class="r">' + (l.qty == null ? '' : e(num(d.sg * Number(l.qty))) + e(l.unit)) + '</td><td class="r">' + (l.price == null ? '' : n0(l.price)) + '</td><td class="r">' + (l.amt == null ? '' : n0(l.amt)) + '</td></tr>'}));
+      rows.push({h:H.st, html:() => '<tr class="st"><td></td><td colspan="2"></td><td colspan="2" class="stl bt">未稅總額</td><td class="r bt">' + n0(d.sg * r2(d.total - d.tax)) + '</td></tr>'});   /* -cq：每筆只印未稅總額 */
       return rows;
     });
     /* 排版：一頁一頁放，放不下就換下一張 */
@@ -6640,7 +6655,7 @@ function arStmtHTML(M, opt, standalone){
       putBlock(H.sec, '<div class="sec">本期收款</div>');
       for (const p of r.pays){ const row = {h:H.pay, html:() => '<tr><td>' + e(rocD(p.pm.date)) + '</td><td>' + e(p.pm.no || '') + '</td><td>' + e((p.pm.dir === 'out' ? '退款・' : '') + (METHODS[p.pm.method] || '')) + '</td><td class="r">' + n0(p.sign * (Number(p.pm.amount) || 0)) + '</td><td class="r">' + n0(p.sign * ((Number(p.pm.discount) || 0) + (Number(p.pm.extra) || 0))) + '</td><td class="r">' + n0(p.sign * p.used) + '</td><td class="r">' + n0(p.sign * p.left) + '</td></tr>'}; brk(needT('pay') + row.h); putRow('pay', row); }
     }
-    if (S.set.slipNote){ const nh = r2(3 + 4.6 * String(S.set.slipNote).split('\n').reduce((a, t) => a + linesIn(t || ' ', cw, 9.5), 0)); if (nh <= AV - H.cont) brk(nh); putBlock(nh, '<div class="note">' + e(S.set.slipNote) + '</div>'); }
+    if (S.set.slipNote){ const nh = r2(3 + 5.2 * String(S.set.slipNote).split('\n').reduce((a, t) => a + linesIn(t || ' ', cw, 10.5), 0)); if (nh <= AV - H.cont) brk(nh); putBlock(nh, '<div class="note">' + e(S.set.slipNote) + '</div>'); }
     const N = pages.length;
     return pages.map((p, i) => {
       const head = i === 0 ? env + '<div class="hdb" style="height:' + headH + 'mm">' + rptHeadHTML('應收帳款對帳單', e) + '</div><div class="meta"><span>列印日期: ' + e(rocD(today())) + '</span>' + (N > 1 ? '<span>頁次: 1/' + N + '</span>' : '') + '</div>' + info
@@ -6650,14 +6665,14 @@ function arStmtHTML(M, opt, standalone){
     }).join('');
   };
   const css = arStmtCss(P, key, off) +
-    '.env{position:relative;height:44mm}.env .to{position:absolute;top:10mm;font-size:13.5pt;line-height:1.55}.hdb{overflow:hidden}.meta{line-height:4.6mm}' +
-    '.cust{display:flex;justify-content:space-between;gap:6mm;margin:1.5mm 0 2mm;font-size:10pt;line-height:4.76mm;overflow:hidden}.cl{flex:1;min-width:0;word-break:break-all;overflow-wrap:anywhere}.cust .ind{padding-left:16mm}.cust .k{letter-spacing:0}.cr{flex:none;white-space:nowrap}' +
-    '.conth{display:flex;justify-content:space-between;gap:4mm;line-height:4.6mm;padding-bottom:1mm;margin-bottom:2mm;border-bottom:.2mm solid #000;white-space:nowrap;overflow:hidden}.conth span:first-child{overflow:hidden;text-overflow:ellipsis}' +
-    '.lst{table-layout:fixed}.lst th{border-top:.35mm solid #000;border-bottom:.35mm solid #000;font-weight:400;padding:.8mm 1mm;line-height:4.2mm;text-align:left;white-space:nowrap;overflow:hidden}.lst th.r{text-align:right}' +
-    '.lst td{padding:.5mm 1mm;line-height:4.2mm;vertical-align:top;font-size:9.5pt;white-space:nowrap;overflow:hidden}.lst td.r{overflow:visible}.lst td.wr{white-space:normal;word-break:break-all;overflow-wrap:anywhere}' +
-    '.lst .st td{border-bottom:.2mm solid #000;padding-bottom:1mm;font-size:9pt}.lst .st td.stl{text-align:right;font-weight:700;padding-right:3mm}.lst .st.tx td{font-size:9pt}' +
-    '.ptot{text-align:right;border-top:.35mm solid #000;padding:1mm 1mm 0;line-height:4.6mm;font-weight:700;margin-bottom:2mm;white-space:nowrap}.sec{font-weight:700;margin:2mm 0 1mm;line-height:4.6mm}.pay td{font-size:9pt}' +
-    '.box{margin-top:3mm;border:.35mm solid #000;table-layout:fixed}.box th,.box td{border:.2mm solid #000;padding:1mm 2mm;text-align:center;line-height:4.6mm}.box td{line-height:5.2mm}.box td.r{text-align:right}.box td.b{font-weight:700;font-size:11pt}.note{margin-top:3mm;line-height:4.6mm;white-space:pre-wrap;word-break:break-all}';
+    '.env{position:relative;height:44mm}.env .to{position:absolute;top:10mm;font-size:14pt;line-height:1.55}.hdb{overflow:hidden}.meta{line-height:5mm;font-size:10.5pt}' +
+    '.cust{display:flex;justify-content:space-between;gap:6mm;margin:1.5mm 0 2mm;font-size:11.5pt;line-height:5.4mm;overflow:hidden}.cl{flex:1;min-width:0;word-break:break-all;overflow-wrap:anywhere}.cust .ind{padding-left:18mm}.cust .k{letter-spacing:0}.cr{flex:none;white-space:nowrap}' +
+    '.conth{display:flex;justify-content:space-between;gap:4mm;font-size:10.5pt;line-height:5mm;padding-bottom:1mm;margin-bottom:2mm;border-bottom:.2mm solid #000;white-space:nowrap;overflow:hidden}.conth span:first-child{overflow:hidden;text-overflow:ellipsis}' +
+    '.lst{table-layout:fixed}.lst th{border-top:.35mm solid #000;border-bottom:.35mm solid #000;font-weight:400;font-size:11pt;padding:.8mm 1mm;line-height:5.2mm;text-align:left;white-space:nowrap;overflow:hidden}.lst th.r{text-align:right}' +
+    '.lst td{padding:.5mm 1mm;line-height:5.2mm;vertical-align:top;font-size:11pt;white-space:nowrap;overflow:hidden}.lst td.r{overflow:visible}.lst td.wr{white-space:normal;word-break:break-all;overflow-wrap:anywhere}' +
+    '.lst .st td{border-bottom:.2mm solid #000;padding-bottom:1mm;font-size:11pt}.lst .st td.stl{text-align:right;font-weight:700;padding-right:3mm}.lst .st td.bt{border-top:.25mm solid #000}.lst .st.tx td{font-size:10.5pt}' +
+    '.ptot{text-align:right;border-top:.35mm solid #000;padding:1mm 1mm 0;font-size:11pt;line-height:5.2mm;font-weight:700;margin-bottom:2mm;white-space:nowrap}.sec{font-weight:700;font-size:11pt;margin:2mm 0 1mm;line-height:5.2mm}.pay td{font-size:10.5pt}' +
+    '.box{margin-top:3mm;border:.35mm solid #000;table-layout:fixed}.box th,.box td{border:.2mm solid #000;padding:1mm 2mm;text-align:center;line-height:4.6mm}.box td{line-height:5.2mm}.box td.r{text-align:right}.box td.b{font-weight:700;font-size:11pt}.note{margin-top:3mm;font-size:10.5pt;line-height:5.2mm;white-space:pre-wrap;word-break:break-all}';
   return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>應收帳款對帳單 ' + e(months) + '</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>' + e(arStmtBar(key)) + '</span></div>' : '') + M.rows.map(customer).join('') + '</body></html>';
 }
 /* 連續 3 張測試頁：粗線在 3 張的同一個位置＝紙張長度對；外框是內容範圍 */
@@ -6682,6 +6697,50 @@ function dsArStatement(M){
     rows.push([r.pt.code || '', r.pt.name + '　本期合計', '', '', '貨物金額 ' + n0(r2(T.goods)) + ' + 加扣款 ' + n0(r2(T.adj)) + ' + 稅金 ' + n0(r2(T.tax)) + ' = 合計', null, '', null, r2(T.total)]);
   }
   return {title:'應收帳款對帳單', sub:'帳款月份 ' + arBookMonthTxt(M.U) + '　共 ' + M.custN + ' 位客戶　列印日期 ' + rocD(today()), filename:'應收帳款對帳單_' + M.U.from + (M.U.to !== M.U.from ? '_' + M.U.to : ''), landscape:true, sections:[{name:'對帳單', cols, rows}]};
+}
+/* ================= 銷貨退回＝銷貨的負值（-cr） =================
+   銷貨退回應該沖減客戶的應收帳款（當成銷貨的負值），不是收款、不是已沖帳款。
+   以前開銷貨退回預設「已結清」，月結客戶的退貨就被記成「已退款」：應收帳款沒有減少，報表上變成負的已沖帳款。
+   開單預設改成跟著客戶的付款方式（記帳的客戶＝沖減應收；銷貨收現的客戶＝已退款）；以前的單據由管理員一次改。 */
+const retPayDefault = pt => pt && custPayDefault(pt) === 'none' ? 'none' : 'full';
+function retFixList(){
+  const ok = [], skip = [];
+  for (const o of Object.values(S.orders)){
+    if (o.type !== 'sale_return' || o.status === 'void' || !(Number(o.paid) > 0.004)) continue;
+    const pt = S.partners[o.partnerId]; if (!pt || pt.type !== 'customer' || retPayDefault(pt) !== 'none') continue;
+    const why = reviewLock('order', o) ? '已覆核' : (reviewOn() && monthLocked('orders', o.date) ? '月份已封存' : '');
+    (why ? skip : ok).push({o, pt, why});
+  }
+  const ord = (a, b) => String(a.o.date).localeCompare(String(b.o.date)) || String(a.o.no).localeCompare(String(b.o.no));
+  return {ok:ok.sort(ord), skip:skip.sort(ord)};
+}
+function retFixNote(){
+  const L = retFixList(), all = [...L.ok, ...L.skip]; if (!all.length) return null;
+  const amt = r2(all.reduce((a, x) => a + (Number(x.o.paid) || 0), 0));
+  return h('div', {class:'note warn', style:'margin:10px 0 0', 'aria-label':'銷貨退回記成已退款'},
+    h('div', {text:all.length + ' 張月結（記帳）客戶的銷貨退回記成「已退款」（合計 ' + money(amt) + '）：應收帳款沒有減少，報表上變成負的已沖帳款。銷貨退回應該是銷貨的負值（沖減應收）。'}),
+    S.isAdmin && L.ok.length ? h('button', {class:'btn sm', style:'margin-top:6px', 'aria-label':'改成沖減應收', onclick:() => openRetFix()}, '看哪幾張、改成沖減應收（' + L.ok.length + ' 張）')
+      : h('small', {class:'hint', style:'display:block;margin-top:4px', text:L.ok.length ? '請管理員改成沖減應收。' : '都已覆核或月份已封存，要先取消覆核或封存才能改。'}));
+}
+function openRetFix(){
+  if (!S.isAdmin) return toast('只有管理員可以修改');
+  const pick = new Set(retFixList().ok.map(x => x.o.id));
+  liveSheet({title:'銷貨退回改成沖減應收'}, ['orders', 'partners', 'settings', 'locks'], sh => {
+    const L = retFixList(), sel = L.ok.filter(x => pick.has(x.o.id)), amt = r2(sel.reduce((a, x) => a + (Number(x.o.paid) || 0), 0));
+    const row = (x, can) => h('label', {class:'row', style:'grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px', 'aria-label':'退貨 ' + x.o.no},
+      can ? h('input', {type:'checkbox', checked:pick.has(x.o.id), 'aria-label':'改 ' + x.o.no, onchange:e => { if (e.target.checked) pick.add(x.o.id); else pick.delete(x.o.id); render('orders'); }}) : h('span'),
+      h('span', {style:'min-width:0'}, h('b', {text:x.o.no + '　' + (x.pt.shortName || x.pt.name)}), h('br'), h('small', {class:x.why ? 'overdue' : 'hint', text:x.o.date + '　合計 ' + money(x.o.total) + (x.why ? '　不能改：' + x.why : '')})),
+      h('b', {text:'已退款 ' + money(x.o.paid)}));
+    const body = h('div', null, h('p', {class:'note', style:'margin-top:0', text:'銷貨退回應該是銷貨的負值：沖減客戶的應收帳款。下面這些退貨記成「已退款」（好像已經把錢退給客戶），所以應收帳款沒有減少。真的已經退錢給客戶的，不要勾。'}),
+      L.ok.length ? h('div', {class:'panel', 'aria-label':'可以改的銷貨退回'}, L.ok.map(x => row(x, true))) : h('div', {class:'panel empty', text:'沒有可以改的銷貨退回'}),
+      L.skip.length ? [h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'不能改（' + L.skip.length + ' 張）'})), h('div', {class:'panel', 'aria-label':'不能改的銷貨退回'}, L.skip.map(x => row(x, false)))] : null);
+    return {body, foot:[h('button', {class:'btn grow', disabled:!sel.length, 'aria-label':'確認改成沖減應收', onclick:async () => {
+      if (!await dialog({title:'把 ' + sel.length + ' 張銷貨退回改成沖減應收？', msg:'這些客戶的應收帳款會減少 ' + money(amt) + '（退貨變成銷貨的負值），報表上不會再算成已沖帳款。單據上會記錄是誰、什麼時候改的。', ok:'改成沖減應收'})) return;
+      let k = 0;
+      const ok = await run(async () => { for (const x of sel){ lockGuardNew('orders', x.o.date); await S.db.doc('orders/' + x.o.id).update({paid:0, retConv:{at:Date.now(), by:S.meId || null, byName:myName(), paid:Number(x.o.paid) || 0}, editedBy:S.meId || null, editedAt:Date.now()}); k++; } return true; });
+      if (ok){ toast('已改 ' + k + ' 張銷貨退回：沖減應收 ' + money(amt)); sh.forceClose(); } else if (k) toast('已改 ' + k + ' 張，其他的沒改成功，請再按一次');
+    }}, '改成沖減應收（' + sel.length + ' 張，' + money(amt) + '）')]};
+  });
 }
 /* ---- 畫面：帳款月份（從～到）、篩選客戶，兩張報表共用 ---- */
 function arBookState(pre){
@@ -6721,12 +6780,12 @@ function openArSummary(pre){
         h('small', {text:'前期 ' + money(r.prior) + (r.depPre ? '　前期訂金 ' + money(r.depPre) : '') + '　本期銷貨 ' + money(r.sales) + (r.rets ? '　銷退 ' + money(r.rets) : '') + (r.depCur ? '　預收訂金 ' + money(r.depCur) : '')}), h('br'),
         h('small', {text:'本期應收 ' + money(r.recv) + '　已沖 ' + money(r.settled)})),
       h('span', {class:'right'}, h('small', {class:'hint', text:'未沖帳款'}), h('br'), h('b', {class:r.left > 0.004 ? 'overdue' : '', text:money(r.left)})));
-    const body = h('div', null, ...arBookControls(U, rer),
+    const body = h('div', null, ...arBookControls(U, rer), retFixNote(),
       h('div', {'aria-label':'彙總表合計', style:'display:flex;flex-wrap:wrap;gap:8px;margin:12px 0'}, tile('前期金額', T.prior), tile('本期應收', T.recv), tile('本期已沖帳款', T.settled), tile('未沖帳款', T.left, T.left > 0.004 ? 'overdue' : ''),
         T.depPre || T.depCur ? tile('訂金（前期＋本期）', r2(T.depPre + T.depCur)) : null),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶（' + M.custN + ' 位）'})),
       M.rows.length ? h('div', {class:'panel', 'aria-label':'彙總表客戶'}, M.rows.map(rowEl)) : h('div', {class:'panel empty', text:'這段期間沒有客戶帳款'}),
-      h('p', {class:'hint', style:'margin-top:10px', text:'未沖帳款＝前期金額－前期訂金＋本期應收－本期已沖帳款－預收訂金。本期銷貨含月結稅金；訂金是收款時沒有沖到單據的預收款；其他應收、其他應付目前沒有這類單據，都是 0。照單據、收款的日期算當時的帳，之後才收的款不會算進去。'}));
+      h('p', {class:'hint', style:'margin-top:10px', text:'未沖帳款＝前期金額－前期訂金＋本期應收－本期已沖帳款－預收訂金。本期銷貨含月結稅金；銷貨退回是銷貨的負值（銷退／索賠），只有真的退錢給客戶（已退款）才會變成負的已沖帳款；訂金是收款時沒有沖到單據的預收款；其他應收、其他應付目前沒有這類單據，都是 0。照單據、收款的日期算當時的帳，之後才收的款不會算進去。'}));
     return {body, foot:[h('button', {class:'btn grow', 'aria-label':'列印彙總表', disabled:!M.rows.length, onclick:() => { const m = arBookM(U); printNow(arSumHTML(m, false), '應收帳款彙總表_' + U.from + '.html', () => arSumHTML(m, true)); }}, '列印（A4 橫式）'),
       see('export') ? h('button', {class:'btn ghost', 'aria-label':'匯出彙總表', disabled:!M.rows.length, onclick:() => openExport(dsArSummary(arBookM(U)))}, icon('down'), '匯出') : null].filter(Boolean)};
   });
@@ -6754,7 +6813,7 @@ function openArStatement(pre){
         h('details', {class:'fold', style:'margin-top:8px', 'aria-label':'連續報表紙設定說明'}, h('summary', {text:'第一次用連續報表紙（每台電腦設定一次）'}), h('div', {class:'fold-b'}, h('ol', {style:'margin:0;padding-left:20px;font-size:14px;color:var(--ink2)'}, STEPS.map(t => h('li', {text:t, style:'margin-bottom:4px'})))))]
         : h('small', {class:'hint', style:'display:block', text:'一般印表機（雷射、噴墨）用 A4 紙；每位客戶從新的一頁開始，一頁印不下會自動接到下一頁。'}));
     const listRows = U.only ? null : M.list.map(r => h('label', {class:'row', style:'align-items:center;cursor:pointer', 'data-name':r.pt.name}, h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('input', {type:'checkbox', checked:!U.skip.has(r.pt.id), 'aria-label':'納入對帳單 ' + r.pt.name, onchange:e => { if (e.target.checked) U.skip.delete(r.pt.id); else U.skip.add(r.pt.id); rer(); }}), h('span', {style:'min-width:0'}, h('b', {text:(r.pt.code ? r.pt.code + '　' : '') + (r.pt.shortName || r.pt.name)}), h('br'), h('small', {text:r.docs.length + ' 張單據　本期應收 ' + money(r.recv) + '　未沖 ' + money(r.left)}))), h('span')));
-    const body = h('div', null, ...arBookControls(U, rer), paperBox,
+    const body = h('div', null, ...arBookControls(U, rer), retFixNote(), paperBox,
       h('label', {class:'check', style:'margin-top:10px'}, h('input', {type:'checkbox', checked:U.env, 'aria-label':'印信封開窗的收件人', onchange:e => { U.env = e.target.checked; rer(); }}), '最上面印收件人（地址、客戶名稱），對摺放進開窗信封'),
       U.env ? h('div', {class:'f', style:'margin:4px 0 0'}, h('label', {text:'收件人離左邊界多少 mm（0 ＝ 貼著左邊）'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:U.dx || '', placeholder:'例：25', 'aria-label':'收件人左邊位置', onchange:e => { U.dx = Math.max(toNum(e.target.value), 0); try { localStorage.setItem('arLabDx1', String(U.dx)); } catch (_) {} rer(); }})) : null,
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.pays, 'aria-label':'列出本期收款', onchange:e => { U.pays = e.target.checked; rer(); }}), '列出這段期間的收款（收款日期、金額、折讓、沖帳、預收）'),
@@ -6825,7 +6884,7 @@ function openArReport(month){
       h('div', {style:'display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px'}, h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.onlyDue, 'aria-label':'只列未收清的單據', onchange:e => { U.onlyDue = e.target.checked; render('orders'); }}), '只列還沒收清的單據'), h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.empty, 'aria-label':'也列沒有帳款的客戶', onchange:e => { U.empty = e.target.checked; render('orders'); }}), '也列這個月沒有帳款的客戶')),
       h('div', {class:'sec-h'}, h('h2', {text:'客戶名單（勾選＝納入報表，已選 ' + M.custN + ' / ' + M.list.length + ' 位）'})),
       M.list.length ? h('div', {class:'panel', style:'max-height:42vh;overflow:auto', 'aria-label':'客戶名單'}, listRows) : h('div', {class:'panel empty', text:'沒有符合的客戶'}),
-      h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'報表　' + U.month})), summary,
+      h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'報表　' + U.month})), summary, retFixNote(),
       U.by === 'bill' ? (() => { const inRep = new Set(M.rows.map(r => r.pt.id)); return mtaxPendNote(U.month, pt => inRep.has(pt.id), '月結稅金還沒算進去', '0 0 10px'); })() : null,
       h('div', {class:'chips', style:'padding-top:0'}, h('small', {class:'hint', style:'align-self:center', text:'列印紙張 A4：'}), [[false, '直式'], [true, '橫式']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.land === k, 'aria-label':'紙張方向 ' + t, onclick:() => { U.land = k; render('orders'); }}, t))),
       U.tab === 'detail' ? h('div', {class:'f', style:'margin:6px 0 10px'}, h('label', {text:'列印時，標籤上收件人的位置：從左邊界往右多少 mm（0 ＝ 貼著左邊）'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:U.labDx ? String(U.labDx) : '', placeholder:'0', 'aria-label':'標籤收件人往右（mm）', style:'height:38px', onchange:e => { U.labDx = Math.min(Math.max(toNum(e.target.value), 0), 120); try { localStorage.setItem('arLabDx1', String(U.labDx)); } catch (_) {} render('orders'); }})) : null,
@@ -6849,7 +6908,7 @@ const mtaxEligible = pt => !!pt && pt.type === 'customer' && pt.invoiceMode !== 
 const mtaxDefOK = pt => mtaxEligible(pt) && S.set.taxMode !== 'none' && (pt.taxType || 'taxable') === 'taxable' && (pt.taxMode ? pt.taxMode !== 'incl' : S.set.taxMode !== 'incl');
 const isMonthTax = o => !!o && o.taxType === 'taxable' && o.taxMode === 'month';
 /* 月底算稅的銷貨單：這個帳款月份的月結稅金單據（還沒產生是 null） */
-const mtaxDocOf = o => { const pt = S.partners[o.partnerId]; if (!pt) return null; const M = billMonth(o.date, cutoffOf(pt)); return Object.values(S.orders).find(x => x.type === 'tax' && x.status !== 'void' && x.partnerId === pt.id && x.month === M) || null; };
+const mtaxDocOf = o => { const pt = S.partners[o.partnerId]; if (!pt) return null; const M = docBillMonth(o, pt); return Object.values(S.orders).find(x => x.type === 'tax' && x.status !== 'void' && x.partnerId === pt.id && x.month === M) || null; };
 const mtaxDesc = o => '月結稅金：' + o.month + ' 帳銷貨額 ' + money(o.base) + ' × 發票 ' + num(o.ratio) + '% ＝ 發票金額 ' + money(o.invAmt) + '，稅率 ' + num(o.rate || taxRate()) + '%';
 const mtaxNote = r => r.M + ' 帳月結稅金（發票開銷貨額 ' + num(r.ratio) + '%）';
 /* 套印發票用：一行「貨款」＝發票金額，稅金照發票金額算 */
@@ -6868,7 +6927,7 @@ function mtaxRows(M, only){   /* only：只算這一位客戶（對帳單用） 
   for (const pt of (only ? [S.partners[only]].filter(Boolean) : Object.values(S.partners))){
     if (pt.type !== 'customer') continue;
     const list = by[pt.id] || [], docs = list.filter(o => o.type === 'tax' && o.month === M).sort(mtaxKeepCmp), doc = docs[0] || null, ok = mtaxEligible(pt);   /* 同一個月好幾張（不該發生）：留一張，其他的放 dupDocs */
-    const c = cutoffOf(pt), mine = list.filter(o => o.type !== 'tax' && billMonth(o.date, c) === M);
+    const c = cutoffOf(pt), mine = list.filter(o => o.type !== 'tax' && docBillMonth(o, pt) === M);
     if (!ok && !doc && !mine.some(isMonthTax)) continue;
     const slips = mine.filter(o => ok ? !(Number(o.tax) > 0) && o.taxType !== 'zero' : isMonthTax(o));   /* 現在不是月結開立的客戶：只算「月底算稅」的銷貨單 */
     if (!slips.length && !doc) continue;
@@ -6885,7 +6944,7 @@ function mtaxRows(M, only){   /* only：只算這一位客戶（對帳單用） 
 function mtaxConvPlan(pt, M, list){   /* list：這位客戶的單據（已經挑好的話，不用再掃全部） */
   const c = cutoffOf(pt), ok = [], skip = [];
   for (const o of (list || Object.values(S.orders))){
-    if (o.partnerId !== pt.id || o.status === 'void' || !(o.type === 'sale' || o.type === 'sale_return') || billMonth(o.date, c) !== M || !(Number(o.tax) > 0)) continue;
+    if (o.partnerId !== pt.id || o.status === 'void' || !(o.type === 'sale' || o.type === 'sale_return') || docBillMonth(o, pt) !== M || !(Number(o.tax) > 0)) continue;
     const net = r2(Number(o.net) || 0), got = r2((Number(o.paid) || 0) + (S.d.alloc[o.id] || 0));
     const why = o.taxType !== 'taxable' ? '零稅率' : (o.taxMode === 'incl' ? '含稅價' : (o.invNo ? '已開發票 ' + o.invNo : (reviewLock('order', o) ? '已覆核' : (reviewOn() && monthLocked('orders', o.date) ? '月份已封存' : (!(net > 0) ? '沒有未稅金額' : (got > net + 0.004 ? (o.type === 'sale' ? '已收款' : '已退款') + ' ' + money(got) + ' 超過未稅金額' : ''))))));
     (why ? skip : ok).push({o, net, tax:Number(o.tax) || 0, why});
@@ -7105,7 +7164,7 @@ async function mtaxAutoSave(r0){
   return k === 'skip' ? null : {r, k};
 }
 /* 月底算稅的銷貨單：還沒有月結稅金時，什麼時候算 */
-const mtaxWhenTxt = o => { const pt = S.partners[o.partnerId], c = cutoffOf(pt), end = cycleRange(billMonth(o.date, c), c)[1]; return mtaxAutoOn() && end >= today() ? '（帳期 ' + mdTxt(end) + ' 結束後自動算）' : '（月結稅金還沒產生）'; };
+const mtaxWhenTxt = o => { const pt = S.partners[o.partnerId], c = cutoffOf(pt), end = cycleRange(docBillMonth(o, pt), c)[1]; return mtaxAutoOn() && end >= today() ? '（帳期 ' + mdTxt(end) + ' 結束後自動算）' : '（月結稅金還沒產生）'; };
 /* 營運報表、應收帳款報表、回傳表：帳款月份 M 還沒算進去的月結稅金（還沒產生或要更新） */
 function mtaxPendNote(M, pick, aria, mg){
   if (!fxOn('monthTax')) return null;
@@ -7573,7 +7632,7 @@ const lineMoney = x => { const n = Math.round(Number(x) || 0); return (n < 0 ? '
 /* 這位客戶「現在」會收到的對帳通知和逾期提醒內容（用網站自己的帳款計算；雲端程式用同一套規則，兩邊有對照測試） */
 function remindPreview(pt){
   const t = today(), c = cutoffOf(pt), out = {statement:null, overdue:null};
-  const rows = Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax')).map(o => ({o, f:arFig(o), month:billMonth(o.date, c)}));
+  const rows = Object.values(S.orders).filter(o => o.partnerId === pt.id && o.status !== 'void' && (o.type === 'sale' || o.type === 'sale_return' || o.type === 'tax')).map(o => ({o, f:arFig(o), month:docBillMonth(o, pt)}));
   if (billingOf(pt) === 'cycle'){
     const M = prevMonth(billMonth(t, c)), cur = rows.filter(r => r.month === M), prior = r2(rows.filter(r => r.month < M).reduce((a, r) => a + r.f.due, 0)), due = r2(cur.reduce((a, r) => a + r.f.due, 0)), cum = r2(prior + due);
     if (cur.length || Math.abs(cum) > 0.004){ const card = lineStmtCard(pt, {month:M, n:cur.filter(r => r.o.type !== 'tax').length, net:cur.reduce((a, r) => a + r.f.net, 0), tax:cur.reduce((a, r) => a + r.f.tax, 0), total:cur.reduce((a, r) => a + r.f.total, 0), rec:cur.reduce((a, r) => a + r.f.rec, 0), prior, cum}); out.statement = {month:M, card, text:lineCard(card).text}; }
@@ -8362,7 +8421,7 @@ function showRemindPreview(pt){
   const pv = remindPreview(pt), sh = sheet({title:(pt.shortName || pt.name) + ' 會收到的訊息'}), box = (title, m, kind) => h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':title},
     h('b', {text:title}), m ? lineCardEl(lineCard(m.card), 'LINE 訊息預覽 ' + kind) : h('p', {class:'hint', text:kind === 'statement' ? (billingOf(pt) === 'cycle' ? '這個月帳款沒有單據，也沒有未收，不會送。' : '這位客戶不是月結，沒有每月對帳通知。') : '目前沒有逾期的單據，不會送。'}),
     m && pt.lineUserId ? h('button', {class:'btn ghost sm', 'aria-label':'現在寄給這位客戶 ' + kind, onclick:async () => { if (!await dialog({title:'現在就寄給 ' + (pt.shortName || pt.name) + '？', msg:'會用掉 1 則 LINE 訊息額度，客人會馬上收到。', ok:'寄出'})) return; const ok = await run(() => queueLine('manual_' + kind + '_' + pt.id + '_' + Date.now(), {to:pt.lineUserId, type:kind === 'statement' ? 'statement' : 'overdue', partnerId:pt.id, ...lineOut(m.card)})); if (ok !== undefined) toast(LINE().on ? '已排入，幾秒內送出' : '已排入，但 LINE 通知還沒啟用'); }}, '現在寄給這位客戶') : (m ? h('small', {class:'hint', text:'這位客戶還沒綁定 LINE，寄不出去。'}) : null));
-  const holdR = billingOf(pt) === 'cycle' ? mtaxRows(prevMonth(billMonth(today(), cutoffOf(pt)))).find(r => r.pt.id === pt.id && !r.doc && r.tax > 0 && Object.values(S.orders).some(o => o.partnerId === pt.id && o.status !== 'void' && isMonthTax(o) && billMonth(o.date, cutoffOf(pt)) === r.M)) : null;
+  const holdR = billingOf(pt) === 'cycle' ? mtaxRows(prevMonth(billMonth(today(), cutoffOf(pt)))).find(r => r.pt.id === pt.id && !r.doc && r.tax > 0 && Object.values(S.orders).some(o => o.partnerId === pt.id && o.status !== 'void' && isMonthTax(o) && docBillMonth(o, pt) === r.M)) : null;
   put(sh.bodyEl, !pt.lineRemind ? h('div', {class:'note warn', text:'這位客戶的資料裡還沒有勾「LINE 對帳與逾期提醒」，所以排程不會自動送給他。'}) : null,
     holdR ? h('div', {class:'note warn', 'aria-label':'對帳通知先不送', text:holdR.M + ' 帳有「月結・月底算稅」的銷貨單，月結稅金還沒產生（預估 ' + money(holdR.tax) + '）：排程會等月結稅金產生後才送對帳通知，不然稅金會是 0。'}) : null, box('每月對帳通知（' + (pv.statement ? rocMonthTxt(pv.statement.month) : '上一個帳款月份') + '）', pv.statement, 'statement'), box('每週逾期提醒', pv.overdue, 'overdue'));
 }
@@ -8573,7 +8632,7 @@ function openLineCheck(){
   watchBox(); pingFn();
 }
 function dupStops(){ const m = {}; for (const t of Object.values(S.trips)) for (const st of t.stops || []) (m[st.orderId] = m[st.orderId] || []).push(t); return Object.entries(m).filter(([, l]) => l.length > 1); }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, backupForTest:{openBackup:() => openBackup(), bkDue:() => bkDue(), bkLast:() => bkLast(), cloudOkAt:() => cloudOkAt(), homeTodo:() => homeTodo(), openAlerts:() => openAlerts()}, pickHelpForTest:{pickHelpPlan:(...x) => pickHelpPlan(...x), pickItems:o => pickItems(o), itemSpeech:(...x) => itemSpeech(...x), postAssembly:(...x) => postAssembly(...x), openAsmStep:(...x) => openAsmStep(...x), openPickOrder:(...x) => openPickOrder(...x), openShelfEditor:() => openShelfEditor(), openCount:id => openCount(id)}, labelDateForTest:{labelToken:(...x) => labelToken(...x), labelDecode:(...x) => labelDecode(...x), labelQrText:(...x) => labelQrText(...x), labelLook:x => labelLook(x), ensureLabelKey:() => ensureLabelKey(), labelKey:() => labelKey(), scanQ:x => scanQ(x), findByCode:x => findByCode(x), prodByCode:x => prodByCode(x), openLabelDate:() => openLabelDate(), openLabelPrint:x => openLabelPrint(x), labelHTML:(...x) => labelHTML(...x), qrEncode:(...x) => qrEncode(...x), qrSvg:(...x) => qrSvg(...x), openReturnForm:x => openReturnForm(x), openReturnDetail:x => openReturnDetail(x)}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, arBookForTest:{arBookOf:(p, U) => arBookOf(p, U), arBookModel:U => arBookModel(U), arBookM:U => arBookM(U), arBookState:x => arBookState(x), arSumHTML:(...x) => arSumHTML(...x), arStmtHTML:(...x) => arStmtHTML(...x), dsArSummary:M => dsArSummary(M), dsArStatement:M => dsArStatement(M), openArSummary:x => openArSummary(x), openArStatement:x => openArStatement(x), openStatement:x => openStatement(x), openSettings:() => openSettings(), rocD:x => rocD(x), arStmtTestHTML:(...x) => arStmtTestHTML(...x), stationOffset:(...x) => stationOffset(...x), arModel:U => arModel(U), arReportHTML:(...x) => arReportHTML(...x), dsArList:M => dsArList(M), dsArDetail:M => dsArDetail(M)}, mtaxAutoForTest:{mtaxAutoRun:() => mtaxAutoRun(), mtaxAutoPlan:() => mtaxAutoPlan(), mtaxAutoOn:() => mtaxAutoOn(), mtaxAutoFit:(r, t) => mtaxAutoFit(r, t || today()), mtaxAutoWhy:r => mtaxAutoWhy(r), mtaxAutoBlock:r => mtaxAutoBlock(r), mtaxAutoRow:r => mtaxAutoRow(r), mtaxAutoDups:() => mtaxAutoDups(), mtaxAutoSettle:() => mtaxAutoSettle(), mtaxAutoTouch:() => mtaxAutoTouch(), mtaxAutoHeavy:() => mtaxAutoHeavy(), mtaxCutOf:(o, c) => mtaxCutOf(o, c), mtaxKeepCmp:(a, b) => mtaxKeepCmp(a, b), fromCache:() => mtaxFromCache, mtaxRun:l => mtaxRun(l), mtaxAutoSoon:ms => mtaxAutoSoon(ms), mtaxStmtPanel:p => mtaxStmtPanel(p), mtaxStmtNote:p => mtaxStmtNote(p), mtaxPendNote:(...x) => mtaxPendNote(...x), mtaxWhenTxt:o => mtaxWhenTxt(o), openStatement:x => openStatement(x), dsStatement:x => dsStatement(x), openArReport:x => openArReport(x), openArReturn:() => openArReturn(), mtaxConvertAll:(...x) => mtaxConvertAll(...x), mtaxConvAll:M => mtaxConvAll(M), mtaxConvert:(...x) => mtaxConvert(...x), mtaxRows:(M, p) => mtaxRows(M, p), openMonthTax:M => openMonthTax(M), homeTodo:() => homeTodo(), openOrderDetail:x => openOrderDetail(x), repBillSection:() => repBillSection(), openPartnerForm:(id, t) => openPartnerForm(id, t), busy:() => mtaxAutoBusy, errs:() => mtaxAutoErr}, monthTaxForTest:{showRemindPreview:p => showRemindPreview(p), openAlerts:() => openAlerts(), openOrderDetail:x => openOrderDetail(x), openPartner:x => openPartner(x), mtaxDefOK:p => mtaxDefOK(p), isMonthTax:o => isMonthTax(o), mtaxDocOf:o => mtaxDocOf(o), mtaxConvPlan:(p, M) => mtaxConvPlan(p, M), mtaxConvert:(p, M) => mtaxConvert(p, M), taxSplit:(...x) => taxSplit(...x), taxLine:(...x) => taxLine(...x), orderTax:o => orderTax(o, invOpt()), repBillSection:() => repBillSection(), mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {repBillForTest:{repBill:(...x) => repBill(...x), openArReport:x => openArReport(x), dsReport:() => dsReport()}, backupForTest:{openBackup:() => openBackup(), bkDue:() => bkDue(), bkLast:() => bkLast(), cloudOkAt:() => cloudOkAt(), homeTodo:() => homeTodo(), openAlerts:() => openAlerts()}, pickHelpForTest:{pickHelpPlan:(...x) => pickHelpPlan(...x), pickItems:o => pickItems(o), itemSpeech:(...x) => itemSpeech(...x), postAssembly:(...x) => postAssembly(...x), openAsmStep:(...x) => openAsmStep(...x), openPickOrder:(...x) => openPickOrder(...x), openShelfEditor:() => openShelfEditor(), openCount:id => openCount(id)}, labelDateForTest:{labelToken:(...x) => labelToken(...x), labelDecode:(...x) => labelDecode(...x), labelQrText:(...x) => labelQrText(...x), labelLook:x => labelLook(x), ensureLabelKey:() => ensureLabelKey(), labelKey:() => labelKey(), scanQ:x => scanQ(x), findByCode:x => findByCode(x), prodByCode:x => prodByCode(x), openLabelDate:() => openLabelDate(), openLabelPrint:x => openLabelPrint(x), labelHTML:(...x) => labelHTML(...x), qrEncode:(...x) => qrEncode(...x), qrSvg:(...x) => qrSvg(...x), openReturnForm:x => openReturnForm(x), openReturnDetail:x => openReturnDetail(x)}, lineMemForTest:{lineKeyOf:x => lineKeyOf(x), lineDescOf:x => lineDescOf(x), lkTakeQty:x => lkTakeQty(x), lineMemFind:(...x) => lineMemFind(...x), lineMapMerge:(...x) => lineMapMerge(...x), lineMemPlan:x => lineMemPlan(x), lineApplyMem:x => lineApplyMem(x), lineDraft:x => lineDraft(x), openPartner:x => openPartner(x), openLineMemAdd:x => openLineMemAdd(x), LM_MAX}, arBookForTest:{arBookOf:(p, U) => arBookOf(p, U), arBookModel:U => arBookModel(U), arBookM:U => arBookM(U), arBookState:x => arBookState(x), arSumHTML:(...x) => arSumHTML(...x), arStmtHTML:(...x) => arStmtHTML(...x), dsArSummary:M => dsArSummary(M), dsArStatement:M => dsArStatement(M), openArSummary:x => openArSummary(x), openArStatement:x => openArStatement(x), openStatement:x => openStatement(x), openSettings:() => openSettings(), rocD:x => rocD(x), arStmtTestHTML:(...x) => arStmtTestHTML(...x), retFixList:() => retFixList(), openRetFix:() => openRetFix(), retPayDefault:p => retPayDefault(p), docBillMonth:(o, p) => docBillMonth(o, p), dueDateOf:o => dueDateOf(o), stationOffset:(...x) => stationOffset(...x), arModel:U => arModel(U), arReportHTML:(...x) => arReportHTML(...x), dsArList:M => dsArList(M), dsArDetail:M => dsArDetail(M)}, mtaxAutoForTest:{mtaxAutoRun:() => mtaxAutoRun(), mtaxAutoPlan:() => mtaxAutoPlan(), mtaxAutoOn:() => mtaxAutoOn(), mtaxAutoFit:(r, t) => mtaxAutoFit(r, t || today()), mtaxAutoWhy:r => mtaxAutoWhy(r), mtaxAutoBlock:r => mtaxAutoBlock(r), mtaxAutoRow:r => mtaxAutoRow(r), mtaxAutoDups:() => mtaxAutoDups(), mtaxAutoSettle:() => mtaxAutoSettle(), mtaxAutoTouch:() => mtaxAutoTouch(), mtaxAutoHeavy:() => mtaxAutoHeavy(), mtaxCutOf:(o, c) => mtaxCutOf(o, c), mtaxKeepCmp:(a, b) => mtaxKeepCmp(a, b), fromCache:() => mtaxFromCache, mtaxRun:l => mtaxRun(l), mtaxAutoSoon:ms => mtaxAutoSoon(ms), mtaxStmtPanel:p => mtaxStmtPanel(p), mtaxStmtNote:p => mtaxStmtNote(p), mtaxPendNote:(...x) => mtaxPendNote(...x), mtaxWhenTxt:o => mtaxWhenTxt(o), openStatement:x => openStatement(x), dsStatement:x => dsStatement(x), openArReport:x => openArReport(x), openArReturn:() => openArReturn(), mtaxConvertAll:(...x) => mtaxConvertAll(...x), mtaxConvAll:M => mtaxConvAll(M), mtaxConvert:(...x) => mtaxConvert(...x), mtaxRows:(M, p) => mtaxRows(M, p), openMonthTax:M => openMonthTax(M), homeTodo:() => homeTodo(), openOrderDetail:x => openOrderDetail(x), repBillSection:() => repBillSection(), openPartnerForm:(id, t) => openPartnerForm(id, t), busy:() => mtaxAutoBusy, errs:() => mtaxAutoErr}, monthTaxForTest:{showRemindPreview:p => showRemindPreview(p), openAlerts:() => openAlerts(), openOrderDetail:x => openOrderDetail(x), openPartner:x => openPartner(x), mtaxDefOK:p => mtaxDefOK(p), isMonthTax:o => isMonthTax(o), mtaxDocOf:o => mtaxDocOf(o), mtaxConvPlan:(p, M) => mtaxConvPlan(p, M), mtaxConvert:(p, M) => mtaxConvert(p, M), taxSplit:(...x) => taxSplit(...x), taxLine:(...x) => taxLine(...x), orderTax:o => orderTax(o, invOpt()), repBillSection:() => repBillSection(), mtaxRows:M => mtaxRows(M), mtaxSave:r => mtaxSave(r), mtaxRun:l => mtaxRun(l), openMonthTax:M => openMonthTax(M), invRatioOf:p => invRatioOf(p), mtaxEligible:p => mtaxEligible(p), mtaxInvOrder:o => mtaxInvOrder(o), mtaxDesc:o => mtaxDesc(o), arModel:U => arModel(U), arReturnModel:U => arReturnModel(U), remindPreview:p => remindPreview(p), openInvoice:x => openInvoice(x), openPartnerForm:(id, t) => openPartnerForm(id, t), dsCustomerMaster:() => dsCustomerMaster(), planPartnerImport:(...x) => planPartnerImport(...x), homeTodo:() => homeTodo()}, docEditForTest:{openLineOrders:() => openLineOrders(), openLineOrder:x => openLineOrder(x), homeTodo:() => homeTodo(), salesBoard:() => salesBoard(), openSalesBoard:() => openSalesBoard(), lineApprove:(...x) => lineApprove(...x), saleCoIds:x => saleCoIds(x), srcQtyOf:x => srcQtyOf(x), convertDoc:(...x) => convertDoc(...x), healTripStops:() => healTripStops(), unassignedOrders:(...x) => unassignedOrders(...x), openDocEditor:(...x) => openDocEditor(...x), openDocDetail:(...x) => openDocDetail(...x), docChangeText:(...x) => docChangeText(...x), docProgress:(...x) => docProgress(...x), createDoc:(...x) => createDoc(...x)}, ruleMultiForTest:{ruleMatch:(...x) => ruleMatch(...x), resolvePrice:x => resolvePrice(x), ruleProdIds:x => ruleProdIds(x), ruleProdObj:(...x) => ruleProdObj(...x), ruleTiers:x => ruleTiers(x), ruleTierFor:(...x) => ruleTierFor(...x), ruleQtyStarts:(...x) => ruleQtyStarts(...x), ruleEffect:x => ruleEffect(x), tierSumText:(...x) => tierSumText(...x), tierVal:(...x) => tierVal(...x), ruleProdName:(...x) => ruleProdName(...x), ruleDesc:x => ruleDesc(x), pickProductsSheet:(...x) => pickProductsSheet(...x), openPriceRuleForm:x => openPriceRuleForm(x), openPriceRules:() => openPriceRules(), openLevelRuleForm:(...x) => openLevelRuleForm(...x), openPriceLevels:() => openPriceLevels(), custLevels:x => custLevels(x), custObjLevels:x => custObjLevels(x), promoOn:(...x) => promoOn(...x), promoDesc:x => promoDesc(x), openPromoForm:x => openPromoForm(x), pioCustParse:(...x) => pioCustParse(...x), pioCustText:x => pioCustText(x), pioNormRule:x => pioNormRule(x), pioNormPromo:x => pioNormPromo(x)}, slipLineForTest:{openLineCheck:() => openLineCheck(), lineErrTxt:x => lineErrTxt(x), slipNoticeModel:x => slipNoticeModel(x), slipNoticeText:(...x) => slipNoticeText(...x), lineSlipPlan:(...x) => lineSlipPlan(...x), lineNotifySlip:(...x) => lineNotifySlip(...x), openLineSlipNotify:x => openLineSlipNotify(x), previewSlipNotice:x => previewSlipNotice(x), openLineSettings:() => openLineSettings(), openOrderDetail:x => openOrderDetail(x), LINE:() => LINE(), lineCard:x => lineCard(x), lineCardEl:(...x) => lineCardEl(...x), slipNoticeCard:(...x) => slipNoticeCard(...x), lineConfirmCard:(...x) => lineConfirmCard(...x), lineDeliverCard:(...x) => lineDeliverCard(...x), lineRejectCard:(...x) => lineRejectCard(...x), lineStmtCard:(...x) => lineStmtCard(...x), lineDueCard:(...x) => lineDueCard(...x), lineTestCard:(...x) => lineTestCard(...x), remindPreview:x => remindPreview(x), showRemindPreview:x => showRemindPreview(x), previewLineNotice:(...x) => previewLineNotice(...x), lineNotifyConfirm:(...x) => lineNotifyConfirm(...x), lineDeliveryNotices:x => lineDeliveryNotices(x), LINE_MSG:() => LINE_MSG}, priceIOForTest:{pioPlanRules:(...x) => pioPlanRules(...x), pioPlanPromos:(...x) => pioPlanPromos(...x), dsPriceRules:() => dsPriceRules(), dsPromos:() => dsPromos(), pioTemplate:x => pioTemplate(x), openPriceIO:() => openPriceIO(), openPriceImport:x => openPriceImport(x), pioDate:x => pioDate(x), pioValue:(...x) => pioValue(...x), pioParseItems:(...x) => pioParseItems(...x), pioProdText:x => pioProdText(x), pioProdParse:(...x) => pioProdParse(...x), pioParseTiers:(...x) => pioParseTiers(...x), pioCtx:() => pioCtx(), dsToCsv:x => dsToCsv(x), openSettings:() => openSettings(), openDataHub:() => openDataHub(), parseCSV:x => parseCSV(x)}, faceForTest:{faceCfg:() => faceCfg(), faceEar:x => faceEar(x), faceMar:x => faceMar(x), faceYaw:x => faceYaw(x), faceD:(a, b) => faceD(a, b), faceMed:x => faceMed(x), faceSamples:x => faceSamples(x), faceIdentify:(...x) => faceIdentify(...x), faceVerifySelf:(...x) => faceVerifySelf(...x), faceChallenge:x => faceChallenge(x), faceLiveTracker:(...x) => faceLiveTracker(...x), faceQuality:(...x) => faceQuality(...x), faceRun:x => faceRun(x), faceGate:(...x) => faceGate(...x), faceLoadAll:x => faceLoadAll(x), faceOwn:x => faceOwn(x), faceDrop:() => faceDrop(), get FACE(){ return FACE; }, faceEvTxt:x => faceEvTxt(x), faceWhyMsg:x => faceWhyMsg(x), faceSection:() => faceSection(), faceBlock:x => faceBlock(x), openFaceEnroll:(...x) => openFaceEnroll(...x), faceTest:(...x) => faceTest(...x), faceRemove:(...x) => faceRemove(...x)}, openClockForTest:() => openClock(), openEmpFormForTest:x => openEmpForm(x), recordClockForTest:(...x) => recordClock(...x), punchReasonsForTest:x => punchReasons(x), openAttDayForTest:(...x) => openAttDay(...x), drawForTest:d => draw(d), renderForTest:k => render(k), openPaletteForTest:() => openPalette(), stateForTest:() => S, slipNoteOf:x => slipNoteOf(x), famQtyOf:(...x) => famQtyOf(...x), qtyTierHint:x => qtyTierHint(x), tierHintText:(...x) => tierHintText(...x), resolvePrice:x => resolvePrice(x), refSlipHTML:(...x) => refSlipHTML(...x), linePriceForTest:(...x) => linePrice(...x), openPriceRulesForTest2:() => openPriceRules(), openPriceLevelsForTest:() => openPriceLevels(), slipFormFromOrder:x => slipFormFromOrder(x), slipSouthFromOrder:x => slipSouthFromOrder(x), slipHTML:(...x) => slipHTML(...x), openPickingForTest:x => openPicking(x), openPickOrderForTest:(...x) => openPickOrder(...x), openOrderForTest:(...x) => openOrder(...x), openDocEditorForTest:(...x) => openDocEditor(...x), openProductFormForTest:x => openProductForm(x), openPriceRuleFormForTest:x => openPriceRuleForm(x), openLevelRuleFormForTest:(...x) => openLevelRuleForm(...x), convertDocForTest:(...x) => convertDoc(...x), assignOrders:(...x) => assignOrders(...x), dsCustomerMaster:() => dsCustomerMaster(), dsToCsv:x => dsToCsv(x), parseCSV:x => parseCSV(x), planPartnerImport:(...x) => planPartnerImport(...x), dsProductMaster:() => dsProductMaster(), planImport:(...x) => planImport(...x), buReport:x => buReport(x), contactsOf:p => contactsOf(p), openCameraForTest:f => openCamera(f), wipePlanForTest:sc => wipePlan(sc), openWipeForTest:() => openWipe(), setAdminForTest:v => { S.isAdmin = !!v; }, wipeRunForTest:(it, sc) => wipeRun(it, sc, () => {}, () => false), wipeRunForTestStop:(it, sc, stop) => wipeRun(it, sc, () => {}, stop), suspendedOn:(p, d) => suspendedOn(p, d), openQuoteFormForTest:() => openQuoteForm(), convertQuoteForTest:q => convertQuote(q), envelopeHTMLForTest:(pts, o) => envelopeHTML(pts, o, false), mailLabelForTest:pt => mailLabelBlock(pt, t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]))), planPartnerImportForTest:(t, ty, m) => planPartnerImport(t, ty, m),  promoEval:(l, p, d) => promoEval(l, p, d), openPriceRulesForTest:() => openPriceRules(),  stockOfForTest:pid => stockOf(pid), dsReturns:() => dsReturns(), salesStats:x => salesStats(x), geoCheck:(e, p) => geoCheck(e, p), haversineM:(a, b) => haversineM(a, b), setServerNow:f => { serverNowFn = f; }, punchReasons:e => punchReasons(e), monthEval:(e, ym) => monthEval(e, ym), pendingPunches:() => pendingPunches(), boardChange:(a, b) => boardChange(a, b), handPending:() => handPending(), meIdAsync:async () => S.meId,  createOrderForTest:(t,o) => createOrder(t, o), remindPreview:x => remindPreview(x), aging:x => aging(x), cycPlan:x => cycPlan(x), cycHistory:() => cycHistory(), cycStats:x => cycStats(x)}); } catch (_) {}
 async function fixDupStops(){
   const dups = dupStops(); if (!dups.length) return;
   return run(async () => { const fix = {}; for (const [oid, list] of dups){ const ord = list.slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0)); for (const t of ord.slice(1)){ const k = tripKey(t.date, t.vehicleId, t.slot); fix[k] = fix[k] || getTrip(t.date, t.vehicleId, t.slot); fix[k].stops = fix[k].stops.filter(x => x.orderId !== oid); } }
@@ -12245,7 +12304,7 @@ function dsLedgerQuery(type, U){
   }
   const cols = [XC(PLABEL[type], 'text', 22), XC('單號', 'text', 20), XC('單據日期', 'text', 12), XC('到期日', 'text', 12), XC('帳期', 'text', 10), XC('單據金額', 'money', 12), XC('已沖', 'money', 12), XC('未沖餘額', 'money', 13), XC('逾期天數', 'int', 10)];
   const t = today();
-  const rows = q.rows.map(o => { const pt = S.partners[o.partnerId]; return [pt.name, o.no, o.date, dueDateOf(o), billMonth(o.date, cutoffOf(pt)), o.total || 0, effPaid(o), dueOf(o), Math.max(daysBetween(dueDateOf(o), t), 0)]; });
+  const rows = q.rows.map(o => { const pt = S.partners[o.partnerId]; return [pt.name, o.no, o.date, dueDateOf(o), docBillMonth(o, pt), o.total || 0, effPaid(o), dueOf(o), Math.max(daysBetween(dueDateOf(o), t), 0)]; });
   return {title:U.mode === 'due' ? '未收款明細（依到期日）' : '未沖帳餘額明細（依單據日期）', sub:cn + '　期間 ' + rng, filename:(U.mode === 'due' ? '未收款明細' : '未沖帳餘額明細'), sections:[{name:'明細', cols, rows, foot:['合計', '', '', '', '', q.gross, r2(q.gross - q.total), q.total, '']}]};
 }
 function openLedgerQuery(type){
@@ -13385,7 +13444,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-cq';
+const APP_VERSION = '2026.10.11-ct';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -13970,10 +14029,17 @@ function termText(pt){
   if (b === 'days') return n + ' 天內付款';
   return '現金／即期';
 }
+/* -ct：單據的帳款月份。銷貨單、銷貨退回可以指定（o.bm）；月結稅金用它自己的月份；其他照日期和客戶的結帳日 */
+const BM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+function docBillMonth(o, pt){
+  if (o && (o.type === 'sale' || o.type === 'sale_return') && BM_RE.test(String(o.bm || ''))) return o.bm;
+  if (o && o.type === 'tax' && BM_RE.test(String(o.month || ''))) return o.month;
+  return billMonth(o.date, cutoffOf(pt || S.partners[o.partnerId]));
+}
 function dueDateOf(o){
   const p = S.partners[o.partnerId], b = billingOf(p), n = (p && Number(p.termDays)) || 0;
   if (!p) return o.date;
-  if (b === 'cycle') return addDays(cycleRange(billMonth(o.date, cutoffOf(p)), cutoffOf(p))[1], n);
+  if (b === 'cycle') return addDays(cycleRange(docBillMonth(o, p), cutoffOf(p))[1], n);
   if (b === 'days') return addDays(o.date, n);
   return o.date;
 }
@@ -15702,7 +15768,7 @@ function dsOrders(){
   const rows = list.map(o => {
     const T = TYPES[o.type] || TYPES.adjust, m = T.money ? 1 : 0, sg = T.money === -1 ? -1 : 1;
     return [o.date, o.no, T.label, o.type === 'transfer' ? '' : whName(orderWh(o)), pName(o), (o.lines || []).length, m ? sg * netOf(o) : null, m ? sg * (o.tax || 0) : null, m ? sg * (o.total || 0) : null, m ? effPaid(o) : null, m ? dueOf(o) : null,
-      T.money === 1 && o.partnerId ? billMonth(o.date, cutoffOf(S.partners[o.partnerId])) : '', o.status === 'void' ? '作廢' : '有效', o.invNo || '', o.note || ''];
+      T.money === 1 && o.partnerId ? docBillMonth(o) : '', o.status === 'void' ? '作廢' : '有效', o.invNo || '', o.note || ''];
   });
   const single = S.ui.ordType && (TYPES[S.ui.ordType] || {}).money;
   const foot = single ? ['合計', '', '', '', '', '', sumBy(list.filter(o => o.status !== 'void').map(o => [netOf(o)]), 0), sumBy(list.filter(o => o.status !== 'void').map(o => [o.tax || 0]), 0), sumBy(list.filter(o => o.status !== 'void').map(o => [o.total || 0]), 0), '', sumBy(list.filter(o => o.status !== 'void').map(o => [dueOf(o)]), 0), '', '', '', ''] : null;
@@ -15795,7 +15861,7 @@ function dsStatement(pid){
     if (o.partnerId !== pid || o.status === 'void') continue;
     const T = TYPES[o.type]; if (!T || !T.money) continue;
     const a = r2(T.money * ((o.total || 0) - (o.paid || 0)));
-    if (a) ent.push({date:o.date, at:o.at || 0, no:o.no, memo:T.label, amt:a, bm:billMonth(o.date, cutoffOf(pt))});
+    if (a) ent.push({date:o.date, at:o.at || 0, no:o.no, memo:T.label, amt:a, bm:docBillMonth(o, pt)});
   }
   for (const pm of Object.values(S.payments)){
     if (pm.partnerId !== pid || pm.status === 'void') continue;
