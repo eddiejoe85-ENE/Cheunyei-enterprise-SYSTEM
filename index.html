@@ -476,8 +476,8 @@ const S = {
   db:null, user:null, dl:null,
   me:null, meId:null, canWrite:true, isAdmin:false,
   products:{}, partners:{}, orders:{}, payments:{}, notes:{}, counts:{}, countlines:{}, corders:{}, porders:{}, prules:{}, promos:{}, shelves:{},
-  set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, devices:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{}, lineorders:{}, alerts:{}, handovers:{},
-  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, promos:false, shelves:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
+  set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, devices:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, gpslogs:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{}, lineorders:{}, alerts:{}, handovers:{},
+  loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, promos:false, shelves:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, gpslogs:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
   d:{stock:{}, stockW:{}, vehOdo:{}, bal:{}, alloc:{}, fill:{}, commit:{}, incoming:{}, lastSup:{}, usedP:new Set(), usedPt:new Set(), cats:[]},
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
@@ -5358,6 +5358,7 @@ function pVeh(){
   const page = h('div', {class:'wrap page'}), list = vehActive(), due = vehDueList();
   page.append(h('div', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'車輛'}),
     h('div', {class:'btns'}, exportBtn(dsVehicles),
+      see('report') || can('vehicle') ? h('button', {class:'btn ghost sm', 'aria-label':'行車記錄', onclick:() => openGpsLogs()}, '行車記錄') : null,
       S.isAdmin ? h('button', {class:'btn ghost sm', 'aria-label':'設定定位網址', onclick:openGpsSettings}, '定位網址') : null,
       fxOn('fuelCards') ? h('button', {class:'btn ghost sm', onclick:openFuelCards}, '儲值卡') : null,
       can('vehicle') ? h('button', {class:'btn ghost sm', onclick:openFuelImport}, '匯入加油紀錄') : null,
@@ -8338,10 +8339,10 @@ function openKeys(){
    兩種範圍：① 只清交易資料（單據、收款、盤點、退貨、考勤…），商品、客戶、供應商、設定、人員都留著；
    ② 全部清除（含商品、客戶、供應商、人員、設定），只留登入帳號和角色權限，讓系統回到空白。
    一定要先下載備份、輸入確認字、等倒數，才能按最後的按鈕。刪掉就拿不回來（只能用備份還原）。 */
-const WIPE_TX = ['orders', 'corders', 'porders', 'payments', 'notes', 'collects', 'cashbook', 'counts', 'countlines', 'returns', 'quotes', 'closings', 'locks', 'expdocs', 'moves', 'trips', 'fuellogs', 'maint', 'derrors', 'attdays', 'leaves', 'payroll', 'displans', 'lineorders', 'handovers'];
+const WIPE_TX = ['orders', 'corders', 'porders', 'payments', 'notes', 'collects', 'cashbook', 'counts', 'countlines', 'returns', 'quotes', 'closings', 'locks', 'expdocs', 'moves', 'trips', 'gpslogs', 'fuellogs', 'maint', 'derrors', 'attdays', 'leaves', 'payroll', 'displans', 'lineorders', 'handovers'];
 const WIPE_MASTER = ['products', 'partners', 'prules', 'promos', 'vehicles', 'fuelcards', 'employees', 'shelves'];
-const WIPE_SMALL = ['lineoutbox', 'picks', 'printjobs', 'printstations', 'timecheck'];
-const WIPE_NAME = {orders:'銷貨／進貨／調整單據', corders:'客戶訂單', porders:'採購單', payments:'收款付款', notes:'票據', collects:'代收單', cashbook:'零用金', counts:'盤點', countlines:'盤點明細', returns:'退貨處理', quotes:'報價單', closings:'庫存關帳', locks:'期間封存', expdocs:'費用單據', moves:'轉倉', trips:'出車', fuellogs:'加油紀錄', maint:'保養維修', derrors:'配送異常', attdays:'考勤打卡', leaves:'請假', payroll:'薪資', displans:'陳列方案', lineorders:'LINE 訂單', handovers:'現金票據簽收', products:'商品', partners:'客戶與供應商', prules:'價格規則', promos:'組合優惠與買送', vehicles:'車輛', fuelcards:'油卡', employees:'人員', shelves:'架位', lineoutbox:'LINE 待發訊息', picks:'揀貨紀錄', printjobs:'列印工作', printstations:'列印站', timecheck:'時間校對', photos:'照片', attphotos:'打卡照片', linephotos:'LINE 圖片', counters:'單據流水號'};
+const WIPE_SMALL = ['lineoutbox', 'picks', 'printjobs', 'printstations', 'timecheck', 'gpstracks'];
+const WIPE_NAME = {orders:'銷貨／進貨／調整單據', corders:'客戶訂單', porders:'採購單', payments:'收款付款', notes:'票據', collects:'代收單', cashbook:'零用金', counts:'盤點', countlines:'盤點明細', returns:'退貨處理', gpslogs:'行車記錄', gpstracks:'行車軌跡', quotes:'報價單', closings:'庫存關帳', locks:'期間封存', expdocs:'費用單據', moves:'轉倉', trips:'出車', fuellogs:'加油紀錄', maint:'保養維修', derrors:'配送異常', attdays:'考勤打卡', leaves:'請假', payroll:'薪資', displans:'陳列方案', lineorders:'LINE 訂單', handovers:'現金票據簽收', products:'商品', partners:'客戶與供應商', prules:'價格規則', promos:'組合優惠與買送', vehicles:'車輛', fuelcards:'油卡', employees:'人員', shelves:'架位', lineoutbox:'LINE 待發訊息', picks:'揀貨紀錄', printjobs:'列印工作', printstations:'列印站', timecheck:'時間校對', photos:'照片', attphotos:'打卡照片', linephotos:'LINE 圖片', counters:'單據流水號'};
 const WIPE_PHRASE = {tx:'清除交易資料', all:'刪除全部資料'};
 function wipeListSmall(coll){
   return new Promise(res => { let un = null, done = false; const fin = ids => { if (done) return; done = true; try { if (un) un(); } catch (_) {} res(ids); }; try { un = S.db.collection(coll).onSnapshot(sn => fin(sn.docs.map(d => d.id)), () => fin([])); } catch (_) { fin([]); } setTimeout(() => fin([]), 6000); });
@@ -9014,7 +9015,7 @@ function openTripStats(){
   if (!fxGate('tripStats')) return;
   if (!see('report') && !S.isAdmin) return toast('你的角色沒有查看報表的權限');
   const t0 = new Date(), U = {by:'driver', from:ymd(new Date(t0.getFullYear(), t0.getMonth(), 1)), to:today()};
-  liveSheet({title:'出車績效'}, ['trips', 'orders', 'partners', 'vehicles'], sh => {
+  liveSheet({title:'出車績效'}, ['trips', 'orders', 'partners', 'vehicles', 'gpslogs'], sh => {
     const box = h('div');
     const fill = () => { const rows = tripStatRows(U.from, U.to, U.by), tot = rows.reduce((a, r) => ({trips:a.trips + r.trips, done:a.done + r.done, mins:a.mins + r.mins, orders:a.orders + r.orders, amt:r2(a.amt + r.amt), open:a.open + r.open, km:r2(a.km + r.km), kmN:a.kmN + r.kmN}), {trips:0, done:0, mins:0, orders:0, amt:0, open:0, km:0, kmN:0});
       const label = {driver:'送貨員', vehicle:'車輛', date:'日期'}[U.by];
@@ -9023,6 +9024,7 @@ function openTripStats(){
         h('div', {class:'row'}, h('span', {text:'總出車時間（有回來時間的趟次）'}), h('span', {text:hmTxt(tot.mins)})), tot.open ? h('div', {class:'row'}, h('span', {text:'還沒記回來時間'}), h('span', {class:'overdue', text:tot.open + ' 趟'})) : null),
         rows.length ? h('div', {class:'panel'}, rows.map(r => h('div', {class:'row', style:'align-items:flex-start'}, h('span', null, h('b', {text:r.key + (U.by === 'vehicle' && r.drivers.size ? '　' + [...r.drivers].join('、') : '')}), h('br'), h('small', {text:r.trips + ' 趟・' + r.orders + ' 張單・' + r.custs.size + ' 家店・' + money(r.amt)}), h('br'),
           h('small', {text:'平均每趟 ' + hmTxt(r.done ? Math.round(r.mins / r.done) : null) + '　每張單 ' + (r.orders && r.mins ? Math.round(r.mins / r.orders) + ' 分' : '—') + '　每小時 ' + (r.mins ? (r2(r.orders / (r.mins / 60))) + ' 張／' + money(Math.round(r.amt / (r.mins / 60))) : '—')}), r.km ? h('br') : null, r.km ? h('small', {'aria-label':'行駛里程 ' + r.key, text:'行駛 ' + num(r.km) + ' km（平均每趟 ' + num(r2(r.km / r.kmN)) + ' km）　每公里 ' + money(Math.round(r.kmAmt / r.km)) + '　每張單 ' + (r.kmOrd ? r2(r.km / r.kmOrd) : '—') + ' km'}) : null), h('b', {text:hmTxt(r.mins)})))) : h('div', {class:'panel empty', text:'這段期間沒有出車紀錄'}),
+        gpsBlock(U),
         h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'出車明細'})),
         h('div', {class:'panel'}, Object.values(S.trips).filter(t => t.date >= U.from && t.date <= U.to && tripVehicles().some(v => v.id === t.vehicleId)).sort((a, b) => b.date.localeCompare(a.date) || a.slot.localeCompare(b.slot)).slice(0, 80).map(t => { const os = (t.stops || []).map(st => ordOf(st.orderId)).filter(Boolean);
           return h('button', {class:'row', onclick:() => openDispatch({day:t.date})}, h('span', null, h('b', {text:t.date + ' ' + SLOTS[t.slot] + '　' + vehLabel(S.vehicles[t.vehicleId])}), h('br'), h('small', {text:(tripDriver(t) || '（未指定）') + '　' + (t.outTime || '--:--') + ' → ' + (t.backTime || '--:--') + '　' + os.length + ' 張單' + (tripKmEff(t) !== null ? '　' + num(tripKmEff(t)) + ' km' : '')})), h('b', {text:hmTxt(tripMin(t))})); })));
@@ -9038,6 +9040,231 @@ function openTripStats(){
     return {body, foot:[see('export') ? h('button', {class:'btn grow', onclick:() => openExport(dsTrips(U.from, U.to))}, icon('down'), '匯出出車明細') : null].filter(Boolean)};
   });
 }
+
+/* ================= 行車記錄（GPX）：匯入定位系統匯出的軌跡檔，算里程、出車時間、停靠、超速，當作出車績效的依據 =================
+   檔案：eup.tw 匯出的「車輛 GPX 路徑檔」（每個點只有緯度、經度、時間）。在手機／電腦上直接讀取，不用上傳到別處。
+   每台車每天存一筆 gpslogs（摘要，編號＝車輛ID_日期，重新匯入同一天會覆蓋）；路線的點另存 gpstracks（看詳情時才讀）。
+   - 里程：相鄰兩點的距離加總（略過 8 公尺以內的 GPS 飄移、時速 160 以上的跳點、中斷超過 5 分鐘的空隙）。
+   - 出車／回來：第一次離開起點 300 公尺以外、最後一次回到 300 公尺以內的時間（起點＝當天第一個點，通常是公司）。
+   - 停靠：停在同一個地方（60 公尺內）超過 N 分鐘（預設 3 分鐘）；在起點附近的算「在公司」，不算停靠。
+   - 怠速：有記錄點、但車沒動（時速 3 以下）的時間，也就是引擎開著沒移動（含紅燈）。
+   - 最高時速：用相鄰兩點估算（定位系統每 5～30 秒記一點，所以是估計值）。超速：連續 10 秒以上超過標準（預設 90 km/h）算一次。 */
+const gpsOver = () => Math.max(Number(S.set.gpsOverKmh) || 90, 30), gpsStopMin = () => Math.max(Number(S.set.gpsStopMin) || 3, 1);
+const gxDist = (a, b) => { const R = 6371000, p1 = a.lat * Math.PI / 180, p2 = b.lat * Math.PI / 180, dp = p2 - p1, dl = (b.lon - a.lon) * Math.PI / 180, x = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+const gxKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const gxR5 = x => Math.round(x * 1e5) / 1e5;
+const gxHms = t => { const d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+const gxHm = t => gxHms(t).slice(0, 5);
+function gxTime(s){
+  s = String(s || '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?$/.exec(s);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+  const t = Date.parse(s); return isFinite(t) ? t : null;
+}
+/* 讀 GPX 文字：{name, plate, pts:[{lat, lon, t}]}；車牌取軌跡名稱（例：", BQZ-3207"）裡長得像車牌的那一段 */
+function gpxParse(text){
+  const s = String(text || ''), tn = /<trk>[\s\S]*?<name>([^<]*)<\/name>/.exec(s), name = tn ? tn[1].trim() : '', pts = [];
+  const re = /<trkpt\s+lat="(-?[\d.]+)"\s+lon="(-?[\d.]+)"[^>]*>([\s\S]*?)<\/trkpt>/g; let m;
+  while ((m = re.exec(s))){ const tm = /<time>\s*([^<]+?)\s*<\/time>/.exec(m[3]); if (!tm) continue; const t = gxTime(tm[1]); if (t === null) continue; const lat = Number(m[1]), lon = Number(m[2]); if (isFinite(lat) && isFinite(lon)) pts.push({lat, lon, t}); }
+  pts.sort((a, b) => a.t - b.t);
+  const toks = name.split(/[,，\s]+/).filter(Boolean), plate = toks.find(x => /^[A-Za-z0-9]{2,4}-[A-Za-z0-9]{2,4}$/.test(x)) || toks[toks.length - 1] || '';
+  return {name, plate, pts};
+}
+/* 一天的軌跡 → 摘要 ＋ 路線（簡化後的點） */
+function gxDay(pts, o){
+  const n = pts.length, over = o.over, stopMin = o.stop, org = pts[0];
+  let km = 0, mov = 0, idle = 0, idleDep = 0, maxV = 0, run = null; const ev = [];
+  const endRun = () => { if (run && run.sec >= 10) ev.push({t:gxHms(run.t), sec:Math.round(run.sec), max:Math.round(run.max)}); run = null; };
+  for (let i = 0; i + 1 < n; i++){
+    const a = pts[i], b = pts[i + 1], dt = (b.t - a.t) / 1000; if (!(dt > 0)) continue;
+    const d = gxDist(a, b), v = d / dt * 3.6;
+    if (v > 160){ endRun(); continue; }
+    if (dt <= 300 && d >= 8) km += d;
+    if (dt <= 120 && v >= 5) mov += dt; else if (dt <= 90 && v < 3){ idle += dt; if (gxDist(a, org) < 300) idleDep += dt; }
+    if (dt <= 60){ maxV = Math.max(maxV, v); if (v > over){ if (!run) run = {t:a.t, sec:0, max:0}; run.sec += dt; run.max = Math.max(run.max, v); } else endRun(); } else endRun();
+  }
+  endRun();
+  const stops = []; let i = 0;
+  while (i < n){
+    let j = i; while (j + 1 < n && gxDist(pts[i], pts[j + 1]) < 60) j++;
+    const sec = (pts[j].t - pts[i].t) / 1000;
+    if (sec >= stopMin * 60) stops.push({s:gxHm(pts[i].t), e:gxHm(pts[j].t), m:Math.round(sec / 60), lat:gxR5(pts[i].lat), lon:gxR5(pts[i].lon), depot:gxDist(pts[i], org) < 300});
+    i = j + 1;
+  }
+  let outI = -1, lastFar = -1; for (let k = 0; k < n; k++) if (gxDist(pts[k], org) > 300){ if (outI < 0) outI = k; lastFar = k; }
+  const outS = stops.filter(x => !x.depot);
+  const rec = {startAt:gxHms(pts[0].t), endAt:gxHms(pts[n - 1].t), outTime:outI >= 0 ? gxHm(pts[outI].t) : '', backTime:lastFar >= 0 && lastFar + 1 < n ? gxHm(pts[lastFar + 1].t) : '',
+    km:r2(km / 1000), moveMin:Math.round(mov / 60), idleMin:Math.round(idle / 60), idleDepotMin:Math.round(idleDep / 60), stopN:outS.length, stopMin:outS.reduce((a, x) => a + x.m, 0),
+    maxKmh:Math.round(maxV), avgKmh:mov > 0 ? Math.round(km / mov * 3.6) : 0, overN:ev.length, overMax:ev.reduce((a, x) => Math.max(a, x.max), 0), overLimit:over, stopLimit:stopMin, stops:stops.slice(0, 60), overs:ev.slice(0, 40), pts:n};
+  const tr = []; let last = null; for (const p of pts){ if (!last || gxDist(last, p) >= 40){ tr.push(p); last = p; } } if (tr[tr.length - 1] !== pts[n - 1]) tr.push(pts[n - 1]);
+  const step = Math.max(Math.ceil(tr.length / 700), 1), track = []; tr.forEach((p, k) => { if (k % step === 0 || k === tr.length - 1) track.push(gxR5(p.lat), gxR5(p.lon)); });
+  return {rec, track};
+}
+/* 一個檔案可能跨好幾天：每天一筆 */
+function gpxDays(pts, o){
+  const by = {}; for (const p of pts){ const k = ymd(new Date(p.t)); (by[k] = by[k] || []).push(p); }
+  return Object.keys(by).sort().filter(k => by[k].length >= 2).map(k => ({date:k, ...gxDay(by[k], o)}));
+}
+const gpsId = (vid, date) => vid + '_' + date;
+const gpsPlateVeh = plate => { const k = gxKey(plate); return k ? Object.values(S.vehicles).find(v => gxKey(v.plate) === k) || null : null; };
+const gpsLogs = (from, to, vid) => Object.values(S.gpslogs || {}).filter(r => (!from || r.date >= from) && (!to || r.date <= to) && (!vid || r.vehicleId === vid)).sort((a, b) => b.date.localeCompare(a.date) || String(a.plate).localeCompare(String(b.plate)));
+/* 當天這台車的出車單：送貨員、店家數、單數、金額 */
+function gpsIndex(){ const m = {}; for (const t of Object.values(S.trips || {})) (m[t.date + '|' + t.vehicleId] = m[t.date + '|' + t.vehicleId] || []).push(t); return m; }
+function gpsFacts(idx, date, vid){
+  const trips = idx[date + '|' + vid] || [], seen = new Set(), orders = [];
+  for (const t of trips) for (const st of t.stops || []){ const o = ordOf(st.orderId); if (o && !seen.has(o.id)){ seen.add(o.id); orders.push(o); } }
+  const drv = trips.map(tripDriver).find(Boolean) || vehDriver(S.vehicles[vid]);
+  const am = trips.find(t => t.slot === 'am'), pm = trips.find(t => t.slot === 'pm'), outs = trips.map(t => t.outTime).filter(Boolean).sort(), backs = trips.map(t => t.backTime).filter(Boolean).sort();
+  void am; void pm;
+  return {trips:trips.length, driver:drv || '', orders:orders.length, stores:new Set(orders.map(o => o.partnerId || o.id)).size, amt:r2(orders.reduce((a, o) => a + (o.total || 0), 0)), outTime:outs[0] || '', backTime:backs[backs.length - 1] || ''};
+}
+/* 績效：依送貨員／車輛／日期彙總 */
+function gpsStatRows(from, to, by){
+  const idx = gpsIndex(), g = {};
+  for (const r of gpsLogs(from, to)){
+    const f = gpsFacts(idx, r.date, r.vehicleId), key = by === 'driver' ? (f.driver || '（未指定）') : by === 'vehicle' ? vehLabel(S.vehicles[r.vehicleId]) : r.date;
+    const x = g[key] || (g[key] = {key, days:0, km:0, moveMin:0, idleMin:0, idleDepotMin:0, stopN:0, stopMin:0, maxKmh:0, overN:0, outMin:0, outN:0, stores:0, orders:0, amt:0, kmFacts:0});
+    x.days++; x.km = r2(x.km + (r.km || 0)); x.moveMin += r.moveMin || 0; x.idleMin += r.idleMin || 0; x.idleDepotMin += r.idleDepotMin || 0; x.stopN += r.stopN || 0; x.stopMin += r.stopMin || 0; x.maxKmh = Math.max(x.maxKmh, r.maxKmh || 0); x.overN += r.overN || 0;
+    const a = hmMin(r.outTime), b = hmMin(r.backTime); if (a !== null && b !== null && b >= a){ x.outMin += b - a; x.outN++; }
+    if (f.stores){ x.stores += f.stores; x.orders += f.orders; x.amt = r2(x.amt + f.amt); x.kmFacts = r2(x.kmFacts + (r.km || 0)); }
+  }
+  return Object.values(g).sort((a, b) => by === 'date' ? b.key.localeCompare(a.key) : b.km - a.km);
+}
+function dsGps(from, to){
+  const idx = gpsIndex(), rows = gpsLogs(from, to).slice().reverse();
+  const cols = [XC('日期', 'text', 12), XC('車輛', 'text', 16), XC('送貨員', 'text', 12), XC('出車（GPS）', 'text', 10), XC('回來（GPS）', 'text', 10), XC('里程（km）', 'number', 10), XC('行駛分鐘', 'number', 10), XC('怠速分鐘', 'number', 10), XC('停靠處數', 'number', 10), XC('停靠分鐘', 'number', 10), XC('最高時速（估計）', 'number', 12), XC('超速次數', 'number', 10), XC('超速標準', 'number', 10), XC('送貨店家數', 'number', 10), XC('送貨單數', 'number', 10), XC('銷貨金額', 'money', 14)];
+  return {title:'行車記錄（GPS）', sub:(from || '') + '～' + (to || ''), filename:'行車記錄', sections:[{name:'每日行車記錄', cols, rows:rows.map(r => { const f = gpsFacts(idx, r.date, r.vehicleId); return [r.date, vehLabel(S.vehicles[r.vehicleId]), f.driver, r.outTime || '', r.backTime || '', r.km || 0, r.moveMin || 0, r.idleMin || 0, r.stopN || 0, r.stopMin || 0, r.maxKmh || 0, r.overN || 0, r.overLimit || 0, f.stores, f.orders, f.amt]; })}]};
+}
+const gpsKmTxt = x => num(x) + ' km';
+/* 出車績效畫面裡的 GPS 區塊 */
+function gpsBlock(U){
+  const logs = gpsLogs(U.from, U.to), canImp = can('vehicle') || S.isAdmin;
+  const head = h('div', {class:'sec-h', style:'margin-top:12px'}, h('h2', {text:'GPS 行車記錄'}), h('button', {class:'btn ghost sm', 'aria-label':'行車記錄', onclick:() => openGpsLogs({from:U.from, to:U.to})}, canImp ? '查看／匯入' : '查看'));
+  if (!logs.length) return h('section', {class:'sec', 'aria-label':'GPS 行車記錄'}, head, h('div', {class:'panel empty', text:'這段期間沒有匯入行車記錄。' + (canImp ? '到定位系統匯出 GPX 軌跡檔，按「查看／匯入」匯入。' : '')}));
+  const rows = gpsStatRows(U.from, U.to, U.by), tot = rows.reduce((a, x) => ({days:a.days + x.days, km:r2(a.km + x.km), over:a.over + x.overN, stop:a.stop + x.stopN}), {days:0, km:0, over:0, stop:0});
+  return h('section', {class:'sec', 'aria-label':'GPS 行車記錄'}, head,
+    h('div', {class:'panel ledger', style:'margin-bottom:10px'}, h('div', {class:'row'}, h('span', {text:'有行車記錄的車天'}), h('b', {text:tot.days + ' 天'})), h('div', {class:'row', 'aria-label':'GPS 總里程'}, h('span', {text:'GPS 總里程'}), h('span', {text:gpsKmTxt(tot.km)})), h('div', {class:'row'}, h('span', {text:'停靠處數'}), h('span', {text:tot.stop + ' 處'})), h('div', {class:'row'}, h('span', {text:'超速次數'}), h('span', {class:tot.over ? 'overdue' : '', text:tot.over + ' 次'}))),
+    h('div', {class:'panel'}, rows.map(x => h('div', {class:'row', style:'align-items:flex-start', 'aria-label':'GPS ' + x.key},
+      h('span', null, h('b', {text:x.key}), h('br'),
+        h('small', {text:x.days + ' 天・行駛 ' + hmTxt(x.moveMin) + '・怠速 ' + hmTxt(x.idleMin) + '・停靠 ' + x.stopN + ' 處（共 ' + hmTxt(x.stopMin) + '）'}), h('br'),
+        h('small', {class:x.overN ? 'overdue' : '', text:'最高 ' + x.maxKmh + ' km/h（估計）・超速 ' + x.overN + ' 次'}),
+        x.stores ? [h('br'), h('small', {'aria-label':'GPS 效率 ' + x.key, text:'送貨 ' + x.stores + ' 家店：每家店 ' + r2(x.kmFacts / x.stores) + ' km・每公里銷貨 ' + money(Math.round(x.amt / Math.max(x.kmFacts, 1)))})] : null),
+      h('b', {text:gpsKmTxt(x.km)})))));
+}
+/* 行車記錄清單 */
+function openGpsLogs(o){
+  if (!see('report') && !can('vehicle') && !S.isAdmin) return toast('你的角色沒有查看行車記錄的權限');
+  const t0 = new Date(), U = {from:(o && o.from) || ymd(new Date(t0.getFullYear(), t0.getMonth(), 1)), to:(o && o.to) || today(), vid:(o && o.vid) || ''}, canImp = can('vehicle') || S.isAdmin;
+  liveSheet({title:'行車記錄（GPS）'}, ['gpslogs', 'vehicles', 'trips', 'orders'], sh => {
+    const box = h('div');
+    const fill = () => {
+      const logs = gpsLogs(U.from, U.to, U.vid), idx = gpsIndex();
+      const tot = logs.reduce((a, r) => ({km:r2(a.km + (r.km || 0)), over:a.over + (r.overN || 0), stop:a.stop + (r.stopN || 0)}), {km:0, over:0, stop:0});
+      setKids(box, logs.length ? [h('div', {class:'panel ledger', style:'margin-bottom:10px'}, h('div', {class:'row'}, h('span', {text:'車天'}), h('b', {text:logs.length + ' 天'})), h('div', {class:'row'}, h('span', {text:'總里程'}), h('span', {text:gpsKmTxt(tot.km)})), h('div', {class:'row'}, h('span', {text:'停靠'}), h('span', {text:tot.stop + ' 處'})), h('div', {class:'row'}, h('span', {text:'超速'}), h('span', {class:tot.over ? 'overdue' : '', text:tot.over + ' 次'}))),
+        h('div', {class:'panel'}, logs.slice(0, 120).map(r => { const f = gpsFacts(idx, r.date, r.vehicleId);
+          return h('button', {class:'row', style:'align-items:flex-start', 'data-gps':r.id, onclick:() => openGpsDetail(r.id)}, h('span', {style:'min-width:0;text-align:left'}, h('b', {text:r.date + '　' + vehLabel(S.vehicles[r.vehicleId])}), h('br'), h('small', {text:(f.driver || '（未指定）') + '　' + (r.outTime || '--:--') + ' → ' + (r.backTime || '--:--') + '　停靠 ' + (r.stopN || 0) + ' 處'}), h('br'), h('small', {class:r.overN ? 'overdue' : '', text:'最高 ' + (r.maxKmh || 0) + ' km/h' + (r.overN ? '・超速 ' + r.overN + ' 次' : '')})), h('b', {text:gpsKmTxt(r.km || 0)})); }))]
+        : h('div', {class:'panel empty', text:'這段期間沒有行車記錄'}));
+    };
+    const body = h('div', null, h('p', {class:'note', text:'從定位系統（eup.tw）匯出每台車的 GPX 軌跡檔，在這裡匯入：自動算出行駛里程、出車與回來時間、停靠處、怠速、最高時速和超速，當作出車績效與考核的依據。'}),
+      h('div', {class:'f2'}, fld('起', h('input', {class:'in', type:'date', value:U.from, 'aria-label':'行車記錄起', onchange:e => { U.from = e.target.value || U.from; fill(); }})), fld('迄', h('input', {class:'in', type:'date', value:U.to, 'aria-label':'行車記錄迄', onchange:e => { U.to = e.target.value || U.to; fill(); }}))),
+      (() => { const s2 = h('select', {class:'in', 'aria-label':'行車記錄車輛', onchange:e => { U.vid = e.target.value; fill(); }}, h('option', {value:'', text:'全部車輛'}), ...Object.values(S.vehicles).sort((a, b) => String(a.plate).localeCompare(String(b.plate))).map(v => h('option', {value:v.id, text:vehLabel(v)}))); s2.value = U.vid; return fld('車輛', s2); })(), box);
+    fill();
+    return {body, foot:[see('export') ? h('button', {class:'btn ghost', 'aria-label':'匯出行車記錄', onclick:() => openExport(dsGps(U.from, U.to))}, icon('down'), '匯出') : null, canImp ? h('button', {class:'btn grow', 'aria-label':'匯入行車記錄', onclick:() => openGpsImport()}, icon('plus'), '匯入 GPX 軌跡檔') : null].filter(Boolean)};
+  });
+}
+/* 匯入 GPX 檔（可以一次選好幾個檔） */
+function openGpsImport(){
+  if (!can('vehicle') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const sh = sheet({title:'匯入行車記錄'}), items = [], th = {over:String(gpsOver()), stop:String(gpsStopMin())};
+  const list = h('div', {'aria-label':'匯入預覽'}), goBtn = h('button', {class:'btn grow', 'aria-label':'確認匯入行車記錄', disabled:true}, '匯入');
+  const opts = () => ({over:Math.max(toNum(th.over) || gpsOver(), 30), stop:Math.max(toNum(th.stop) || gpsStopMin(), 1)});
+  const readText = f => f && typeof f.text === 'function' ? f.text() : new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result || '')); rd.onerror = () => rej(rd.error); rd.readAsText(f, 'utf-8'); });
+  const calc = () => { const o = opts(); items.forEach(it => { it.days = it.p ? gpxDays(it.p.pts, o) : []; }); };
+  const ready = () => items.reduce((a, it) => a + (it.vid ? it.days.length : 0), 0);
+  const paint = () => {
+    setKids(list, items.map((it, i) => h('div', {class:'panel pad', style:'margin-bottom:10px', 'aria-label':'檔案 ' + (i + 1)},
+      h('b', {style:'overflow-wrap:anywhere', text:it.name}),
+      it.err ? h('div', {class:'note bad', style:'margin:6px 0 0', text:it.err}) : [
+        h('small', {class:'hint', style:'display:block', text:'檔案裡的車牌：' + (it.p.plate || '（沒有）') + '　共 ' + it.p.pts.length + ' 個點'}),
+        (() => { const s2 = h('select', {class:'in', 'aria-label':'對應車輛 ' + (i + 1), onchange:e => { it.vid = e.target.value; paint(); }}, h('option', {value:'', text:'請選擇對應的車輛'}), ...Object.values(S.vehicles).sort((a, b) => String(a.plate).localeCompare(String(b.plate))).map(v => h('option', {value:v.id, text:vehLabel(v)}))); s2.value = it.vid || ''; return fld('對應車輛', s2); })(),
+        !it.vid ? h('div', {class:'note warn', style:'margin:6px 0 0', text:'找不到車牌「' + (it.p.plate || '') + '」的車輛：請選擇對應的車輛，或先到「更多 → 車輛」新增。'}) : null,
+        it.days.length ? h('div', {class:'panel', style:'margin-top:8px'}, it.days.map(d => h('div', {class:'row', style:'align-items:flex-start', 'aria-label':'匯入 ' + d.date}, h('span', {style:'min-width:0'}, h('b', {text:d.date}), h('br'),
+          h('small', {text:(d.rec.outTime || '--:--') + ' → ' + (d.rec.backTime || '--:--') + '　停靠 ' + d.rec.stopN + ' 處・怠速 ' + hmTxt(d.rec.idleMin)}), h('br'),
+          h('small', {class:d.rec.overN ? 'overdue' : '', text:'最高 ' + d.rec.maxKmh + ' km/h（估計）・超速 ' + d.rec.overN + ' 次'}), it.vid && S.gpslogs[gpsId(it.vid, d.date)] ? [h('br'), h('small', {class:'soon', text:'這一天已經有紀錄，匯入會覆蓋'})] : null), h('b', {text:gpsKmTxt(d.rec.km)})))) : h('div', {class:'note warn', style:'margin:6px 0 0', text:'這個檔案沒有可用的軌跡點。'})]))); 
+    goBtn.disabled = !ready(); goBtn.textContent = ready() ? '匯入 ' + ready() + ' 筆' : '匯入';
+  };
+  const fileIn = h('input', {type:'file', accept:'.gpx,application/gpx+xml,text/xml,application/xml', multiple:true, 'aria-label':'選擇 GPX 檔', onchange:async e => {
+    const fs = [...(e.target.files || [])]; if (!fs.length) return;
+    for (const f of fs){
+      try { const p = gpxParse(await readText(f)), v = gpsPlateVeh(p.plate); items.push(p.pts.length < 2 ? {name:f.name, err:'讀不到軌跡點，請確認是定位系統匯出的 GPX 檔。'} : {name:f.name, p, vid:v ? v.id : '', days:[]}); }
+      catch (_) { items.push({name:f.name, err:'讀取檔案失敗'}); }
+    }
+    e.target.value = ''; calc(); paint();
+  }});
+  const thIn = (k, label) => fld(label, h('input', {class:'in', type:'text', inputmode:'decimal', value:th[k], 'aria-label':label, autocomplete:'off', onchange:e => { th[k] = e.target.value; calc(); paint(); }}));
+  put(sh.bodyEl, h('p', {class:'note', text:'選定位系統匯出的 GPX 軌跡檔（可以一次選好幾個，一個檔案一台車；跨好幾天的會依日期分開存）。電腦、手機都可以，檔案不會傳到別的地方。'}),
+    fld('GPX 檔案', fileIn), h('div', {class:'f2'}, thIn('over', '超速標準（km/h）'), thIn('stop', '停靠至少幾分鐘')),
+    h('small', {class:'hint', style:'display:block;margin-bottom:10px', text:'停在同一個地方超過這個時間算一次停靠（在公司附近的不算）；連續 10 秒以上超過超速標準算一次超速。最高時速是用相鄰兩點估算的，只能當參考。'}), list);
+  goBtn.addEventListener('click', async () => {
+    const jobs = []; items.forEach(it => { if (it.vid) it.days.forEach(d => jobs.push({it, d})); }); if (!jobs.length) return;
+    goBtn.disabled = true;
+    const ok = await run(async () => {
+      if (S.isAdmin && (opts().over !== gpsOver() || opts().stop !== gpsStopMin())) await S.db.doc('settings/main').set({...(S.setRaw || {}), gpsOverKmh:opts().over, gpsStopMin:opts().stop});
+      for (const {it, d} of jobs){ const v = S.vehicles[it.vid], id = gpsId(it.vid, d.date);
+        await S.db.doc('gpslogs/' + id).set({vehicleId:it.vid, plate:v ? v.plate : (it.p.plate || ''), date:d.date, ...d.rec, file:it.name, by:S.meId || null, byName:myName(), at:Date.now()});
+        await S.db.doc('gpstracks/' + id).set({vehicleId:it.vid, date:d.date, track:d.track, at:Date.now()}); delete gpsTrackCache[id]; }
+      return true; });
+    if (ok){ toast('已匯入 ' + jobs.length + ' 筆行車記錄'); sh.forceClose(); } else goBtn.disabled = false;
+  });
+  sh.footEl.append(goBtn); paint();
+}
+const gpsTrackCache = {};
+function gpsSvg(track, stops){
+  const P = []; for (let i = 0; i + 1 < track.length; i += 2) P.push([track[i], track[i + 1]]); if (P.length < 2) return '';
+  const lat0 = P.reduce((a, p) => a + p[0], 0) / P.length, kx = Math.cos(lat0 * Math.PI / 180), W = 340, H = 240, M = 14;
+  const xs = P.map(p => p[1] * kx), ys = P.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), sc = Math.min((W - 2 * M) / Math.max(x1 - x0, 1e-9), (H - 2 * M) / Math.max(y1 - y0, 1e-9));
+  const ox = (W - (x1 - x0) * sc) / 2, oy = (H - (y1 - y0) * sc) / 2, X = lon => (ox + (lon * kx - x0) * sc).toFixed(1), Y = lat => (H - oy - (lat - y0) * sc).toFixed(1);
+  const line = P.map(p => X(p[1]) + ',' + Y(p[0])).join(' '), a = P[0], b = P[P.length - 1];
+  const dots = (stops || []).filter(s => !s.depot).map(s => '<circle cx="' + X(s.lon) + '" cy="' + Y(s.lat) + '" r="3.5" fill="#d97706" stroke="#fff" stroke-width="1"/>').join('');
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="行車路線圖" style="background:var(--soft);border-radius:12px;display:block"><polyline points="' + line + '" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>' + dots + '<circle cx="' + X(a[1]) + '" cy="' + Y(a[0]) + '" r="5" fill="#16a34a" stroke="#fff" stroke-width="1.5"/><circle cx="' + X(b[1]) + '" cy="' + Y(b[0]) + '" r="5" fill="#dc2626" stroke="#fff" stroke-width="1.5"/></svg>';
+}
+/* 一天的行車記錄 */
+function openGpsDetail(id){
+  liveSheet({title:'行車記錄'}, ['gpslogs', 'trips', 'orders', 'vehicles'], sh => {
+    const r = S.gpslogs[id]; if (!r) return false;
+    const v = S.vehicles[r.vehicleId], f = gpsFacts(gpsIndex(), r.date, r.vehicleId), canDel = can('vehicle') || S.isAdmin;
+    const outMin = (() => { const a = hmMin(r.outTime), b = hmMin(r.backTime); return a !== null && b !== null && b >= a ? b - a : null; })();
+    const map = h('div', {'aria-label':'路線', style:'margin-bottom:14px'});
+    if (gpsTrackCache[id]) map.innerHTML = gpsSvg(gpsTrackCache[id], r.stops);
+    else if (gpsTrackCache[id] === undefined){ gpsTrackCache[id] = null; S.db.doc('gpstracks/' + id).get().then(sn => { const tr = sn.exists ? (sn.data() || {}).track : null; if (Array.isArray(tr) && tr.length >= 4){ gpsTrackCache[id] = tr; map.innerHTML = gpsSvg(tr, r.stops); } else delete gpsTrackCache[id]; }).catch(() => { delete gpsTrackCache[id]; }); }
+    const diff = (a, b) => { const x = hmMin(a), y = hmMin(b); return x !== null && y !== null ? y - x : null; };
+    const dOut = diff(f.outTime, r.outTime), dBack = diff(f.backTime, r.backTime);
+    const body = h('div', null,
+      h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('div', {class:'lg', style:'margin:0 0 6px', text:r.date + '　' + vehLabel(v)}),
+        kv('送貨員', f.driver || '（未指定）'), kv('出車 → 回來（GPS）', (r.outTime || '--:--') + ' → ' + (r.backTime || '--:--') + (outMin !== null ? '（' + hmTxt(outMin) + '）' : '')),
+        kv('行駛里程', h('b', {'aria-label':'GPS 里程', text:gpsKmTxt(r.km || 0)})), kv('行駛時間', hmTxt(r.moveMin || 0) + (r.avgKmh ? '　平均 ' + r.avgKmh + ' km/h' : '')),
+        kv('怠速（引擎開著沒移動）', hmTxt(r.idleMin || 0) + (r.idleDepotMin ? '，其中在公司 ' + hmTxt(r.idleDepotMin) : '')),
+        kv('停靠', (r.stopN || 0) + ' 處，共 ' + hmTxt(r.stopMin || 0)), kv('最高時速（估計）', (r.maxKmh || 0) + ' km/h'),
+        kv('超速（超過 ' + (r.overLimit || 90) + ' km/h）', h('b', {class:r.overN ? 'overdue' : '', 'aria-label':'超速次數', text:(r.overN || 0) + ' 次'})), kv('資料', (r.pts || 0) + ' 個點　' + (r.startAt || '') + ' ~ ' + (r.endAt || '') + (r.file ? '　' + r.file : ''))),
+      map,
+      h('div', {class:'sec-h'}, h('h2', {text:'和出車單比對'})),
+      f.trips ? h('div', {class:'panel pad', style:'margin-bottom:14px', 'aria-label':'出車單比對'},
+        kv('出車單', f.trips + ' 趟，送貨 ' + f.stores + ' 家店、' + f.orders + ' 張單、' + money(f.amt)),
+        f.outTime || f.backTime ? kv('出車單記的時間', (f.outTime || '--:--') + ' → ' + (f.backTime || '--:--')) : null,
+        dOut !== null && Math.abs(dOut) >= 30 ? h('div', {class:'note warn', style:'margin:6px 0', text:'⚠ GPS 出車時間比出車單記的' + (dOut > 0 ? '晚' : '早') + ' ' + hmTxt(Math.abs(dOut)) + '。'}) : null,
+        dBack !== null && Math.abs(dBack) >= 30 ? h('div', {class:'note warn', style:'margin:6px 0', text:'⚠ GPS 回來時間比出車單記的' + (dBack > 0 ? '晚' : '早') + ' ' + hmTxt(Math.abs(dBack)) + '。'}) : null,
+        f.stores ? kv('GPS 停靠 / 送貨店家', (r.stopN || 0) + ' 處 / ' + f.stores + ' 家') : null,
+        f.stores && r.km ? kv('每家店平均里程', r2(r.km / f.stores) + ' km') : null, r.km && f.amt ? kv('每公里銷貨金額', money(Math.round(f.amt / r.km))) : null)
+        : h('div', {class:'note', style:'margin-bottom:14px', text:'這台車這一天沒有出車單（出車排程），所以沒有送貨資料可以比對。'}),
+      h('div', {class:'sec-h'}, h('h2', {text:'停靠與停留（至少 ' + (r.stopLimit || 3) + ' 分鐘）'})),
+      (r.stops || []).length ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'停靠清單'}, r.stops.map((s, i) => h('div', {class:'row', style:'align-items:flex-start'}, h('span', {style:'min-width:0'}, h('b', {text:s.depot ? '在公司（起點附近）' : '停靠 ' + (r.stops.slice(0, i + 1).filter(x => !x.depot).length)}), h('br'), h('small', {text:s.s + ' ~ ' + s.e}), '　', h('a', {href:'https://www.google.com/maps?q=' + s.lat + ',' + s.lon, target:'_blank', rel:'noopener', 'aria-label':'地圖 ' + (i + 1), text:'📍 地圖'})), h('b', {text:s.m + ' 分'})))) : h('div', {class:'panel empty', style:'margin-bottom:14px', text:'沒有停靠'}),
+      (r.overs || []).length ? [h('div', {class:'sec-h'}, h('h2', {text:'超速'})), h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'超速清單'}, r.overs.map(x => h('div', {class:'row'}, h('span', {text:x.t + '　持續約 ' + x.sec + ' 秒'}), h('b', {class:'overdue', text:'約 ' + x.max + ' km/h'}))))] : null,
+      canDel ? h('button', {class:'btn plain', 'aria-label':'刪除行車記錄', onclick:async () => { if (!await dialog({title:'刪除這一天的行車記錄？', msg:r.date + ' ' + vehLabel(v), ok:'刪除', danger:true})) return; const ok = await run(async () => { await S.db.doc('gpslogs/' + id).delete(); try { await S.db.doc('gpstracks/' + id).delete(); } catch (_) {} delete gpsTrackCache[id]; return true; }); if (ok){ toast('已刪除'); sh.forceClose(); } }}, '刪除這筆') : null);
+    return {body};
+  });
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {gpxForTest:{gpxParse, gpxDays, gpsStatRows, gpsLogs:(...x) => gpsLogs(...x), openGpsLogs:(...x) => openGpsLogs(...x), openGpsImport:() => openGpsImport(), openGpsDetail:x => openGpsDetail(x), dsGps:(...x) => dsGps(...x), gpsBlock:x => gpsBlock(x)}}); } catch (_) {}
+
 
 /* ================= 票據代收表（待送銀行代收／已代收），輸出 PDF ================= */
 function bankNotes(from, to, col){
@@ -13974,7 +14201,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-di';
+const APP_VERSION = '2026.10.11-dj';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -15634,7 +15861,7 @@ function openPriceImport(kind){
 }
 
 /* ---- 備份與還原 ---- */
-const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers', 'promos', 'shelves'];
+const BK_COLS = ['products', 'partners', 'orders', 'payments', 'notes', 'counts', 'countlines', 'corders', 'porders', 'prules', 'vehicles', 'fuellogs', 'maint', 'cashbook', 'quotes', 'closings', 'collects', 'fuelcards', 'locks', 'trips', 'gpslogs', 'returns', 'expdocs', 'moves', 'employees', 'attdays', 'leaves', 'derrors', 'payroll', 'displans', 'lineorders', 'handovers', 'promos', 'shelves'];
 const BK_SET = () => ({main:S.setRaw || {}, invoice:S.invCfg || {}, slipform:S.slipCfg || {}, slipform_south:S.slipCfgS || {}, roles:S.roles || {}});
 const bkEvery = () => { const v = S.bk && S.bk.every; return v === undefined || v === null ? 7 : Number(v); };
 /* 最近一次「有效」的備份：手動下載的、或雲端自動備份成功的，取比較新的那一個 */
@@ -16751,7 +16978,7 @@ async function init(){
     S[key] = m; S.loaded[key] = true; recompute(); render(key); if (key === 'vehicles'){ seedTripVehicles(); seedTripBeds(); }
     if (MTAX_WATCH.has(key)){ mtaxFromCache[key] = !!(snap.metadata && snap.metadata.fromCache); mtaxAutoTouch(); mtaxAutoSoon(); }
   }, bad);
-  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); watch('promos', 'promos'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); if (S.isAdmin || !FB_MODE){ watch('alerts', 'alerts'); db.doc('sys/backup').onSnapshot(snap => { S.cbk = snap.exists ? snap.data() : null; render('settings'); }, () => {}); } else S.loaded.alerts = true; /* 系統提醒、雲端備份狀態只有管理員讀得到；其他人去讀會被擋，畫面會誤報「連線中斷」 */ watch('handovers', 'handovers'); watchShelves(db); setTimeout(registerMe, 2500);
+  watch('products', 'products'); watch('partners', 'partners'); watch('orders', 'orders'); watch('payments', 'payments'); watch('notes', 'notes'); watch('counts', 'counts'); watch('countlines', 'countlines'); watch('corders', 'corders'); watch('porders', 'porders'); watch('prules', 'prules'); watch('promos', 'promos'); if (S.isAdmin) watch('members', 'members'); else S.loaded.members = true; watch('vehicles', 'vehicles'); watch('fuellogs', 'fuellogs'); watch('maint', 'maint'); watch('cashbook', 'cashbook'); watch('quotes', 'quotes'); watch('closings', 'closings'); watch('collects', 'collects'); watch('fuelcards', 'fuelcards'); watch('locks', 'locks'); watch('trips', 'trips'); watch('gpslogs', 'gpslogs'); watch('returns', 'returns'); watch('expdocs', 'expdocs'); watch('moves', 'moves'); watch('employees', 'employees'); watch('attdays', 'attdays'); watch('leaves', 'leaves'); watch('derrors', 'derrors'); if (S.isAdmin || !FB_MODE) watch('payroll', 'payroll'); else S.loaded.payroll = true; watch('displans', 'displans'); watch('lineorders', 'lineorders'); if (S.isAdmin || !FB_MODE){ watch('alerts', 'alerts'); db.doc('sys/backup').onSnapshot(snap => { S.cbk = snap.exists ? snap.data() : null; render('settings'); }, () => {}); } else S.loaded.alerts = true; /* 系統提醒、雲端備份狀態只有管理員讀得到；其他人去讀會被擋，畫面會誤報「連線中斷」 */ watch('handovers', 'handovers'); watchShelves(db); setTimeout(registerMe, 2500);
   db.collection('devices').onSnapshot(snap => { const m = {}; snap.docs.forEach(d => { m[d.id] = {...d.data(), id:d.id}; }); S.devices = m; S.devLoaded = true; render('devices'); }, () => { S.devLoaded = true; render('devices'); });
   db.doc('settings/roles').onSnapshot(snap => { S.roles = snap.exists ? snap.data() : {}; S.loaded.roles = true; render('roles'); }, () => { S.loaded.roles = true; render('roles'); });
   db.doc('settings/backup').onSnapshot(snap => { S.bk = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
