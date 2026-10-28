@@ -12998,7 +12998,15 @@ function openShortage(o){
     };
     /* ---- 直接組裝 ---- */
     const asmSec = () => {
-      if (!pl.canAsm) return null;
+      if (!pl.canAsm){
+        const mayDef = S.isAdmin && fxOn('assembly');
+        return [sec('新增組合'),
+          card('沒有組合設定',
+            h('b', {text:'「' + p.name + '」還沒有設定由哪些組件組成'}),
+            h('small', {class:'hint', style:'display:block;margin-top:4px', text:'例如 1 ' + (unit || '個') + '由 A × 2 ＋ B × 1 組成。設定好之後，這裡會直接算出能組幾個、缺哪些組件，按一下就能組裝。'}),
+            mayDef ? h('button', {class:'btn ghost', style:wide, type:'button', 'aria-label':'新增組合 ' + p.sku, onclick:() => openAsmSource(p.id, wid)}, '新增組合（選組件與數量）')
+              : h('div', {class:'note', style:'margin:8px 0 0', text:'請管理員到「產品組成（BOM）」設定這個商品由哪些組件組成，之後這裡就能直接組裝。'}))];
+      }
       const short = pl.build < gap - SHORT_EPS;
       return [sec('直接組裝'),
         card('組裝方式',
@@ -13030,7 +13038,7 @@ function openShortage(o){
       const f0 = feas[0], tot = pl.xfer.reduce((a, x) => a + x.stock, 0);
       const ws = [!pl.self ? {k:'buy', t:'建立採購單', sub:pl.inc >= gap - SHORT_EPS ? '在途 ' + num(pl.inc) + ' 夠補' : '建議 ' + num(pl.buyQty) + ' ' + unit} : null,
         {k:'dis', t:'拆解', sub:f0 ? '拆 ' + num(f0.useN) + ' ' + (f0.F.unit || '') + ' 得 ' + num(f0.useYield) : (infeas.length ? '成品沒有庫存' : '還沒設定來源')},
-        pl.canAsm ? {k:'asm', t:'直接組裝', sub:pl.asmQty > 0 ? '可組 ' + num(pl.asmQty) + ' ' + unit : '組件不夠'} : null,
+        pl.canAsm ? {k:'asm', t:'直接組裝', sub:pl.asmQty > 0 ? '可組 ' + num(pl.asmQty) + ' ' + unit : '組件不夠'} : (S.isAdmin && fxOn('assembly') ? {k:'asm', t:'新增組合', sub:'還沒設定組件'} : null),
         pl.xfer.length ? {k:'xfer', t:'倉庫調撥', sub:'別的倉庫有 ' + num(r3(tot))} : null,
         {k:'adj', t:'調整庫存', sub:'帳面數量不對時'}].filter(Boolean);
       return h('div', {class:'panel pad', 'aria-label':'選擇處理方式', style:'margin-bottom:12px'}, h('b', {text:'選擇處理方式'}),
@@ -13070,7 +13078,44 @@ function openDisSource(pid, wid){
     if (ok){ toast('已設定：1 ' + (F.unit || '個') + '「' + F.name + '」拆出 ' + num(q) + ' ' + xu); sh.forceClose(); } }}, '儲存'));
   paint();
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
+/* 缺貨處理：替沒有組成的商品當場設定組合（寫進該商品的 BOM） */
+function openAsmSource(pid, wid){
+  const X = S.products[pid]; if (!X) return toast('找不到這個商品');
+  if (!S.isAdmin) return toast('只有管理員能設定商品的組成');
+  const xu = X.unit || '個', rows = [{fid:'', qty:''}];
+  const sh = sheet({title:'新增組合'}), list = h('div'), info = h('div', {'aria-label':'組合說明'});
+  const cands = i => { const used = new Set(rows.map((r, j) => j === i ? null : r.fid).filter(Boolean));
+    return activeProducts().filter(C => C.id !== pid && !used.has(C.id) && !bomReaches(C.id, pid)).sort(cmpSku)
+      .map(C => ({id:C.id, label:C.sku + ' ' + C.name, sub:(C.unit || '') + '　庫存 ' + num(stockAt(C.id, wid))})); };
+  const paint = () => {
+    setKids(list, rows.map((r, i) => { const C = S.products[r.fid];
+      return h('div', {class:'panel pad', 'aria-label':'組件 ' + (i + 1), style:'margin-bottom:8px'},
+        h('button', {class:'btn ghost', type:'button', style:'width:100%;justify-content:flex-start;overflow:hidden;min-width:0', 'aria-label':'選組件 ' + (i + 1), onclick:() => lineSearchSheet('選組件', () => cands(i), id => { r.fid = id; paint(); })},
+          h('span', {style:'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0', text:C ? C.sku + ' ' + C.name : '選擇組件…'})),
+        h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:8px'},
+          h('span', {style:'white-space:nowrap', text:'1 ' + xu + '用'}),
+          h('input', {class:'in', type:'text', inputmode:'decimal', placeholder:'數量', 'aria-label':'組件數量 ' + (i + 1), autocomplete:'off', value:r.qty, style:'flex:1;min-width:0', oninput:e => { r.qty = e.target.value; paintInfo(); }}),
+          h('span', {style:'white-space:nowrap', text:C ? C.unit || '個' : ''}),
+          rows.length > 1 ? h('button', {class:'btn ghost sm', type:'button', 'aria-label':'移除組件 ' + (i + 1), onclick:() => { rows.splice(i, 1); paint(); }}, '移除') : null)); }));
+    paintInfo();
+  };
+  const paintInfo = () => {
+    const ok = rows.filter(r => S.products[r.fid] && toNum(r.qty) > 0);
+    setKids(info, ok.length ? h('small', {class:'hint', style:'display:block;margin-top:8px', text:'存好之後：1 ' + xu + '「' + X.name + '」＝ ' + ok.map(r => S.products[r.fid].name + ' ×' + num(toNum(r.qty))).join(' ＋ ') + '（目前組件庫存最多可組 ' + num(Math.max(Math.floor(Math.min(...ok.map(r => stockAt(r.fid, wid) / toNum(r.qty))) + 1e-9), 0)) + ' ' + xu + '）。'}) : null);
+  };
+  put(sh.bodyEl, h('p', {class:'hint', style:'margin:0 0 12px', text:'設定 1 ' + xu + '「' + X.name + '」由哪些組件組成。會存到這個商品的「產品組成（BOM）」，之後缺貨時就能直接組裝。'}),
+    list, h('button', {class:'btn ghost', type:'button', style:'width:100%;margin-top:4px', 'aria-label':'加一個組件', onclick:() => { rows.push({fid:'', qty:''}); paint(); }}, '＋ 加一個組件'), info);
+  sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'儲存組合', onclick:async () => {
+    if (rows.some(r => !S.products[r.fid])) return toast('請選擇每一個組件（不要的請按「移除」）');
+    if (rows.some(r => !(toNum(r.qty) > 0))) return toast('請輸入每個組件的數量');
+    if (new Set(rows.map(r => r.fid)).size !== rows.length) return toast('同一個組件不能重複');
+    const bom = rows.map(r => ({pid:r.fid, qty:r3(toNum(r.qty))}));
+    if (bom.some(c => c.pid === pid || bomReaches(c.pid, pid))) return toast('組件裡不能包含「' + X.name + '」自己（不能互相組成）');
+    const ok = await run(async () => { await S.db.doc('products/' + pid).update({bom}); return true; });
+    if (ok){ toast('已設定「' + X.name + '」的組合（' + bom.length + ' 個組件）'); sh.forceClose(); } }}, '儲存'));
+  paint();
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openAsmSource:(...x) => openAsmSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -13883,7 +13928,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-de';
+const APP_VERSION = '2026.10.11-df';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
