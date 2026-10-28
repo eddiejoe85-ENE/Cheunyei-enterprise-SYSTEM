@@ -1500,10 +1500,22 @@ function openOrder(type, pre){
     if (type === 'sale'){ st.store = editO && editO.partnerId === st.partnerId ? st.store : ''; paintStamp(); }
     if (type === 'sale_return'){ st.srcSale = ''; paintRet(); }
     if (type === 'purchase'){ st.srcPO = ''; for (const k of Object.keys(srcMap)) delete srcMap[k]; paintPO(); }
+    paintRt(true);
     payHint.textContent = payHintTxt(); paintBill(); calc();
   }
   /* ---- 銷貨單帶入客戶訂單：可以一次選好幾張（同一位客戶）；帶入後還可以自己加商品 ---- */
   const coBox = type === 'sale' && !editO ? h('div', {class:'f', style:'margin-top:8px', 'aria-label':'帶入客戶訂單'}) : null;
+  /* -dh：這位客戶有退貨商品「待退還客戶」→ 開銷貨單選了客戶就跳出訊息，下面也一直留著提示 */
+  const rtBox = type === 'sale' && !editO ? h('div', {'aria-label':'待歸還退貨提醒'}) : null, rtWarned = new Set();
+  function paintRt(prompt){
+    if (!rtBox) return;
+    const list = rtReadyOf(st.partnerId);
+    if (!list.length) return setKids(rtBox);
+    setKids(rtBox, h('div', {class:'note warn', style:'margin:8px 0'}, h('b', {text:'⚠ 這位客戶有 ' + list.length + ' 筆退貨商品待歸還'}),
+      ...list.map(r => h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px'}, h('span', {style:'min-width:0'}, h('b', {text:r.no}), '　' + rtItemsTxt(r) + (r.fixedDate ? '（' + r.fixedDate + ' 修好）' : '')), h('button', {class:'btn ghost sm', type:'button', 'aria-label':'查看退貨 ' + r.no, onclick:() => openReturnDetail(r.id)}, '查看'))),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'送貨時記得一併歸還，還完到「退貨管理」按「已退還客戶」。'})));
+    if (prompt && !rtWarned.has(st.partnerId)){ rtWarned.add(st.partnerId); dialog({title:'有退貨商品待歸還', msg:partyName(st.partnerId) + ' 有 ' + list.length + ' 筆退貨商品待歸還：' + list.map(r => r.no + ' ' + rtItemsTxt(r)).join('、') + '。送貨時請一併歸還。', ok:'知道了', single:true}); }
+  }
   let noteIn = null;
   const coActive = () => Object.values(S.corders || {}).filter(d => docProgress('co', d).active);
   const coPt = d => { const pt = S.partners[d.partnerId] || {}; return pt.shortName || pt.name || '散客'; };
@@ -1783,7 +1795,7 @@ function openOrder(type, pre){
     freightBox,
     see('cash') ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.freightCash, 'aria-label':'運費由零用金支付', onchange:e => { st.freightCash = e.target.checked; }}), '運費由零用金支付（同步記入零用金帳簿的「運費」）') : null) : null;
   const printChk = (!editO && (type === 'sale' || type === 'sale_return')) ? h('input', {type:'checkbox', checked:!!loadPrint().auto, onchange:e => { const pp = loadPrint(); pp.auto = e.target.checked; savePrint(pp); }}) : null;
-  const liveS = type === 'sale' ? {deps:['orders', 'porders', 'corders', 'products'], run:() => { calc(); if (coBox) paintCo(); }} : null;
+  const liveS = type === 'sale' ? {deps:['orders', 'porders', 'corders', 'products', 'returns'], run:() => { calc(); if (coBox) paintCo(); paintRt(false); }} : null;
   const sh = sheet({title:editO ? '修改' + T.label + ' ' + editO.no : T.label, guard:() => st.lines.length ? dialog({title:editO ? '放棄修改？' : '放棄這張單據？', msg:editO ? '這次的修改不會保存。' : '已輸入的內容不會保存。', ok:'放棄', danger:true}) : true, onclose:() => { if (liveS) live.delete(liveS); }});
   if (liveS) live.add(liveS);
   const dateIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'日期', onchange:e => { st.date = e.target.value || today(); if (!st.delivTouched || st.deliv < st.date) st.deliv = st.date; repriceAll(); paintBill(); paintShip(); }});
@@ -1813,7 +1825,7 @@ function openOrder(type, pre){
       fld('日期', dateIn),
       partnerSel ? h('div', {class:'f', style:'min-width:0'}, h('label', {text:PLABEL[T.partner]}), h('div', {style:'display:flex;gap:6px;align-items:flex-start'}, pk.el, h('button', {class:'ic', style:'border:1px solid var(--line);flex:none', 'aria-label':'新增' + PLABEL[T.partner], onclick:() => { newPtRow.style.display = newPtRow.style.display === 'none' ? 'flex' : 'none'; }}, icon('plus'))), newPtRow) : null),
     bmOn ? h('div', {class:'f', style:'margin:2px 0 6px'}, h('label', {text:'帳款月份'}), h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, bmIn, bmReset), billInfo) : billInfo,
-    coBox, retBox, poBox, shipBox, driverBox, stampBox, buyBtn ? h('div', {class:'f'}, buyBtn) : null,
+    rtBox, coBox, retBox, poBox, shipBox, driverBox, stampBox, buyBtn ? h('div', {class:'f'}, buyBtn) : null,
     whSel ? fld('倉庫', whSel) : null,
     histP ? histP.el : null,
     srchBelow ? null : [srchLbl, pickBox], linesBox, promoBox, srchBelow ? [srchLbl, pickBox] : null,
@@ -1827,7 +1839,7 @@ function openOrder(type, pre){
     printChk ? h('label', {class:'check'}, printChk, '儲存後列印' + T.label) : null);
   if (editO && st.pay === 'part'){ paidIn.value = st.paid; paidIn.style.display = ''; }
   sh.footEl.append(totEl, saveBtn);
-  paintPay(); paintTax(); paintBill(); paintLines(); paintFreight(); applyBuyVis(); paintShip(); paintDriver(); paintStamp(); paintRet(); paintPO(); payHint.textContent = payHintTxt(); if (pre.srcSale) loadFromSale(); if (coBox) paintCo();
+  paintPay(); paintTax(); paintBill(); paintLines(); paintFreight(); applyBuyVis(); paintShip(); paintDriver(); paintStamp(); paintRet(); paintPO(); payHint.textContent = payHintTxt(); if (pre.srcSale) loadFromSale(); if (coBox) paintCo(); paintRt(true);
   if (pre.pid) addLine(pre.pid, pre.qty);
   (pre.lines || []).forEach(l => addLine(l.pid, l.qty, l.price, fromCo ? {...l, co:pre.src.id, coNo:pre.src.no} : l));
   calc();
@@ -5207,7 +5219,7 @@ function vehDueList(){ const out = []; for (const v of vehActive()) for (const m
 
 async function createFuelLog(o){
   const ref = S.db.collection('fuellogs').doc();
-  await ref.set({vehicleId:o.vehicleId, date:o.date, type:o.type, who:o.who || '', odo:o.odo || null, liters:o.liters || null, amount:o.amount, station:o.station || '', note:o.note || '', fromCash:!!o.fromCash, fund:o.fromCash ? cashFundOf(o.fund) : null, cardId:o.cardId || null, bonus:o.bonus || 0, bonusUsed:o.bonusUsed || 0, receiptNo:o.receiptNo || '', postCash:o.postCash === undefined ? null : o.postCash, postBonus:o.postBonus === undefined ? null : o.postBonus, setCash:o.setCash === undefined ? null : o.setCash, setBonus:o.setBonus === undefined ? null : o.setBonus, by:S.meId || null, at:Date.now()});
+  await ref.set({vehicleId:o.vehicleId, date:o.date, type:o.type, who:o.who || '', odo:o.odo || null, liters:o.liters || null, amount:o.amount, station:o.station || '', note:o.note || '', fromCash:!!o.fromCash, fund:o.fromCash ? cashFundOf(o.fund) : null, catId:o.fromCash && o.catId ? o.catId : null, cardId:o.cardId || null, bonus:o.bonus || 0, bonusUsed:o.bonusUsed || 0, receiptNo:o.receiptNo || '', postCash:o.postCash === undefined ? null : o.postCash, postBonus:o.postBonus === undefined ? null : o.postBonus, setCash:o.setCash === undefined ? null : o.setCash, setBonus:o.setBonus === undefined ? null : o.setBonus, by:S.meId || null, at:Date.now()});
   return ref.id;
 }
 /* -dc：定位系統（例如 eup.tw）。這裡只放「連結」，帳號密碼不放進系統；按鈕開新分頁到定位系統的地圖，要在那邊登入。
@@ -5313,7 +5325,7 @@ function fuelRow(f, showVeh){
     h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'},
       h('span', {class:'tag ' + (f.type === 'topup' ? 'adj' : 'out'), text:f.type === 'topup' ? '值' : '油'}),
       h('span', {style:'min-width:0'}, h('b', {text:(showVeh && v ? v.plate + '　' : '') + (f.type === 'topup' ? '儲值' : '加油')}), h('br'),
-        h('small', {text:f.date + (f.who ? '　' + f.who : '') + (f.odo ? '　' + num(f.odo) + ' km' : '') + (f.liters ? '　' + num(f.liters) + ' L' : '') + (f.cardId && S.fuelcards[f.cardId] ? '　' + S.fuelcards[f.cardId].name : '') + (f.fromCash ? '　' + cashFundName(f.fund || cashAutoFund()) : '')}))),
+        h('small', {text:f.date + (f.who ? '　' + f.who : '') + (f.odo ? '　' + num(f.odo) + ' km' : '') + (f.liters ? '　' + num(f.liters) + ' L' : '') + (f.cardId && S.fuelcards[f.cardId] ? '　' + S.fuelcards[f.cardId].name : '') + (f.fromCash ? '　' + cashFundName(f.fund || cashAutoFund()) + (f.catId && cashCatOf(f.catId) ? '・' + cashCatName(f.catId) : '') : '')}))),
     h('span', {class:'right'}, h('b', {text:money(f.amount)}), f.station ? h('br') : null, f.station ? h('small', {text:f.station}) : null));
 }
 function openVehicle(id){
@@ -9150,7 +9162,7 @@ function photoSection(o){
 
 /* ================= 退貨管理：退貨商品要「排除故障後退還客戶」還是「直接退款」 ================= */
 const RT_ST = {received:'已收到，待處理', processing:'檢測／維修中', ready:'待退還客戶', refunding:'待退款', exchanging:'待換貨', goods:'待處理退回的商品', supplier:'退廠商處理中', done:'已結案', cancelled:'已作廢'};
-const RT_ACT = {repair:'排除故障後退還客戶', return:'原物退還客戶（檢測沒有故障）', refund:'直接退款', exchange:'換貨'}, RT_ACT_S = {repair:'修復退還', return:'原物退還', refund:'退款', exchange:'換貨'};
+const RT_ACT = {repair:'排除故障後退還客戶', return:'原物退還客戶（檢測沒有故障）', refund:'直接退款', exchange:'換貨', improve:'改善後歸位（重新入庫）', scrap:'直接報廢'}, RT_ACT_S = {repair:'修復退還', return:'原物退還', refund:'退款', exchange:'換貨', improve:'改善歸位', scrap:'報廢'};
 const RT_AFTER = {supplier:'退回廠商', scrap:'報廢', restock:'重新入庫（良品）'}, RT_SUP_RES = {replaced:'廠商換新品給我們', fixed:'廠商修好寄回', credit:'廠商退款／折讓', rejected:'廠商拒絕，退回給我們'};
 const rtCost = r => r2((r.items || []).reduce((a, i) => a + (Number(i.qty) || 0) * (Number((S.products[i.pid] || {}).cost) || 0), 0));
 const rtInStock = r => !!r.returnOrderId && !!S.orders[r.returnOrderId] && S.orders[r.returnOrderId].status !== 'void';
@@ -9162,6 +9174,11 @@ async function rtAdjust(r, sign, note){
   return createOrder('adjust', {date:today(), lines, note, extra:{wh:defaultWh(), returnId:r.id, returnNo:r.no}});
 }
 const RT_PAY = {cash:'現金', transfer:'匯款', offset:'沖抵貨款'};
+/* -dh：狀態文字（改善後歸位的維修中，叫「改善中」）、結案去向、這位客戶待退還（歸還）的退貨 */
+const rtStTxt = r => r.status === 'processing' && r.action === 'improve' ? '改善中，待歸位' : (RT_ST[r.status] ?? r.status);
+const rtDest = r => r.status !== 'done' ? '' : r.after === 'scrap' ? '報廢' : r.after === 'restock' ? '歸位（重新入庫）' : r.after === 'supplier' ? '退回廠商' : r.returnedDate ? '退還客戶' : r.action === 'refund' ? '退款' : r.action === 'exchange' ? '換貨' : '';
+const rtReasons = r => (r.items || []).filter(i => i.reason).map(i => i.name + '：' + i.reason).join('；');
+const rtReadyOf = pid => pid && fxOn('returns') ? Object.values(S.returns).filter(r => r.partnerId === pid && r.status === 'ready').sort((a, b) => String(a.date).localeCompare(String(b.date))) : [];
 const rtItemsTxt = r => (r.items || []).map(i => i.name + '×' + num(i.qty)).join('、');
 const rtOpen = r => r.status !== 'done' && r.status !== 'cancelled';
 const rtLog = (r, s, note) => [...(r.log || []), {s, d:today(), t:Date.now(), by:S.meId || null, byName:myName(), note:note || ''}];
@@ -9186,6 +9203,7 @@ function openReturnStep(r, kind){
   if (kind === 'refund') return rtUpdate(r, {action:'refund', status:'refunding', refundAmount:r.refundAmount || rtRefundDefault(r)}, 'refund', '決定：直接退款').then(ok => ok && toast('已記錄：直接退款'));
   if (kind === 'switch') return dialog({title:'改成直接退款？', msg:'維修不成或客戶不要了，改成直接退款。', ok:'改成直接退款'}).then(y => y && rtUpdate(r, {action:'refund', status:'refunding', refundAmount:r.refundAmount || rtRefundDefault(r)}, 'switch', '改為直接退款').then(ok => ok && toast('已改成直接退款')));
   if (kind === 'asis') return rtUpdate(r, {action:'return', status:'ready'}, 'asis', '決定：原物退還客戶（沒有故障，不用維修）').then(ok => ok && toast('已記錄：原物退還客戶'));
+  if (kind === 'improve') return rtUpdate(r, {action:'improve', status:'processing'}, 'improve', '決定：改善後歸位（重新入庫），不退還客戶').then(ok => ok && toast('已記錄：改善後歸位'));
   if (kind === 'exchange') return rtUpdate(r, {action:'exchange', status:'exchanging'}, 'exchange', '決定：換貨').then(ok => ok && toast('已記錄：換貨'));
   if (kind === 'exchanged'){
     const sales = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && o.partnerId === r.partnerId).sort(cmpOrd).slice(0, 20);
@@ -9213,10 +9231,10 @@ function openReturnGoods(r, kind){
     st => rtUpdate(r, {status:st.result === 'rejected' ? 'goods' : 'done', after:st.result === 'rejected' ? '' : 'supplier', supplierResult:st.result, supplierAmount:toNum(st.amount), supplierReplyDate:st.date || today(), supplierReplyNote:st.note.trim()}, 'supplierReply', RT_SUP_RES[st.result] + (toNum(st.amount) ? '　' + money(toNum(st.amount)) : '') + (st.note.trim() ? '　' + st.note.trim() : '')).then(ok => { if (ok) toast(st.result === 'rejected' ? '廠商拒絕了，請決定這批商品怎麼處理' : '已結案：廠商已回覆'); return ok; }), '記錄廠商回覆');
   if (kind === 'scrap') return rtStepSheet('報廢', [{k:'date', label:'報廢日期', value:today(), type:'date'}, {k:'note', label:'報廢原因', value:'', placeholder:'例：無法修復、廠商不收'}, ...(inStock && canAdj ? [{k:'adj', label:'庫存怎麼處理（這批商品已經用銷貨退回單入庫了）', type:'select', value:'yes', options:[['yes', '建立庫存調整單，把這些商品從庫存扣掉（建議）'], ['no', '不調整庫存']]}] : [])],
     async st => { let adjId = ''; if (inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, -1, '退貨報廢 ' + r.no)); if (!a) return false; adjId = a.id; }
-      const ok = await rtUpdate(r, {status:'done', after:'scrap', scrapDate:st.date || today(), scrapNote:st.note.trim(), scrapLoss:loss, scrapAdjId:adjId}, 'scrap', '報廢　成本 ' + money(loss) + (adjId ? '　已扣庫存' : '')); if (ok) toast('已結案：報廢（成本 ' + money(loss) + '）' + (adjId ? '，已從庫存扣除' : '')); return ok; }, '記錄報廢');
-  if (kind === 'restock') return rtStepSheet('重新入庫（良品）', [{k:'date', label:'入庫日期', value:today(), type:'date'}, {k:'note', label:'備註（檢查結果、放在哪裡）', value:''}, ...(!inStock && canAdj ? [{k:'adj', label:'庫存怎麼處理（這批商品還沒入庫）', type:'select', value:'yes', options:[['yes', '建立庫存調整單，把這些商品加回庫存（預設倉庫）'], ['no', '只記錄，不調整庫存']]}] : [])],
+      const ok = await rtUpdate(r, {status:'done', ...(r.action ? {} : {action:'scrap'}), after:'scrap', scrapDate:st.date || today(), scrapNote:st.note.trim(), scrapLoss:loss, scrapAdjId:adjId}, 'scrap', '報廢　成本 ' + money(loss) + (adjId ? '　已扣庫存' : '')); if (ok) toast('已結案：報廢（成本 ' + money(loss) + '）' + (adjId ? '，已從庫存扣除' : '')); return ok; }, '記錄報廢');
+  if (kind === 'restock') return rtStepSheet(r.action === 'improve' ? '改善完成，重新歸位' : '重新入庫（良品）', [...(r.action === 'improve' ? [{k:'diagnosis', label:'故障原因／檢查結果', value:r.diagnosis || '', placeholder:'例：外殼刮傷、包裝破損'}, {k:'repairNote', label:'改善內容', value:r.repairNote || '', placeholder:'例：重新包裝、更換外盒'}, {k:'repairBy', label:'改善的人', value:r.repairBy || ''}, {k:'repairCost', label:'改善費用（選填，只做紀錄）', value:r.repairCost || '', type:'number'}] : []), {k:'date', label:'入庫日期', value:today(), type:'date'}, {k:'note', label:'備註（檢查結果、放在哪裡）', value:''}, ...(!inStock && canAdj ? [{k:'adj', label:'庫存怎麼處理（這批商品還沒入庫）', type:'select', value:'yes', options:[['yes', '建立庫存調整單，把這些商品加回庫存（預設倉庫）'], ['no', '只記錄，不調整庫存']]}] : [])],
     async st => { let adjId = ''; if (!inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, 1, '退貨良品入庫 ' + r.no)); if (!a) return false; adjId = a.id; }
-      const ok = await rtUpdate(r, {status:'done', after:'restock', restockDate:st.date || today(), restockNote:st.note.trim(), restockAdjId:adjId}, 'restock', '重新入庫' + (adjId ? '　已加回庫存' : (inStock ? '　（已隨銷貨退回單入庫）' : ''))); if (ok) toast('已結案：重新入庫' + (adjId ? '，庫存已增加' : '')); return ok; }, '記錄入庫');
+      const ok = await rtUpdate(r, {status:'done', after:'restock', restockDate:st.date || today(), restockNote:st.note.trim(), restockAdjId:adjId, ...(r.action === 'improve' ? {diagnosis:st.diagnosis.trim(), repairNote:st.repairNote.trim(), repairBy:st.repairBy.trim(), repairCost:toNum(st.repairCost), fixedDate:st.date || today()} : {})}, 'restock', '重新入庫' + (adjId ? '　已加回庫存' : (inStock ? '　（已隨銷貨退回單入庫）' : ''))); if (ok) toast('已結案：重新入庫' + (adjId ? '，庫存已增加' : '')); return ok; }, r.action === 'improve' ? '記錄歸位' : '記錄入庫');
 }
 function openReturnSaleOrder(r){
   if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
@@ -9287,11 +9305,11 @@ function openReturnDetail(id){
     const pk = canPh ? photoPicker({existing:() => metas.length, onAdd:async p => { const ok = await run(async () => { await savePhotoDocs([p]); await S.db.doc('returns/' + r.id).update({photos:[...(S.returns[r.id].photos || []), photoMeta(p)]}); return true; }); if (!ok) throw new Error('照片沒有存成功'); toast('已新增照片'); }}) : null;
     const body = h('div', null,
       h('div', {class:'dhead'}, h('span', {class:'tag in', text:'退'}), h('div', null, h('b', {class:'big', text:r.no}), h('small', {text:'退貨處理　' + r.date}))),
-      h('div', {class:'panel pad', style:'margin-bottom:14px'}, kv('狀態', h('b', {text:RT_ST[r.status] || r.status})), kv('處理方式', r.action ? RT_ACT[r.action] : '還沒決定'), kv('客戶', pt ? pt.name : '—'),
+      h('div', {class:'panel pad', style:'margin-bottom:14px'}, kv('狀態', h('b', {text:rtStTxt(r)})), kv('處理方式', r.action ? RT_ACT[r.action] : '還沒決定'), kv('客戶', pt ? pt.name : '—'),
         src ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(src.id)}, src.no)) : null, r.reason ? kv('退貨原因', r.reason) : null, r.note ? kv('備註', r.note) : null,
         kv('登記者', (r.byName || who(r.by)) + (r.at ? '，' + fmtDT(r.at) : '')), reviewKv('return', r)),
       h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '')}), Array.isArray(i.mfgs) && i.mfgs.length ? [h('br'), h('small', {class:'hint', 'aria-label':'製造日期', text:'製造日期 ' + i.mfgs.join('、')})] : null), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
-      r.action === 'repair' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'檢測與維修'}), h('div', {style:'height:6px'}), kv('故障原因', r.diagnosis || '—'), kv('維修內容', r.repairNote || '—'), r.repairBy ? kv('維修的人／廠商', r.repairBy) : null, r.repairCost ? kv('維修費用', money(r.repairCost)) : null, r.fixedDate ? kv('修好日期', r.fixedDate) : null, r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
+      r.action === 'repair' || r.action === 'improve' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:r.action === 'improve' ? '檢測與改善' : '檢測與維修'}), h('div', {style:'height:6px'}), kv('故障原因', r.diagnosis || '—'), kv('維修內容', r.repairNote || '—'), r.repairBy ? kv('維修的人／廠商', r.repairBy) : null, r.repairCost ? kv('維修費用', money(r.repairCost)) : null, r.fixedDate ? kv('修好日期', r.fixedDate) : null, r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
       r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
       r.action === 'return' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'原物退還'}), h('div', {style:'height:6px'}), kv('處理', '檢測沒有故障（或客戶不要退了），原物退還客戶'), r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
       r.action === 'exchange' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'換貨'}), h('div', {style:'height:6px'}), kv('換貨商品', rtItemsTxt(r)), r.exchangeDate ? kv('換貨日期', r.exchangeDate + (r.exchangeNote ? '　' + r.exchangeNote : '')) : kv('狀態', '還沒換貨'), r.exchangeOrderId && S.orders[r.exchangeOrderId] ? kv('換貨的銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(r.exchangeOrderId)}, S.orders[r.exchangeOrderId].no)) : null) : null,
@@ -9299,14 +9317,16 @@ function openReturnDetail(id){
         r.after === 'supplier' ? [kv('廠商', r.supplierName || '—'), r.rma ? kv('廠商退貨編號', r.rma) : null, kv('寄出日期', r.sentDate || '—'), r.expectDate ? kv('預計回覆', r.expectDate) : null, r.supplierResult ? kv('廠商回覆', RT_SUP_RES[r.supplierResult] + (r.supplierAmount ? '　' + money(r.supplierAmount) : '') + '　' + (r.supplierReplyDate || '')) : null] : null,
         r.after === 'scrap' ? [kv('報廢日期', r.scrapDate || '—'), kv('報廢成本', money(r.scrapLoss || 0)), r.scrapNote ? kv('原因', r.scrapNote) : null, kv('庫存', r.scrapAdjId ? '已建立調整單扣除' : '沒有調整庫存')] : null,
         r.after === 'restock' ? [kv('入庫日期', r.restockDate || '—'), r.restockNote ? kv('備註', r.restockNote) : null, kv('庫存', r.restockAdjId ? '已建立調整單加回' : '沒有另外調整')] : null) : null,
-      r.status === 'received' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理這批退貨'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'要怎麼處理這批退貨？'})), ...[['repair', '排除故障後退還客戶', '先檢測、維修，修好再還給客戶'], ['asis', '原物退還客戶', '檢測沒有故障，或客戶不要退了，直接還給客戶'], ['refund', '直接退款', '把錢退給客戶，退回來的商品之後再決定怎麼處理'], ['exchange', '換貨', '給客戶一個新的，退回來的商品之後再決定怎麼處理']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => openReturnStep(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
+      r.status === 'received' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理這批退貨'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'要怎麼處理這批退貨？'})), ...[['repair', '排除故障後退還客戶', '先檢測、維修，修好再還給客戶'], ['asis', '原物退還客戶', '檢測沒有故障，或客戶不要退了，直接還給客戶'], ['refund', '直接退款', '把錢退給客戶，退回來的商品之後再決定怎麼處理'], ['exchange', '換貨', '給客戶一個新的，退回來的商品之後再決定怎麼處理'], ['improve', '改善後歸位（重新入庫）', '不還給客戶，檢查或改善（例如重新包裝）後放回架位再賣'], ['scrap', '直接報廢', '壞了不能用，不退還客戶也不再賣；記錄報廢和成本（要同時退款請選「直接退款」，之後再報廢）']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => k === 'scrap' ? openReturnGoods(r, 'scrap') : openReturnStep(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
       r.status === 'goods' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理退回的商品'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'客戶退回來的商品，要怎麼處理？'})), ...[['supplier', '退回廠商', '寄回廠商維修、換新或請款（記錄廠商、寄出日、回覆）'], ['scrap', '報廢', '壞了不能用，記錄報廢和成本；已入庫的可以同時扣庫存'], ['restock', '重新入庫（良品）', '檢查過沒問題，可以再賣；還沒入庫的可以同時加回庫存']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => openReturnGoods(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
       reviewNote('return', r),
       metas.length || canPh ? h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'照片' + (metas.length ? '（' + metas.length + '）' : '')})), h('div', {class:'panel pad', style:'margin-bottom:14px'}, metas.length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:8px'}, ...metas.map((m, k) => h('button', {'aria-label':'查看照片 ' + (k + 1), onclick:() => openPhotoViewer(r, k, {coll:'returns', key:'return'})}, h('img', {src:m.thumb, alt:m.name, style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'})))) : h('small', {class:'hint', text:'還沒有照片。'}), pk ? h('div', {style:'margin-top:10px'}, pk.el) : null)) : null,
       (r.log || []).length ? [h('div', {class:'sec-h'}, h('h2', {text:'處理紀錄'})), h('div', {class:'panel', style:'margin-bottom:14px'}, [...r.log].reverse().map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:RT_LOG[l.s] || l.s}), l.note ? [h('br'), h('small', {text:l.note})] : null), h('small', {text:l.d + (l.byName ? '　' + l.byName : '')}))))] : null);
     const foot = [], on = !locked && live && !['done'].includes(r.status) && (can('sale') || can('stock') || S.isAdmin);
-    if (on && r.status === 'processing'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'記錄檢測結果', onclick:() => openReturnStep(r, 'diag')}, '記錄檢測結果')); foot.push(h('button', {class:'btn grow', 'aria-label':'已修好', onclick:() => openReturnStep(r, 'fixed')}, '已修好')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
+    if (on && r.status === 'processing' && r.action === 'improve'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'記錄檢測結果', onclick:() => openReturnStep(r, 'diag')}, '記錄檢測結果')); foot.push(h('button', {class:'btn grow', 'aria-label':'改善完成歸位', onclick:() => openReturnGoods(r, 'restock')}, '改善完成，歸位')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
+    else if (on && r.status === 'processing'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'記錄檢測結果', onclick:() => openReturnStep(r, 'diag')}, '記錄檢測結果')); foot.push(h('button', {class:'btn grow', 'aria-label':'已修好', onclick:() => openReturnStep(r, 'fixed')}, '已修好')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
     if (on && r.status === 'ready'){ foot.push(h('button', {class:'btn grow', 'aria-label':'已退還客戶', onclick:() => openReturnStep(r, 'returned')}, '已退還客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
+    if (on && (r.status === 'processing' || r.status === 'ready')) foot.push(h('button', {class:'btn ghost', 'aria-label':'改成報廢', onclick:() => openReturnGoods(r, 'scrap')}, '改成報廢'));
     if (on && r.status === 'exchanging'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'建立換貨銷貨單', onclick:() => openOrder('sale', {fromRtn:r.id, partnerId:r.partnerId, note:'換貨 ' + r.no + '（免費換新）', lines:(r.items || []).filter(i => S.products[i.pid]).map(i => ({pid:i.pid, qty:i.qty, price:0}))})}, '建立換貨銷貨單')); foot.push(h('button', {class:'btn grow', 'aria-label':'已換貨', onclick:() => openReturnStep(r, 'exchanged')}, '已換貨給客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
     if (on && r.status === 'supplier'){ foot.push(h('button', {class:'btn grow', 'aria-label':'廠商已回覆', onclick:() => openReturnGoods(r, 'supplierReply')}, '廠商已回覆')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成報廢', onclick:() => openReturnGoods(r, 'scrap')}, '改成報廢')); }
     if (on && r.status === 'refunding'){ if (!r.returnOrderId) foot.push(h('button', {class:'btn ghost', 'aria-label':'建立銷貨退回單', onclick:() => openReturnSaleOrder(r)}, '建立銷貨退回單')); foot.push(h('button', {class:'btn grow', 'aria-label':'登記已退款', onclick:() => openReturnStep(r, 'refunded')}, '登記已退款')); }
@@ -9316,11 +9336,11 @@ function openReturnDetail(id){
     return {body, foot};
   });
 }
-const RT_LOG = {received:'收到退貨', repair:'決定：排除故障後退還客戶', asis:'決定：原物退還客戶', refund:'決定：直接退款', exchange:'決定：換貨', exchanged:'已換貨給客戶', switch:'改為直接退款', diag:'檢測結果', fixed:'已修好', returned:'已退還客戶', refunded:'已退款', supplier:'退回廠商', supplierReply:'廠商回覆', scrap:'報廢', restock:'重新入庫', cancelled:'作廢'};
+const RT_LOG = {received:'收到退貨', repair:'決定：排除故障後退還客戶', asis:'決定：原物退還客戶', refund:'決定：直接退款', exchange:'決定：換貨', exchanged:'已換貨給客戶', switch:'改為直接退款', diag:'檢測結果', fixed:'已修好', returned:'已退還客戶', refunded:'已退款', supplier:'退回廠商', supplierReply:'廠商回覆', scrap:'報廢', restock:'重新入庫', improve:'決定：改善後歸位（重新入庫）', cancelled:'作廢'};
 function dsReturns(){
   const all = Object.values(S.returns).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.at || 0) - (a.at || 0));
-  const cols = [XC('退貨單號', 'text', 16), XC('收到日期', 'text', 12), XC('客戶', 'text', 16), XC('商品', 'text', 30), XC('退貨原因', 'text', 20), XC('處理方式', 'text', 14), XC('退回商品的處理', 'text', 14), XC('狀態', 'text', 16), XC('已停留天數', 'int', 10), XC('退款金額', 'money', 12), XC('報廢成本', 'money', 12), XC('廠商', 'text', 14), XC('備註', 'text', 20)];
-  return {title:'退貨處理清單', sub:(S.set.name || '') + '　共 ' + all.length + ' 筆（處理中 ' + all.filter(rtOpen).length + '）　' + today(), filename:'退貨處理清單', landscape:true, sections:[{name:'退貨處理', cols, rows:all.map(r => [r.no, r.date, partyName(r.partnerId), rtItemsTxt(r), r.reason || '', r.action ? RT_ACT_S[r.action] : '未決定', r.after ? RT_AFTER[r.after] : '', RT_ST[r.status] || r.status, rtOpen(r) ? rtAge(r) : 0, r.refundAmount || 0, r.scrapLoss || 0, r.supplierName || '', r.note || ''])}]};
+  const cols = [XC('退貨單號', 'text', 16), XC('收到日期', 'text', 12), XC('客戶', 'text', 16), XC('商品', 'text', 30), XC('退貨原因', 'text', 20), XC('處理方式', 'text', 14), XC('退回商品的處理', 'text', 14), XC('狀態', 'text', 16), XC('已停留天數', 'int', 10), XC('退款金額', 'money', 12), XC('報廢成本', 'money', 12), XC('廠商', 'text', 14), XC('備註', 'text', 20), XC('最後去向', 'text', 16), XC('各商品故障情形', 'text', 30)];
+  return {title:'退貨處理清單', sub:(S.set.name || '') + '　共 ' + all.length + ' 筆（處理中 ' + all.filter(rtOpen).length + '）　' + today(), filename:'退貨處理清單', landscape:true, sections:[{name:'退貨處理', cols, rows:all.map(r => [r.no, r.date, partyName(r.partnerId), rtItemsTxt(r), r.reason || '', r.action ? RT_ACT_S[r.action] : '未決定', r.after ? RT_AFTER[r.after] : '', rtStTxt(r), rtOpen(r) ? rtAge(r) : 0, r.refundAmount || 0, r.scrapLoss || 0, r.supplierName || '', r.note || '', rtDest(r), rtReasons(r)])}]};
 }
 function rtHomeCard(){
   if (!can('sale') && !can('stock') && !S.isAdmin) return null;
@@ -9335,19 +9355,21 @@ function openReturnMgmt(){
   const U = {f:'open', act:'', q:''};
   liveSheet({title:'退貨管理'}, ['returns', 'partners', 'orders'], sh => {
     const all = Object.values(S.returns).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.at || 0) - (a.at || 0)), cnt = k => all.filter(r => r.status === k).length, box = h('div');
+    const dn = {}; all.forEach(r => { const k = rtDest(r); if (k) dn[k] = (dn[k] || 0) + 1; });
     const fill = () => {
       const q = U.q.trim().toLowerCase();
       const rows = all.filter(r => (U.f === 'open' ? rtOpen(r) : (U.f === 'all' ? true : r.status === U.f)) && (!U.act || (U.act === 'none' ? !r.action : r.action === U.act)) && (!q || (r.no + ' ' + partyName(r.partnerId) + ' ' + rtItemsTxt(r) + ' ' + (r.reason || '')).toLowerCase().includes(q)));
       setKids(box, rows.length ? h('div', {class:'panel'}, rows.slice(0, 120).map(r => h('button', {class:'row', style:'align-items:flex-start', 'data-rt':r.id, onclick:() => openReturnDetail(r.id)},
         h('span', {style:'min-width:0;text-align:left'}, h('b', null, r.no, reviewTag('return', r)), h('br'), h('small', {text:partyName(r.partnerId) + '　' + rtItemsTxt(r)}), h('br'), h('small', {text:r.date + (r.srcNo ? '　銷貨單 ' + r.srcNo : '') + (r.photos && r.photos.length ? '　' + r.photos.length + ' 張照片' : '')})),
-        h('span', {class:'right'}, h('span', {class:'pd-m ' + (r.action === 'repair' ? 'transfer' : r.action === 'refund' ? 'note' : 'other'), text:r.action ? RT_ACT_S[r.action] : '未決定'}), h('br'), h('small', {class:r.status === 'cancelled' ? 'overdue' : '', text:RT_ST[r.status] || r.status}), rtOpen(r) && rtAge(r) >= 1 ? [h('br'), h('small', {class:rtAge(r) >= rtWarnDays() ? 'overdue' : 'hint', 'aria-label':'停留天數 ' + r.no, text:'已 ' + rtAge(r) + ' 天沒動'})] : null)))) : h('div', {class:'panel empty', text:all.length ? '沒有符合的退貨' : '還沒有退貨登記'}));
+        h('span', {class:'right'}, h('span', {class:'pd-m ' + (r.action === 'repair' ? 'transfer' : r.action === 'refund' ? 'note' : 'other'), text:r.action ? RT_ACT_S[r.action] : '未決定'}), h('br'), h('small', {class:r.status === 'cancelled' ? 'overdue' : '', text:rtStTxt(r)}), rtOpen(r) && rtAge(r) >= 1 ? [h('br'), h('small', {class:rtAge(r) >= rtWarnDays() ? 'overdue' : 'hint', 'aria-label':'停留天數 ' + r.no, text:'已 ' + rtAge(r) + ' 天沒動'})] : null)))) : h('div', {class:'panel empty', text:all.length ? '沒有符合的退貨' : '還沒有退貨登記'}));
     };
     const chips = (list, cur, set) => h('div', {class:'chips', style:'padding-top:0'}, list.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur() === k, 'aria-label':'篩選 ' + t, onclick:e => { set(k); [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t)));
-    const body = h('div', null, h('p', {class:'note', text:'記錄退回來的商品怎麼處理：修好或原物退還客戶、退款、換貨；退款或換貨後留在我們手上的商品，再決定退廠商、報廢或重新入庫。'}),
+    const body = h('div', null, h('p', {class:'note', text:'記錄退回來的商品怎麼處理：修好或原物退還客戶、退款、換貨、直接報廢、改善後歸位；退款或換貨後留在我們手上的商品，再決定退廠商、報廢或重新入庫。'}),
+      Object.keys(dn).length ? h('small', {class:'hint', 'aria-label':'已結案去向', style:'display:block;margin:-4px 0 10px', text:'已結案去向：' + Object.entries(dn).map(([k, n]) => k + ' ' + n + ' 筆').join('、')}) : null,
       h('div', {class:'pd-tiles'}, ...[['received', '待處理'], ['processing', '檢測／維修中'], ['ready', '待退還客戶'], ['refunding', '待退款'], ['exchanging', '待換貨'], ['goods', '待處理退回商品'], ['supplier', '退廠商中']].map(([k, t]) => h('div', {class:'pd-tile'}, h('b', {text:t}), h('small', {text:cnt(k) + ' 筆'})))),
       h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋單號、客戶、商品', autocomplete:'off', 'aria-label':'搜尋退貨', oninput:e => { U.q = e.target.value; fill(); }})),
       chips([['open', '處理中'], ['received', '待處理'], ['processing', '維修中'], ['ready', '待退還'], ['refunding', '待退款'], ['exchanging', '待換貨'], ['goods', '待處理商品'], ['supplier', '退廠商中'], ['done', '已結案'], ['cancelled', '已作廢'], ['all', '全部']], () => U.f, k => { U.f = k; }),
-      chips([['', '全部方式'], ['repair', '修復退還'], ['return', '原物退還'], ['refund', '直接退款'], ['exchange', '換貨'], ['none', '還沒決定']], () => U.act, k => { U.act = k; }), box);
+      chips([['', '全部方式'], ['repair', '修復退還'], ['return', '原物退還'], ['refund', '直接退款'], ['exchange', '換貨'], ['improve', '改善歸位'], ['scrap', '報廢'], ['none', '還沒決定']], () => U.act, k => { U.act = k; }), box);
     fill();
     return {body, foot:[canExport() ? h('button', {class:'btn ghost', 'aria-label':'匯出退貨清單', onclick:() => openExport(dsReturns())}, icon('down'), '匯出') : null, can('sale') || can('stock') || S.isAdmin ? h('button', {class:'btn grow', 'aria-label':'新增退貨登記', onclick:() => openReturnForm()}, icon('plus'), '新增退貨登記') : null].filter(Boolean)};
   });
@@ -13116,6 +13138,7 @@ function openAsmSource(pid, wid){
   paint();
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openAsmSource:(...x) => openAsmSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x)}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -13236,7 +13259,7 @@ function cashEntries(){
   for (const f of Object.values(S.fuellogs)){
     if (!f.fromCash || !(f.amount > 0)) continue;
     const v = S.vehicles[f.vehicleId] || {};
-    out.push({key:'f' + f.id, auto:'fuel', ref:f.vehicleId, date:f.date, dir:'out', catId:fuelCatId(f.vehicleId), amount:f.amount, note:(f.type === 'topup' ? '儲值 ' : '加油 ') + (v.plate || '') + (S.fuelcards[f.cardId] ? '　' + S.fuelcards[f.cardId].name : '') + (f.who ? '　' + f.who : ''), card:f.type === 'topup' ? (f.cardId || null) : null, at:f.at || 0, fund:f.fund ? cashFundOf(f.fund) : af});
+    out.push({key:'f' + f.id, auto:'fuel', ref:f.vehicleId, date:f.date, dir:'out', catId:f.catId && cashCatOf(f.catId) ? f.catId : fuelCatId(f.vehicleId), amount:f.amount, note:(f.type === 'topup' ? '儲值 ' : '加油 ') + (v.plate || '') + (S.fuelcards[f.cardId] ? '　' + S.fuelcards[f.cardId].name : '') + (f.who ? '　' + f.who : ''), card:f.type === 'topup' ? (f.cardId || null) : null, at:f.at || 0, fund:f.fund ? cashFundOf(f.fund) : af});
   }
   for (const o of Object.values(S.orders)){
     if (o.status === 'void' || o.type !== 'purchase' || !o.freightCash || !(o.freight > 0)) continue;
@@ -13522,10 +13545,21 @@ function openFuelCards(){
 }
 
 /* ---- 加油／儲值表單（含儲值卡） ---- */
+/* -di：加油、儲值由零用金支付時，可以選會計科目（零用金項目）；不選＝依設定（「油料費」，或「油料費依車輛分項目」的各車項目） */
+function fuelCatField(vid, st){
+  const sel = h('select', {class:'in', 'aria-label':'會計科目項目', onchange:e => { st.catId = e.target.value; }});
+  const paint = () => {
+    const cats = cashCats().filter(c => c.id !== 'sys_pay' && (c.dir === 'out' || c.dir === 'both'));
+    sel.replaceChildren(h('option', {value:'', text:'依設定（' + cashCatName(fuelCatId(vid)) + '）'}), ...cats.map(c => h('option', {value:c.id, text:c.name})));
+    sel.value = cats.some(c => c.id === st.catId) ? st.catId : ''; st.catId = sel.value;
+  };
+  paint();
+  return {row:h('div', {class:'f', 'aria-label':'會計科目'}, h('label', {text:'會計科目（零用金項目）'}), sel), paint};
+}
 function openFuelForm(vid, opts){
   opts = opts || {};
   const c0 = opts.cardId !== undefined ? opts.cardId : ((cardOfVehicle(vid) || {}).id || '');
-  const st = {vehicleId:vid, date:today(), type:opts.type || 'fuel', who:(S.vehicles[vid] || {}).driver || '', odo:'', liters:'', amount:'', station:'', note:'', cardId:c0, bonus:'', bonusUsed:'', receiptNo:'', postCash:'', postBonus:'', fromCash:see('cash'), fund:cashAutoFund()};
+  const st = {vehicleId:vid, date:today(), type:opts.type || 'fuel', who:(S.vehicles[vid] || {}).driver || '', odo:'', liters:'', amount:'', station:'', note:'', cardId:c0, bonus:'', bonusUsed:'', receiptNo:'', postCash:'', postBonus:'', fromCash:see('cash'), fund:cashAutoFund(), catId:''};
   const cardsOn = cardsActive().length > 0, odoNow = vehOdo(vid);
   st.fromCash = see('cash') && (st.type === 'topup' || !st.cardId);
   const sh = sheet({title:st.type === 'topup' && opts.cardId ? '儲值' : '新增加油紀錄'});
@@ -13535,12 +13569,14 @@ function openFuelForm(vid, opts){
   const cashInput = h('input', {type:'checkbox', checked:st.fromCash, 'aria-label':'由零用金支付', onchange:e => { st.fromCash = e.target.checked; syncPay(); }});
   const cashText = h('span'), cashRow = h('label', {class:'check'}, cashInput, cashText);
   const fundBox = h('div', {class:'chips', style:'padding-top:0', 'aria-label':'從哪一個零用金支付'}), fundRow = h('div', {class:'f'}, h('label', {text:'從哪一個零用金支付'}), fundBox);
+  const catF = fuelCatField(vid, st);
   const paintFund = () => setKids(fundBox, ...CASH_FUNDS.map(f => h('button', {class:'chip', 'aria-pressed':st.fund === f.id, 'aria-label':'油錢從 ' + f.name, onclick:() => { st.fund = f.id; paintFund(); }}, f.name)));
   const cardSel = cardsOn ? h('select', {class:'in', 'aria-label':'儲值卡', onchange:e => { st.cardId = e.target.value; st.fromCash = see('cash') && (st.type === 'topup' || !st.cardId); syncPay(); }}, h('option', {value:'', text:'不使用儲值卡'}), ...cardsActive().map(c => h('option', {value:c.id, text:c.name + '（餘額 ' + money(cardBalance(c.id)) + '）'}))) : null;
   if (cardSel) cardSel.value = st.cardId;
   const syncPay = () => {
     const useCard = st.type === 'fuel' && !!st.cardId;
     cashRow.style.display = (!see('cash') || useCard) ? 'none' : ''; cashInput.checked = st.fromCash; fundRow.style.display = cashRow.style.display === 'none' || !st.fromCash ? 'none' : '';
+    catF.row.style.display = fundRow.style.display;
     cashText.textContent = st.type === 'topup' ? '這筆儲值的錢由零用金支付（同步記入零用金帳簿的「油料費」）' : '由零用金支付（同步記入零用金帳簿的「油料費」）';
     bonusRow.style.display = st.type === 'topup' && st.cardId ? '' : 'none';
     useBonusRow.style.display = useCard ? '' : 'none'; receiptRow.style.display = st.cardId ? '' : 'none';
@@ -13563,7 +13599,7 @@ function openFuelForm(vid, opts){
     if (st.receiptNo.trim() && card && Object.values(S.fuellogs).some(f => f.cardId === card.id && f.receiptNo === st.receiptNo.trim())) return toast('這張收據（交易序號 ' + st.receiptNo.trim() + '）已經登錄過了');
     if (st.type === 'fuel' && card && amount - bu > cardBalance(card.id) + 0.004 && !st.postCash.trim() && !await dialog({title:'儲值卡餘額不足', msg:'「' + card.name + '」現金點 ' + money(cardBalance(card.id)) + '，這次要扣 ' + money(amount - bu) + '，餘額會變成負數。仍要記錄嗎？', ok:'仍要記錄'})) return;
     saving = true; btn.disabled = true;
-    const ok = await run(() => createFuelLog({vehicleId:vid, date:st.date, type:st.type, who:st.who.trim(), odo, liters, amount, station:st.station.trim(), note:st.note.trim(), fromCash:st.fromCash && !(st.type === 'fuel' && st.cardId), fund:st.fund, cardId:st.cardId || null, bonus:st.type === 'topup' && st.cardId ? Math.max(mInt(toNum(st.bonus)), 0) : 0, bonusUsed:bu, receiptNo:st.cardId ? st.receiptNo.trim() : '', postCash:st.cardId && st.postCash.trim() ? toNum(st.postCash) : null, postBonus:st.cardId && st.postBonus.trim() ? toNum(st.postBonus) : null}));
+    const ok = await run(() => createFuelLog({vehicleId:vid, date:st.date, type:st.type, who:st.who.trim(), odo, liters, amount, station:st.station.trim(), note:st.note.trim(), fromCash:st.fromCash && !(st.type === 'fuel' && st.cardId), fund:st.fund, catId:st.catId, cardId:st.cardId || null, bonus:st.type === 'topup' && st.cardId ? Math.max(mInt(toNum(st.bonus)), 0) : 0, bonusUsed:bu, receiptNo:st.cardId ? st.receiptNo.trim() : '', postCash:st.cardId && st.postCash.trim() ? toNum(st.postCash) : null, postBonus:st.cardId && st.postBonus.trim() ? toNum(st.postBonus) : null}));
     saving = false; btn.disabled = false;
     if (ok){ toast(st.type === 'topup' ? '已儲值' : '已新增'); sh.forceClose(); }
   }}, '儲存');
@@ -13577,7 +13613,7 @@ function openFuelForm(vid, opts){
     fld('加油站（選填）', h('input', {class:'in', value:st.station, oninput:e => { st.station = e.target.value; }})),
     fld('備註', h('input', {class:'in', value:st.note, oninput:e => { st.note = e.target.value; }})),
     receiptRow,
-    see('cash') ? [cashRow, fundRow] : null);
+    see('cash') ? [cashRow, fundRow, catF.row] : null);
   setKids(litersRow, fld('公升數（選填）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.liters, placeholder:'0', 'aria-label':'公升數', oninput:e => { st.liters = e.target.value; }})));
   setKids(useBonusRow, fld('紅利金抵用（選填，收據上「紅利金」的本次交易額）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.bonusUsed, placeholder:'0', 'aria-label':'紅利金抵用', oninput:e => { st.bonusUsed = e.target.value; }})));
   setKids(receiptRow, h('details', {class:'fold'}, h('summary', {text:'收據核對（交易序號、交易後餘額，選填）'}), h('div', {class:'fold-b'},
@@ -13589,19 +13625,20 @@ function openFuelForm(vid, opts){
   sh.footEl.append(btn);
 }
 function openFuelEdit(f){
-  const st = {from:!!f.fromCash, cardId:f.cardId || '', fund:cashFundOf(f.fund || cashAutoFund())};
+  const st = {from:!!f.fromCash, cardId:f.cardId || '', fund:cashFundOf(f.fund || cashAutoFund()), catId:f.catId || ''};
   const sh = sheet({title:f.type === 'adjust' ? '餘額校正' : '加油紀錄'});
   const cashRow = h('label', {class:'check'}, h('input', {type:'checkbox', checked:st.from, 'aria-label':'由零用金支付', onchange:e => { st.from = e.target.checked; sync(); }}), '由零用金支付（同步記入零用金帳簿的「油料費」）');
   const fundBox = h('div', {class:'chips', style:'padding-top:0', 'aria-label':'從哪一個零用金支付'}), fundRow = h('div', {class:'f'}, h('label', {text:'從哪一個零用金支付'}), fundBox);
+  const catF = fuelCatField(f.vehicleId, st);
   const paintFund = () => setKids(fundBox, ...CASH_FUNDS.map(x => h('button', {class:'chip', 'aria-pressed':st.fund === x.id, 'aria-label':'油錢從 ' + x.name, onclick:() => { st.fund = x.id; paintFund(); }}, x.name)));
-  const sync = () => { cashRow.style.display = (f.type === 'adjust' || (f.type === 'fuel' && st.cardId)) ? 'none' : ''; fundRow.style.display = cashRow.style.display === 'none' || !st.from ? 'none' : ''; };
+  const sync = () => { cashRow.style.display = (f.type === 'adjust' || (f.type === 'fuel' && st.cardId)) ? 'none' : ''; fundRow.style.display = cashRow.style.display === 'none' || !st.from ? 'none' : ''; catF.row.style.display = fundRow.style.display; };
   const cardSel = cardsActive().length || st.cardId ? h('select', {class:'in', 'aria-label':'儲值卡', onchange:e => { st.cardId = e.target.value; if (f.type === 'fuel' && st.cardId) st.from = false; sync(); }}, h('option', {value:'', text:'不使用儲值卡'}), ...Object.values(S.fuelcards).filter(c => c.active !== false || c.id === st.cardId).map(c => h('option', {value:c.id, text:c.name}))) : null;
   if (cardSel) cardSel.value = st.cardId;
   put(sh.bodyEl, h('div', {class:'panel pad'}, kv('日期', f.date), kv(FUELT[f.type] || '加油', f.type === 'adjust' ? '校正' : money(f.amount)), f.bonus ? kv('贈送紅利金', money(f.bonus)) : null, f.bonusUsed ? kv('紅利金抵用', money(f.bonusUsed)) : null, f.station ? kv('加油站', f.station) : null, f.receiptNo ? kv('交易序號', f.receiptNo) : null, (f.postCash !== undefined && f.postCash !== null) ? kv('收據交易後餘額', '現金點 ' + money(f.postCash) + ((f.postBonus !== undefined && f.postBonus !== null) ? '、紅利金 ' + money(f.postBonus) : '')) : null, f.odo ? kv('里程', num(f.odo) + ' km') : null, f.liters ? kv('公升', num(f.liters)) : null, f.who ? kv('駕駛', f.who) : null, f.note ? kv('備註', f.note) : null),
-    cardSel ? h('div', {class:'f', style:'margin-top:10px'}, h('label', {text:'儲值卡'}), cardSel) : null, f.type === 'adjust' ? null : [cashRow, fundRow],
+    cardSel ? h('div', {class:'f', style:'margin-top:10px'}, h('label', {text:'儲值卡'}), cardSel) : null, f.type === 'adjust' ? null : [cashRow, fundRow, catF.row],
     can('vehicle') ? h('button', {class:'btn plain', onclick:async () => { if (!await dialog({title:'刪除這筆紀錄？', ok:'刪除', danger:true})) return; const ok = await run(async () => { await S.db.doc('fuellogs/' + f.id).delete(); return true; }); if (ok){ toast('已刪除'); sh.forceClose(); } }}, '刪除這筆') : null);
   paintFund(); sync();
-  sh.footEl.append(h('button', {class:'btn grow', onclick:async () => { const fc = f.type === 'adjust' ? false : (f.type === 'fuel' && st.cardId ? false : st.from); const ok = await run(async () => { await S.db.doc('fuellogs/' + f.id).update({fromCash:fc, fund:fc ? st.fund : null, cardId:st.cardId || null}); return true; }); if (ok){ toast('已更新'); sh.forceClose(); } }}, '儲存'));
+  sh.footEl.append(h('button', {class:'btn grow', onclick:async () => { const fc = f.type === 'adjust' ? false : (f.type === 'fuel' && st.cardId ? false : st.from); const ok = await run(async () => { await S.db.doc('fuellogs/' + f.id).update({fromCash:fc, fund:fc ? st.fund : null, catId:fc && st.catId ? st.catId : null, cardId:st.cardId || null}); return true; }); if (ok){ toast('已更新'); sh.forceClose(); } }}, '儲存'));
 }
 
 /* ================= 客戶管理／報價／成本／整批修改／庫存關帳／程式備份／功能表 ================= */
@@ -13937,7 +13974,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dg';
+const APP_VERSION = '2026.10.11-di';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
