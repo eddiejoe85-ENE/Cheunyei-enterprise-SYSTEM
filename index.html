@@ -10964,7 +10964,7 @@ function voiceBar(cfg, o){
         h('div', {class:'chips', style:'padding:6px 0 0'}, [['full', '架位＋品名＋數量'], ['short', '只念架位＋數量']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cfg.mode === k, 'aria-label':'語音內容 ' + k, onclick:() => { cfg.mode = k; savePV(cfg); paint(); }}, t))),
         h('div', {class:'chips', style:'padding:6px 0 0'}, [[0.8, '慢'], [1, '正常'], [1.25, '快'], [1.5, '很快']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':Number(cfg.rate) === k, 'aria-label':'語速 ' + t, onclick:() => { cfg.rate = k; savePV(cfg); paint(); }}, t))),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.auto, 'aria-label':'自動念下一項', onchange:e => { cfg.auto = e.target.checked; savePV(cfg); }}), '確認一項後，自動念下一項'),
-        srCls() ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.cmd, 'aria-label':'語音指令', onchange:e => { cfg.cmd = e.target.checked; savePV(cfg); if (o.onChange) o.onChange('cmd'); }}), '語音指令：說「好了」確認、「重複」再念一次、「跳過」換下一項') : null,
+        srCls() ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:cfg.cmd, 'aria-label':'語音指令', onchange:e => { cfg.cmd = e.target.checked; savePV(cfg); if (o.onChange) o.onChange('cmd'); }}), '語音指令：說「到了」確認到達、「好了」確認、「重複」再念一次、「跳過」換下一項') : null,
         h('div', {class:'btns', style:'margin-top:6px'}, o.repeat ? h('button', {class:'btn ghost sm', 'aria-label':'重念', onclick:() => o.repeat()}, '重念這一項') : null, h('button', {class:'btn ghost sm', 'aria-label':'測試語音', onclick:() => speakNow('語音測試，架位 A，03，二，礦泉水，三箱', cfg)}, '測試語音'))) : null);
   };
   paint(); return {el:box, repaint:paint};
@@ -10974,6 +10974,31 @@ function pickItems(o){
   const wid = orderWh(o), m = new Map();
   for (const l of o.lines || []){ const p = S.products[l.pid], c = m.get(l.pid) || {pid:l.pid, name:l.name || (p && p.name) || '', sku:l.sku || (p && p.sku) || '', unit:l.unit || (p && p.unit) || '', qty:0, shelf:shelfOf(p, wid), more:shelfMore(p, wid), thumb:p ? p.photoThumb || '' : '', packThumb:p ? p.packThumb || '' : '', pics:prodPics(p).map(m => m.thumb), packs:prodPacks(p).map(m => m.thumb), stock:p ? stockAt(l.pid, wid) : 0}; c.qty = r3(c.qty + (Number(l.qty) || 0)); m.set(l.pid, c); }
   return [...m.values()].sort((a, b) => shelfCmp(a.shelf, b.shelf) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
+}
+/* -do：導航式揀貨。站＝路線上連續同一個架位的商品；區＝架位開頭的字母（A27-2、A28 → A 區；B-02 → B 區）；先跳過的商品排到路線最後 */
+const navShelf = it => normShelf(it && it.shelf);
+const navZone = s => { const x = normShelf(s).toUpperCase(); if (!x) return ''; const m = x.match(/^[A-Z㐀-鿿]+/); return m ? m[0] : x.split(/[-_/.]/)[0]; };
+const navRoute = (items, pk, skipped) => [...items.filter(i => !skipped.has(i.pid)), ...items.filter(i => skipped.has(i.pid))];   // 先跳過的排在最後；補揀好了也留在最後，畫面不會跳來跳去
+const navStations = rt => { const g = []; rt.forEach(it => { const s = navShelf(it), last = g[g.length - 1]; if (last && last.shelf.toUpperCase() === s.toUpperCase()) last.items.push(it); else g.push({shelf:s, zone:navZone(s), items:[it]}); }); return g; };
+/* 從 from（上一個處理的架位；null＝剛出發）到這一項的提示。不說「往左往右」，只說同架位、同區、換區 */
+function navCue(from, it){
+  const to = navShelf(it);
+  if (!to) return {kind:'none', text:'這個商品沒有設定架位，到倉庫裡找'};
+  if (from === null || from === undefined) return {kind:'start', text:'從這裡出發，先到 ' + to};
+  const f = normShelf(from);
+  if (!f) return {kind:'go', text:'前往 ' + to};
+  if (f.toUpperCase() === to.toUpperCase()) return {kind:'same', text:'同一個架位，不用移動'};
+  const fz = navZone(f), tz = navZone(to);
+  if (fz && tz && fz === tz) return {kind:'near', text:'同在 ' + tz + ' 區，從 ' + f + ' 換到 ' + to};
+  return {kind:'zone', text:'換區：' + (fz || f) + ' 區 → ' + (tz || to) + ' 區'};
+}
+/* 語音：導航口吻。o = {n:第幾站, back:是回頭補先跳過的}；itemSpeech 本身不變 */
+function navSay(it, from, cfg, o){
+  o = o || {}; const cue = navCue(from, it), pre = [];
+  if (o.back) pre.push('回頭補先跳過的');
+  if (cue.kind === 'same') pre.push('同一個架位');
+  else { if (o.n) pre.push('第 ' + o.n + ' 站'); const tz = navZone(navShelf(it)); if (cue.kind === 'zone' && tz) pre.push('換到 ' + tz + ' 區'); }
+  return [...pre, itemSpeech(it, cfg)].join('，');
 }
 const emptyPick = () => ({items:{}, done:false});
 const pickHandled = (pk, pid) => !!(pk.items && pk.items[pid]);
@@ -12407,25 +12432,29 @@ function openPickOrder(orderId, opts){
   if (!fxGate('picking')) return;
   opts = opts || {};
   const o = S.orders[orderId]; if (!o) return toast('找不到這張單據');
-  const cfg = loadPV(), items = pickItems(o), wid = orderWh(o), gaps = {}; let pk = emptyPick(), unsub = null, focus = '', first = true;
-  const lis = makeListener(t => { if (!cfg.on || !cfg.cmd) return; const c = cur(); if (/重複|再說|再念/.test(t)){ speakCur(); } else if (/跳過|下一個|下一項/.test(t)){ if (c) skip(c); } else if (/好了|完成|確認|揀好|OK/i.test(t)){ if (c){ if (scanReqOn()) speakNow('請先掃描商品 QR Code', cfg); else mark(c, c.qty); } } });
+  const cfg = loadPV(), items = pickItems(o), wid = orderWh(o), gaps = {}, skipped = new Set(); let pk = emptyPick(), unsub = null, focus = '', first = true, arrived = '', alertMsg = '';
+  const lis = makeListener(t => { if (!cfg.on || !cfg.cmd) return; const c = cur(); if (/重複|再說|再念/.test(t)){ speakCur(); } else if (/跳過|下一個|下一項/.test(t)){ if (c) skip(c); } else if (/到了|到達/.test(t)){ if (c) arriveNow(c); } else if (/好了|完成|確認|揀好|OK/i.test(t)){ if (c){ if (scanReqOn()) speakNow('請先掃描商品 QR Code', cfg); else mark(c, c.qty); } } });
   const sh = sheet({title:'揀貨　' + o.no, onclose:() => { stopSpeak(); lis.stop(); if (typeof unsub === 'function') unsub(); if (opts.onClose) opts.onClose(); }});
-  const body = h('div'), cur = () => items.find(i => i.pid === focus && !pickHandled(pk, i.pid)) || items.find(i => !pickHandled(pk, i.pid)) || null;
+  const body = h('div'), route = () => navRoute(items, pk, skipped), cur = () => items.find(i => i.pid === focus && !pickHandled(pk, i.pid)) || route().find(i => !pickHandled(pk, i.pid)) || null;
+  /* 現在人在哪個架位：掃過架位標籤／按過「我到了」的，否則是最近揀好的那一項的架位；還沒揀過＝剛出發（null） */
+  const here = () => { if (arrived) return arrived; let b = null; for (const it of items){ const d = pk.items && pk.items[it.pid]; if (d && (!b || (d.t || 0) >= b.t)) b = {t:d.t || 0, s:navShelf(it)}; } return b ? b.s : null; };
+  const navSayCur = c => { const st = navStations(route()); return navSay(c, here(), cfg, {n:st.findIndex(g => g.items.includes(c)) + 1, back:skipped.has(c.pid)}); };
   const stockNow = it => stockAt(it.pid, wid), needOf = it => Math.min(it.qty, Math.max(r3(-stockNow(it)), gaps[it.pid] || 0, 0));
   /* 這一項不夠時可以怎麼補（其他架位、拆解、組裝）；夠的話 null */
   const helpOf = it => { const need = needOf(it); return need > 0 ? pickHelpPlan(it.pid, need, wid) : null; };
   const waysTxt = w => w.length ? '，可以' + shortJoin(w) + '補貨' : '';
-  const speakCur = pre => { const c = cur(); if (!c) return; const hp = helpOf(c); speakNow((pre || '') + itemSpeech(c, cfg) + (hp ? '。庫存不足' + waysTxt(hp.ways) : ''), cfg); };
+  const speakCur = pre => { const c = cur(); if (!c) return; const hp = helpOf(c); speakNow((pre || '') + navSayCur(c) + (hp ? '。庫存不足' + waysTxt(hp.ways) : ''), cfg); };
   const vb = voiceBar(cfg, {repeat:() => speakCur(), onChange:k => { if (k === 'cmd' || k === 'on'){ if (cfg.on && cfg.cmd) lis.start(); else lis.stop(); } if (k === 'on' && cfg.on) speakCur(); }});
   const scan = scanReqOn() ? scanControls({onCode:code => onScan(code), onSkip:() => { const c = cur(); if (c) skipScan(c); }}) : null;
   async function mark(it, qty, extra){
     const q = r3(qty), nx = {...pk, items:{...pk.items, [it.pid]:{q, short:q < it.qty - 0.0004, t:Date.now(), ...(extra || {})}}, by:S.meId || null, byName:myName(), startedAt:pk.startedAt || Date.now()};
-    focus = ''; pk = nx; delete gaps[it.pid]; paint();
+    focus = ''; arrived = ''; alertMsg = ''; pk = nx; delete gaps[it.pid]; paint();
     const ok = await writePick(orderId, nx);
-    if (ok && cfg.on && cfg.auto){ const n = cur(); speakNow(n ? itemSpeech(n, cfg) : '這張單據揀貨完成', cfg); }
+    if (ok && cfg.on && cfg.auto){ const n = cur(); speakNow(n ? navSayCur(n) : '已到達終點，這張單據揀貨完成', cfg); }
   }
   function onScan(code){
     const c = String(code || '').trim(); if (!c) return {ok:false, msg:'請掃描或輸入商品編號'};
+    const sq = parseShelfQR(c); if (sq) return onArrive(sq);
     const hitOf = x => items.find(i => String(i.sku).toLowerCase() === x || String((S.products[i.pid] || {}).barcode || '').toLowerCase() === x), Lb = labelDecode(c);
     const lc = (Lb && !hitOf(c.toLowerCase()) && hitOf(Lb.code.toLowerCase()) ? Lb.code : c).toLowerCase(), it = hitOf(lc);
     if (!it){ const so = Object.values(S.orders).find(x => String(x.no || '').toLowerCase() === lc); if (so){ beep(false); return {ok:false, msg:so.id === orderId ? '這是目前這張單據的單號（' + so.no + '），請掃商品條碼' : '✗ 這是另一張銷貨單的 QR Code（' + so.no + '），請先完成或關閉目前這張再掃'}; } const p = prodByCode(c); beep(false); speakNow(p ? '掃錯了，這張單據沒有' + p.name : '掃錯了，找不到商品', cfg); return {ok:false, msg:p ? '✗ 掃到「' + p.name + '」，這張單據沒有這個商品，請檢查' : '✗ 找不到這個條碼：' + c}; }
@@ -12433,9 +12462,25 @@ function openPickOrder(orderId, opts){
     const cu = cur(); beep(true); mark(it, it.qty, {scanned:true, code:c});
     return {ok:true, msg:'✓ ' + it.name + ' 正確' + (cu && cu.pid !== it.pid ? '（不是目前這一項，已先記下）' : '')};
   }
+  /* 到達：掃架位標籤或按「我到了」。掃到別的架位 → 警告走錯了（不會自動改路線） */
+  function arriveNow(c, code){
+    arrived = code || navShelf(c); alertMsg = ''; beep(true); paint();
+    if (cfg.on) speakNow('到了，' + (cfg.mode === 'full' ? c.name + '，' : '') + num(c.qty) + (c.unit || ''), cfg);
+  }
+  function onArrive(sq){
+    const c = cur(); if (!c){ beep(false); return {ok:false, msg:'這張單據的商品都處理完了，按「完成揀貨」'}; }
+    const tgt = navShelf(c); if (!tgt){ beep(false); return {ok:false, msg:'「' + c.name + '」沒有設定架位，不用掃架位標籤'}; }
+    const names = [tgt, ...(c.more || []).map(normShelf)].filter(Boolean), up = sq.code.toUpperCase(), ew = shelfOwn(S.products[c.pid], wid).length ? wid : WH_MAIN;
+    const k = sq.wh === ew ? names.findIndex(x => x.toUpperCase() === up) : -1;
+    if (k >= 0){ arriveNow(c, names[k]); return {ok:true, msg:'✓ 已到達 ' + names[k] + (k ? '（這個商品的其他架位）' : '') + '，拿 ' + c.name + ' ' + num(c.qty) + ' ' + (c.unit || '')}; }
+    const later = items.find(i => i.pid !== c.pid && !pickHandled(pk, i.pid) && navShelf(i).toUpperCase() === up);
+    beep(false); if (cfg.on) speakNow('走錯了，這裡是 ' + spellShelf(sq.code) + '，要去 ' + spellShelf(tgt), cfg);
+    alertMsg = '✗ 走錯了：這裡是 ' + sq.code + (later ? '（「' + later.name + '」的架位，之後才到）' : '') + '，現在要去 ' + tgt; paint();
+    return {ok:false, msg:alertMsg};
+  }
   function skipScan(it){ rtStepSheet('略過掃描', [{k:'reason', label:'為什麼要略過', type:'select', value:'標籤損壞或掃不到', options:['標籤損壞或掃不到', '商品沒有標籤', '掃描設備故障', '其他'].map(x => [x, x])}, {k:'note', label:'說明（選填）', value:''}], st => { mark(it, it.qty, {skip:true, skipReason:st.reason, skipNote:(st.note || '').trim()}); return true; }, '略過並確認揀貨'); }
   async function unmark(it){ const its = {...pk.items}; delete its[it.pid]; pk = {...pk, items:its, done:false}; paint(); await writePick(orderId, pk); }
-  function skip(it){ const rest = items.filter(i => !pickHandled(pk, i.pid)), k = rest.findIndex(i => i.pid === it.pid); if (rest.length > 1){ focus = rest[(k + 1) % rest.length].pid; paint(); speakCur(); } }
+  function skip(it){ const rest = route().filter(i => !pickHandled(pk, i.pid)), k = rest.findIndex(i => i.pid === it.pid); if (rest.length > 1){ focus = rest[(k + 1) % rest.length].pid; skipped.add(it.pid); alertMsg = ''; paint(); speakCur('先跳過，'); } }
   async function shortSheet(it){
     rtStepSheet('實際揀到幾' + (it.unit || '件') + '？', [{k:'q', label:'實際揀到的數量（應揀 ' + num(it.qty) + '）', value:it.qty, type:'number'}], async st => {
       const q = toNum(st.q); if (!(q >= 0)) { toast('數量不正確'); return false; }
@@ -12471,8 +12516,35 @@ function openPickOrder(orderId, opts){
     if (!hp.more.length && !os.length && !A) kids.push(h('br'), h('small', {text:'這個商品沒有其他架位，也沒有可以拆解或組裝的來源。請找主管處理，或按「數量不足」記錄。'}));
     return h('div', {class:'note bad', 'aria-label':'庫存不足提示', style:'margin:10px 0 0'}, ...kids);
   }
+  /* 導航面板：第幾站／共幾站、前往哪個架位、路線提示、到達狀態 */
+  function navPanel(c, st){
+    const done = st.filter(g => g.items.every(i => pickHandled(pk, i.pid))).length;
+    const box = (...kids) => h('div', {class:'panel pad', 'aria-label':'導航', style:'position:sticky;top:0;z-index:3;margin-bottom:10px;padding:10px 12px;border-left:6px solid var(--brand);background:var(--panel);box-shadow:0 3px 8px rgba(0,0,0,.14)'}, ...kids);
+    if (!c) return box(h('b', {'aria-label':'站次', text:'🏁 已到達終點　共 ' + st.length + ' 站'}), h('small', {class:'hint', style:'display:block;margin-top:2px', text:'每一站都走完了。'}));
+    const idx = st.findIndex(g => g.items.includes(c)), cue = navCue(here(), c), back = skipped.has(c.pid), tgt = navShelf(c);
+    const atOk = !!arrived && !!tgt && [tgt, ...(c.more || []).map(normShelf)].some(x => x.toUpperCase() === arrived.toUpperCase());
+    return box(
+      h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline'}, h('b', {'aria-label':'站次', style:'font-size:16px', text:'第 ' + (idx + 1) + ' 站 / 共 ' + st.length + ' 站'}), h('small', {class:'hint', text:'已走完 ' + done + ' 站'})),
+      st.length > 1 && st.length <= 40 ? h('div', {'aria-hidden':'true', style:'display:flex;gap:3px;margin:6px 0 4px'}, st.map((g, k) => h('span', {style:'flex:1;min-width:3px;height:6px;border-radius:3px;background:' + (g.items.every(i => pickHandled(pk, i.pid)) ? 'var(--brand)' : 'var(--soft)') + (k === idx ? ';outline:2px solid var(--brand);outline-offset:1px' : '')}))) : null,
+      h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:center'},
+        h('div', {'aria-label':'前往架位', style:'min-width:0;overflow-wrap:anywhere;font-size:14px'}, '前往　', h('span', {style:'font-size:26px;font-weight:800;line-height:1.2;color:var(--brand)', text:tgt || '倉庫'})),
+        tgt ? (atOk ? h('b', {'aria-label':'到達狀態', class:'ok', style:'flex:none', text:'✓ 已到達 ' + arrived}) : h('button', {class:'btn ghost sm', style:'flex:none', 'aria-label':'我到了', onclick:() => arriveNow(c)}, '我到了')) : null),
+      h('div', {'aria-label':'路線提示', style:'margin-top:2px;font-weight:700;overflow-wrap:anywhere' + (cue.kind === 'zone' ? ';color:var(--brand);background:var(--brands);padding:2px 8px;border-radius:6px;display:inline-block' : ''), text:(back ? '↩ 回頭補先跳過的。' : '') + cue.text}),
+      alertMsg ? h('div', {'aria-label':'走錯提醒', class:'note bad', style:'margin:4px 0 0;padding:4px 8px;font-weight:700;overflow-wrap:anywhere', text:alertMsg}) : null,
+      tgt && !atOk ? h('small', {'aria-label':'到達狀態', class:'hint', style:'display:block;margin-top:2px', text:scan ? '到了以後，掃一下架位上的標籤，確認沒走錯' : '到了請按「我到了」'}) : null);
+  }
+  /* 下一站預告 */
+  function nextPanel(c, rt){
+    if (!c) return null;
+    const ci = rt.indexOf(c), seq = [...rt.slice(ci + 1), ...rt.slice(0, ci)].filter(i => !pickHandled(pk, i.pid)), me = navShelf(c).toUpperCase();
+    const same = seq.filter(i => !skipped.has(i.pid) && navShelf(i).toUpperCase() === me), nx = seq.find(i => navShelf(i).toUpperCase() !== me) || null;
+    return h('div', {class:'panel pad', 'aria-label':'下一站', style:'margin-bottom:10px;background:var(--soft)'},
+      same.length ? h('div', {'aria-label':'同架位還有', style:'font-weight:700;overflow-wrap:anywhere', text:'這個架位還有 ' + same.length + ' 項：' + same.slice(0, 3).map(i => i.name).join('、') + (same.length > 3 ? '…' : '')}) : null,
+      nx ? h('div', {style:same.length ? 'margin-top:6px' : ''}, h('small', {class:'hint', text:same.length ? '這個架位揀完後，下一站' : '下一站'}), h('div', {style:'font-weight:800;overflow-wrap:anywhere', text:(skipped.has(nx.pid) ? '↩ ' : '') + (navShelf(nx) || '沒有架位')}), h('small', {style:'display:block;overflow-wrap:anywhere', text:navCue(navShelf(c), nx).text + '　' + nx.name + ' ' + num(nx.qty) + ' ' + (nx.unit || '')}))
+        : (same.length ? null : h('b', {text:'這是最後一站，揀完就到終點'})));
+  }
   function paint(){
-    const c = cur(), n = items.filter(i => pickHandled(pk, i.pid)).length, total = items.length, pt = S.partners[o.partnerId] || {}, all = n === total, skipN = items.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length, lackN = items.filter(i => !pickHandled(pk, i.pid) && needOf(i) > 0).length;
+    const rt = route(), st = navStations(rt), multiZone = new Set(rt.map(i => navZone(navShelf(i)))).size > 1, c = cur(), n = items.filter(i => pickHandled(pk, i.pid)).length, total = items.length, pt = S.partners[o.partnerId] || {}, all = n === total, skipN = items.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length, lackN = items.filter(i => !pickHandled(pk, i.pid) && needOf(i) > 0).length;
     setKids(body,
       h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('div', {style:'display:flex;justify-content:space-between;gap:10px;align-items:flex-start'}, h('div', {style:'min-width:0'}, h('b', {class:'big', text:(pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')}), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'})), o.urgent || o.collect ? h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, o.collect ? h('span', {class:'soon', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'順收貨款'}) : null, o.urgent ? h('span', {class:'overdue', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'早一點'}) : null) : null),
         h('small', {class:'hint', style:'display:block;margin-top:4px', text:(o.driver ? '送貨員 ' + o.driver + '　' : '') + '預計送貨 ' + deliveryOf(o) + (o.truckPlate ? '　' + o.truckPlate + ' ' + truckSlotTxt(o) : '')})),
@@ -12480,6 +12552,7 @@ function openPickOrder(orderId, opts){
         return h('div', {class:'note warn', 'aria-label':'庫存不足總覽', text:'⚠ 這張單據有 ' + lackN + ' 項庫存不足' + (wl.length ? '，可以' + shortJoin(wl) + '補貨' : '') + '（揀到那一項時會提示）。'}); })() : null,
       h('div', {style:'height:10px;background:var(--soft);border-radius:6px;overflow:hidden;margin-bottom:4px'}, h('div', {style:'height:100%;background:var(--brand);width:' + (total ? Math.round(n / total * 100) : 0) + '%'})), h('small', {class:'hint', style:'display:block;margin-bottom:8px', 'aria-label':'揀貨進度', text:'已處理 ' + n + ' / ' + total + ' 項' + (skipN ? '　⚠ 略過掃描 ' + skipN + ' 項' : '') + (pk.done ? '　（已完成揀貨）' : '')}),
       vb.el,
+      navPanel(c, st),
       c ? h('div', {class:'panel pad', 'aria-label':'目前這一項', style:'margin-bottom:10px;border:2px solid var(--brand)'},
         pickPhotos(c, paint), h('div', {style:'min-width:0'}, h('div', {style:'font-size:20px;font-weight:800;overflow-wrap:anywhere', text:c.name}), h('small', {text:c.sku})),
         h('div', {style:'display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 4px;gap:10px'}, h('div', null, h('small', {text:'架位'}), h('div', {'aria-label':'架位', style:'font-size:34px;font-weight:800;color:var(--brand);line-height:1.1;overflow-wrap:anywhere', text:c.shelf || '—'})), h('div', {style:'text-align:right'}, h('small', {text:'數量'}), h('div', {'aria-label':'數量', style:'font-size:34px;font-weight:800;line-height:1.1;white-space:nowrap', text:num(c.qty) + ' ' + (c.unit || '')}))),
@@ -12488,10 +12561,11 @@ function openPickOrder(orderId, opts){
         disPrompt(c),
         scan ? h('div', {style:'margin-top:8px'}, h('small', {style:'display:block;font-weight:700', text:'請掃描這個商品的 QR Code 確認拿對了'}), scan.el) : null,
         h('div', {class:'btns', style:'margin-top:10px'}, !scan ? h('button', {class:'btn grow', style:'min-height:56px;font-size:18px', 'aria-label':'揀好了', onclick:() => mark(c, c.qty)}, '揀好了') : null, h('button', {class:'btn ghost', 'aria-label':'數量不足', onclick:() => shortSheet(c)}, '數量不足'), h('button', {class:'btn ghost', 'aria-label':'跳過這一項', onclick:() => skip(c)}, '先揀別項'))) : h('div', {class:'note', style:'font-size:16px', text:'這張單據的商品都處理完了，按「完成揀貨」。'}),
-      h('div', {class:'sec-h'}, h('h2', {text:'全部商品（依架位排列）'})),
-      h('div', {class:'panel'}, items.map((it, i) => { const d = pk.items && pk.items[it.pid], isCur = c && c.pid === it.pid;
-        return h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ focus = it.pid; paint(); speakCur(); } }}, h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
-          d ? h('button', {class:'btn ghost sm', 'aria-label':'取消 ' + it.sku, onclick:() => unmark(it)}, '取消') : null); })),
+      nextPanel(c, rt),
+      h('div', {class:'sec-h'}, h('h2', {text:'整條路線'})), h('small', {class:'hint', style:'display:block;margin:0 0 6px', text:'全部商品，依架位排列。✓ 揀好了　➜ 現在這一項　↩ 先跳過，最後回來補'}),
+      h('div', {class:'panel'}, rt.map((it, i) => { const d = pk.items && pk.items[it.pid], isCur = c && c.pid === it.pid, sIdx = st.findIndex(g => g.items.includes(it)), zoneHd = multiZone && (i === 0 || navZone(navShelf(rt[i - 1])) !== navZone(navShelf(it))) ? h('div', {'aria-label':'區域 ' + (navZone(navShelf(it)) || '無架位'), style:'padding:6px 12px;font-weight:800;background:var(--soft);color:var(--ink3)', text:navZone(navShelf(it)) ? navZone(navShelf(it)) + ' 區' : '沒有架位'}) : null;
+        return [zoneHd, h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ skipped.delete(it.pid); alertMsg = ''; focus = it.pid; paint(); speakCur(); } }}, h('span', {'aria-hidden':'true', style:'flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;' + (d ? 'background:var(--brand);color:#fff' : (isCur ? 'background:var(--brand);color:#fff' : 'background:var(--soft);color:var(--ink3)')), text:d ? '✓' : (isCur ? '➜' : String(sIdx + 1))}), h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && skipped.has(it.pid) ? '　↩ 先跳過，最後回來補' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
+          d ? h('button', {class:'btn ghost sm', 'aria-label':'取消 ' + it.sku, onclick:() => unmark(it)}, '取消') : null)].filter(Boolean); }).flat()),
       (pk.dis || []).length || (pk.asm || []).length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'這張單據的' + ((pk.dis || []).length && (pk.asm || []).length ? '拆解、組裝' : ((pk.asm || []).length ? '組裝' : '拆解')) + '補貨'})), h('div', {class:'panel', 'aria-label':'拆解組裝紀錄'},
         (pk.dis || []).map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'拆 ' + num(x.n) + '「' + x.fname + '」→ ' + num(x.yield) + '（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))),
         (pk.asm || []).map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'組 ' + num(x.n) + '「' + x.name + '」（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))))] : null);
@@ -12499,9 +12573,10 @@ function openPickOrder(orderId, opts){
     if (scan) setTimeout(scan.focus, 30);
   }
   put(sh.bodyEl, body); paint();
-  const apply = snap => { pk = snap && snap.exists ? {...emptyPick(), ...(snap.data() || {})} : emptyPick(); paint(); if (first){ first = false; if (cfg.on){ const c = cur(); speakNow('共 ' + items.length + ' 項，' + (c ? itemSpeech(c, cfg) : '都已處理'), cfg); if (cfg.cmd) lis.start(); } } };
+  const apply = snap => { pk = snap && snap.exists ? {...emptyPick(), ...(snap.data() || {})} : emptyPick(); paint(); if (first){ first = false; if (cfg.on){ const c = cur(); speakNow('共 ' + items.length + ' 項，' + navStations(route()).length + ' 站，' + (c ? navSayCur(c) : '都已處理'), cfg); if (cfg.cmd) lis.start(); } } };
   try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
 }
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
 function openDisPlanForm(ex){
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
@@ -14417,7 +14492,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dn';
+const APP_VERSION = '2026.10.11-do';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
