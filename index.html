@@ -4709,7 +4709,7 @@ const parseZhe = v => { const n = toNum(v); if (!(n > 0)) return null; if (n <= 
 const discNote = l => (Number(l.listPrice) > 0 && Number(l.disc) > 0 && Math.abs(Number(l.disc) - 100) > 0.004) ? '定價 ' + money(l.listPrice) + '・折數 ' + zheTxt(l.disc) : '';
 /* -dr：銷貨收現的單據，列印時在合計金額下方蓋「銷貨收款」戳章（和右上角的「銷貨收現」「順收貨款」是各自獨立的）。rcDemo＝列印設定的範例單，讓人調整位置。 */
 const cashStampOn = o => !!o && o.type === 'sale' && o.status !== 'void' && (o.cashSale === true || o.codWait === true || o.rcDemo === true || (o.paidMethod === 'cash' && (o.total || 0) > 0 && (o.paid || 0) >= (o.total || 0) - 0.004));
-const stampItems = o => { const a = []; if (o && o.type === 'sale'){ if ((o.paidMethod === 'cash' && (o.total || 0) > 0 && (o.paid || 0) >= (o.total || 0) - 0.004) || (o.cashSale === true && !o.collect)) a.push('銷貨收現'); if (o.urgent) a.push('早一點'); if (o.collect) a.push('順收貨款'); if (o.store) a.push(o.store + ' 叫貨'); } return a; };
+const stampItems = o => { const a = []; if (o && o.type === 'sale'){ /* -dr：右上角的「銷貨收現」郵戳取消（銷貨收現的單據改蓋合計金額下方的「銷貨收款」戳章，見 cashStampOn） */ if (o.urgent) a.push('早一點'); if (o.collect) a.push('順收貨款'); if (o.store) a.push(o.store + ' 叫貨'); } return a; };
 const STAMP_CSS = '.stp{border:.7mm solid #000;border-radius:1.4mm;padding:.5mm 2.4mm;font:900 15pt \"Microsoft JhengHei\",\"PingFang TC\",\"Noto Sans TC\",sans-serif;letter-spacing:.6mm;white-space:nowrap;line-height:1.15;transform-origin:left top}@media screen{.stp{color:#c00;border-color:#c00}}';
 const STAMP_ROT = [-9, 5, -4];
 const buyOn = () => see('cost') && !!S.ui.showBuy;
