@@ -482,7 +482,7 @@ const S = {
   names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
   err:null, fatal:null,
   tab:'home',
-  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:'', fund:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null, wh:null}}
+  ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, ordRange:'all', ordFrom:'', ordTo:'', invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:'', fund:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null, wh:null}}
 };
 
 /* ================= 小工具 ================= */
@@ -506,10 +506,19 @@ const daysBetween = (a, b) => Math.round(dayN(b) - dayN(a));
 const addDays = (s, n) => { const [y, m, d] = s.split('-').map(Number); return ymd(new Date(y, m - 1, d + n)); };
 const effPaid = o => r2((o.paid || 0) + (S.d.alloc[o.id] || 0));
 const dueOf = o => r2((o.total || 0) - effPaid(o));
+/* -dp：需要送貨的「銷貨收現」，貨款等送完貨才沖帳。
+   o.codWait＝還在等送達（paid 是 0、應收照樣掛著、不能沖帳）；o.codAmt＝送達後要收的現金；
+   送達確認後 codWait=false、codDone=true，paid／paidMethod／paidDate（收現日）／collector 才寫進去。 */
+const codWaiting = o => !!o && o.type === 'sale' && o.status !== 'void' && o.codWait === true;
+const codNeedShip = (method, pid) => !!pid && !!method && method !== '自取';   // 有選客戶、送貨方式不是自取（散客、自取當場收現）
+const codAmtOf = o => r2(Number(o.codAmt) > 0 ? Number(o.codAmt) : (o.total || 0) - (o.paid || 0));
+const paidDateOf = o => (o && o.paidDate) || (o && o.date) || '';
 
 function rangeOf(k){
   const n = new Date(), y = n.getFullYear(), m = n.getMonth();
   if (k === 'today') return [today(), today()];
+  if (k === 'yesterday') return [addDays(today(), -1), addDays(today(), -1)];
+  if (k === 'week'){ const a = addDays(today(), -((n.getDay() + 6) % 7)); return [a, addDays(a, 6)]; }   // 本週：週一～週日
   if (k === 'month') return [ymd(new Date(y, m, 1)), ymd(new Date(y, m + 1, 0))];
   if (k === 'last')  return [ymd(new Date(y, m - 1, 1)), ymd(new Date(y, m, 0))];
   if (k === 'year')  return [y + '-01-01', y + '-12-31'];
@@ -737,26 +746,38 @@ function level(p){
 }
 const docCount = () => Object.keys(S.products).length + Object.keys(S.partners).length + Object.keys(S.orders).length + Object.keys(S.payments).length + Object.keys(S.notes).length + Object.keys(S.counts).length + Object.keys(S.countlines).length + Object.keys(S.corders).length + Object.keys(S.porders).length + Object.keys(S.prules).length + Object.keys(S.vehicles).length + Object.keys(S.fuellogs).length + Object.keys(S.maint).length + Object.keys(S.cashbook).length + Object.keys(S.quotes).length + Object.keys(S.closings).length + Object.keys(S.collects).length + Object.keys(S.fuelcards).length + Object.keys(S.shelves || {}).length + 1;
 
-function summarize(from, to){
-  const r = {sale:0, purchase:0, profit:0, count:0, items:{}};
-  for (const o of Object.values(S.orders)){
-    if (o.status === 'void' || !o.date || o.date < from || o.date > to) continue;
-    const t = o.type;
-    if (t === 'sale' || t === 'sale_return'){
-      const k = t === 'sale' ? 1 : -1;
-      r.sale += k * netOf(o); r.count++;
-      const inclF = (o.taxMode === 'incl' && o.taxType === 'taxable') ? 1 + taxRate() / 100 : 1;
-      for (const l of o.lines || []){
-        const pr = (l.price || 0) / inclF;
-        r.profit += k * (pr - (l.cost || 0)) * (l.qty || 0);
-        const it = r.items[l.pid] || (r.items[l.pid] = {name:l.name, qty:0, amt:0});
-        it.qty += k * (l.qty || 0); it.amt += k * pr * (l.qty || 0);
-      }
-    } else if (t === 'purchase' || t === 'purchase_return'){
-      r.purchase += (t === 'purchase' ? 1 : -1) * netOf(o); r.count++;
+/* -dq：營運報表每張單據的貢獻。summarize 和「點進去看單據明細」共用這一套，所以明細合計一定等於報表上的數字。 */
+function repCalc(o){
+  const t = o.type;
+  if (t === 'sale' || t === 'sale_return'){
+    const k = t === 'sale' ? 1 : -1, inclF = (o.taxMode === 'incl' && o.taxType === 'taxable') ? 1 + taxRate() / 100 : 1, items = {};
+    let profit = 0;
+    for (const l of o.lines || []){
+      const pr = (l.price || 0) / inclF;
+      profit += k * (pr - (l.cost || 0)) * (l.qty || 0);
+      const it = items[l.pid] || (items[l.pid] = {name:l.name, qty:0, amt:0});
+      it.qty += k * (l.qty || 0); it.amt += k * pr * (l.qty || 0);
     }
+    return {side:'sale', net:k * netOf(o), tax:k * (Number(o.tax) || 0), profit, items};
   }
-  r.sale = r2(r.sale); r.purchase = r2(r.purchase); r.profit = r2(r.profit);
+  if (t === 'purchase' || t === 'purchase_return') return {side:'purchase', net:(t === 'purchase' ? 1 : -1) * netOf(o), tax:0, profit:0, items:{}};
+  if (t === 'tax') return {side:'tax', net:0, tax:Number(o.tax) || 0, profit:0, items:{}};   // 月結稅金：月結客戶月底依整月銷貨額算的營業稅（日期＝帳款月份最後一天）
+  return null;
+}
+const repInPeriod = (o, from, to) => o.status !== 'void' && !!o.date && o.date >= from && o.date <= to;
+function summarize(from, to){
+  const r = {sale:0, purchase:0, profit:0, tax:0, gross:0, count:0, items:{}};
+  for (const o of Object.values(S.orders)){
+    if (!repInPeriod(o, from, to)) continue;
+    const c = repCalc(o); if (!c) continue;
+    if (c.side === 'tax'){ r.tax += c.tax; continue; }   // 月結稅金：只算進稅金，不算「進銷單據數」
+    r.count++;
+    if (c.side === 'sale'){
+      r.sale += c.net; r.tax += c.tax; r.profit += c.profit;
+      for (const [pid, i] of Object.entries(c.items)){ const it = r.items[pid] || (r.items[pid] = {name:i.name, qty:0, amt:0}); it.qty += i.qty; it.amt += i.amt; }
+    } else r.purchase += c.net;
+  }
+  r.sale = r2(r.sale); r.purchase = r2(r.purchase); r.profit = r2(r.profit); r.tax = r2(r.tax); r.gross = r2(r.sale + r.tax);
   r.disc = r2(Object.values(S.payments).filter(pm => pm.status !== 'void' && pm.dir === 'in' && pm.date >= from && pm.date <= to).reduce((a, pm) => a + (pm.discount || 0) + (pm.extra || 0), 0));
   return r;
 }
@@ -1312,18 +1333,31 @@ async function createOrder(type, o){
   return {...doc, id:ref.id};
 }
 
+/* -dq：單據查詢的日期篩選。回傳 null（不篩）或 [起, 迄]；自訂時起或迄可以留空（＝不限那一邊） */
+function ordSpan(){
+  const k = S.ui.ordRange || 'all';
+  if (k === 'all') return null;
+  if (k === 'custom'){ let a = S.ui.ordFrom || '', b = S.ui.ordTo || ''; if (a && b && a > b) [a, b] = [b, a]; return a || b ? [a, b] : null; }
+  return rangeOf(k);
+}
+const ordSpanTxt = sp => !sp ? '' : (sp[0] && sp[1] ? (sp[0] === sp[1] ? sp[0] : sp[0] + ' ~ ' + sp[1]) : (sp[0] ? sp[0] + ' 以後' : sp[1] + ' 以前'));
+const ordDateOk = (o, sp) => !sp || ((!sp[0] || (o.date || '') >= sp[0]) && (!sp[1] || (!!o.date && o.date <= sp[1])));
+const ORD_RANGES = () => [['all', '全部日期'], ['today', '今日'], ['yesterday', '昨天'], ['week', '本週'], ['month', '本月'], ['last', '上月'], ...(cutoff() >= 2 ? [['cycle', '本帳期'], ['lastcycle', '上帳期']] : []), ['year', '今年'], ['custom', '自訂日期']];
 function pOrd(){
   const page = h('div', {class:'wrap page'});
-  const box = h('div');
+  const box = h('div'), noteEl = h('div');
   const fill = () => {
-    const q = S.ui.ordQ.trim().toLowerCase();
+    const q = S.ui.ordQ.trim().toLowerCase(), sp = ordSpan();
     const all = Object.values(S.orders).filter(o => {
       if (S.ui.ordType && o.type !== S.ui.ordType) return false;
-      if (!q && !S.ui.showArch && reviewOn() && monthLocked(catOfOrderType(o.type), o.date)) return false;
+      if (!ordDateOk(o, sp)) return false;
+      if (!q && !sp && !S.ui.showArch && reviewOn() && monthLocked(catOfOrderType(o.type), o.date)) return false;   // 指定了日期（或搜尋）就連封存月份的單據一起找
       if (!q) return true;
       const pt = S.partners[o.partnerId];
       return (o.no + ' ' + (pt ? pt.name : '') + ' ' + (o.note || '') + ' ' + (o.lines || []).map(l => l.name + ' ' + l.sku).join(' ')).toLowerCase().includes(q);
     }).sort(cmpOrd);
+    { const T1 = S.ui.ordType ? TYPES[S.ui.ordType] : null, sumOk = T1 && T1.money && !(buyT(S.ui.ordType) && !see('cost')), live = all.filter(o => o.status !== 'void');
+      setKids(noteEl, sp || q ? h('div', {class:'note', 'aria-label':'單據篩選結果', style:'margin:0 0 8px'}, (sp ? '單據日期 ' + ordSpanTxt(sp) + '　' : '') + (q ? '搜尋「' + S.ui.ordQ.trim() + '」　' : '') + '共 ' + all.length + ' 張' + (sumOk ? '，合計 ' + money(r2(live.reduce((a, o) => a + (T1.money === -1 ? -1 : 1) * (o.total || 0), 0))) + '（' + T1.label + '，不含已作廢）' : '')) : null); }
     if (!all.length){
       setKids(box, h('div', {class:'panel empty'}, h('b', {text:Object.keys(S.orders).length ? '沒有符合的單據' : '還沒有單據'}), S.canWrite && !Object.keys(S.orders).length ? '用上方按鈕建立第一張單據。' : ''));
       return;
@@ -1351,8 +1385,16 @@ function pOrd(){
         oninput:e => { S.ui.ordQ = e.target.value; S.ui.ordN = 60; fill(); }})),
     h('div', {class:'chips'}, [['', '全部'], ...Object.entries(TYPES).map(([k, t]) => [k, t.label])].map(([k, t]) =>
       h('button', {class:'chip', 'aria-pressed':S.ui.ordType === k, onclick:() => { S.ui.ordType = k; S.ui.ordN = 60; draw(); }}, t))),
+    h('small', {class:'hint', style:'display:block;margin:2px 2px 0', text:'單據日期'}),
+    h('div', {class:'chips', 'aria-label':'日期篩選', style:'padding-top:2px;flex-wrap:wrap'}, ORD_RANGES().map(([k, t]) => h('button', {class:'chip', 'aria-pressed':(S.ui.ordRange || 'all') === k, 'aria-label':'日期 ' + t, onclick:() => {
+      if (k === 'custom' && !S.ui.ordFrom && !S.ui.ordTo){ const sp = ordSpan(), a = sp && sp[0] ? sp[0] : rangeOf('month')[0], b = sp && sp[1] ? sp[1] : today(); S.ui.ordFrom = a; S.ui.ordTo = b; }
+      S.ui.ordRange = k; S.ui.ordN = 60; draw(); }}, t))),
+    S.ui.ordRange === 'custom' ? h('div', {'aria-label':'自訂單據日期', style:'margin:2px 0 8px'}, h('div', {class:'f2', style:'grid-template-columns:minmax(0,1fr) minmax(0,1fr)'},
+      fld('起', h('input', {class:'in', type:'date', value:S.ui.ordFrom || '', style:'min-width:0;max-width:100%', 'aria-label':'單據查詢起日', onchange:e => { const v = e.target.value || ''; S.ui.ordFrom = v; if (v && S.ui.ordTo && S.ui.ordTo < v) S.ui.ordTo = v; S.ui.ordN = 60; draw(); }})),
+      fld('迄', h('input', {class:'in', type:'date', value:S.ui.ordTo || '', style:'min-width:0;max-width:100%', 'aria-label':'單據查詢迄日', onchange:e => { const v = e.target.value || ''; S.ui.ordTo = v; if (v && S.ui.ordFrom && S.ui.ordFrom > v) S.ui.ordFrom = v; S.ui.ordN = 60; draw(); }}))),
+      h('small', {class:'hint', 'aria-label':'自訂單據日期說明', style:'display:block;margin:-4px 0 0', text:'起、迄都算（含頭尾兩天）。只填一邊＝不限另一邊（例如只填起日＝這天以後的單據）。'})) : null,
     Object.keys(S.locks || {}).length ? h('label', {class:'check', style:'margin:6px 0'}, h('input', {type:'checkbox', checked:!!S.ui.showArch, 'aria-label':'顯示已封存', onchange:e => { S.ui.showArch = e.target.checked; S.ui.ordN = 60; fill(); }}), '顯示已封存月份的單據（預設收起來）') : null,
-    h('div', {style:'height:8px'}), box));
+    noteEl, h('div', {style:'height:8px'}), box));
   fill();
   return page;
 }
@@ -1389,6 +1431,7 @@ function openOrder(type, pre){
       pm:!!l.pm, price0:Number(l.price) || 0, promo0:l.promoId && !l.gift ? {id:l.promoId, name:l.promoName || '', base:Number(l.basePrice) || 0} : null, ...(l.gift ? {gift:true, promoId:l.promoId || null, promoName:l.promoName || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
     const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' || type === 'sale_return' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
+    if (type === 'sale' && editO.codWait === true){ st.pay = 'cash'; st.paid = ''; }   /* -dp：待送達收款的單，原本選的是銷貨收現 */
   }
   const stockEff = pid => stockAt(pid, st.wh) + ((editO && orderWh(editO) === st.wh) ? (oldQty[pid] || 0) : 0);
   st.payTouched = false;
@@ -1399,9 +1442,11 @@ function openOrder(type, pre){
   const shipFill = () => { const pt = partnerOf() || {}, t = st.ship.touched, si = storeInfoOf(pt, st.store); if (!t.addr) st.ship.addr = si.addr || pt.shipAddress || pt.address || ''; if (!t.contact) st.ship.contact = si.contact || pt.contactName || ''; if (!t.phone) st.ship.phone = si.phone || pt.contactPhone || pt.phone || ''; if (!t.spot) st.ship.spot = si.spot || pt.shipSpot || ''; if (!t.method) st.ship.method = shipDefault(pt); };
   if (editO && type === 'sale') st.ship = {addr:editO.shipAddress || '', contact:editO.shipContact || '', phone:editO.shipPhone || '', spot:editO.shipSpot || '', special:editO.shipSpecial || '', only:!!editO.shipOnly, method:editO.shipMethod || '', touched:{addr:true, contact:true, phone:true, spot:true, method:true}}; else shipFill();
   st.driver = editO ? (editO.driver || '') : ''; st.driverTouched = !!editO;
+  /* -dp：銷貨收現＋需要送貨（有選客戶、送貨方式不是自取）→ 貨款等送完貨才沖帳。修改舊單時，只有原本就是待送達收款的才維持，其他舊單照舊 */
+  const codHold = () => type === 'sale' && st.pay === 'cash' && codNeedShip(st.ship.method, st.partnerId) && (!editO || editO.codWait === true);
   st.deliv = editO ? (editO.deliveryDate || editO.date) : st.date; st.delivTouched = !!(editO && editO.deliveryDate && editO.deliveryDate !== editO.date);
   if (!editO && pre.deliv && pre.deliv > st.date){ st.deliv = pre.deliv; st.delivTouched = true; }
-  st.urgent = !!(editO && editO.urgent); st.collect = !!(editO && editO.collect); st.store = editO ? (editO.store || '') : '';
+  st.urgent = !!(editO && editO.urgent); st.collect = !!(editO && editO.collect && editO.codWait !== true);   /* -dp：待送達收款的單自動蓋「順收貨款」，不算手動勾的 */ st.store = editO ? (editO.store || '') : '';
   st.srcSale = pre.srcSale || ''; st.srcPO = pre.src && pre.src.kind === 'po' ? pre.src.id : '';
   const fromCo = type === 'sale' && !editO && !!(pre.src && pre.src.kind === 'co');
   if (fromCo && S.corders[pre.src.id]) applyCoInfo(S.corders[pre.src.id], true, false);   // -dn：訂單裡的送貨方式、指送地址、稅別帶進銷貨單
@@ -1626,7 +1671,7 @@ function openOrder(type, pre){
     setKids(shipBox, h('label', {text:'送貨資訊（預設帶入客戶資料，請確認）'}), (st.store && Object.keys(storeInfoOf(partnerOf(), st.store)).length ? h('small', {class:'hint', style:'display:block;margin-bottom:4px', text:'✓ 已帶入「' + st.store + '」的送貨地址、聯絡人和電話'}) : null), h('div', {class:'f', style:'margin:4px 0 8px'}, h('label', {text:'預計送貨日期'}), h('input', {class:'in', type:'date', value:st.deliv, 'aria-label':'預計送貨日期', onchange:e => { st.deliv = e.target.value || st.date; st.delivTouched = true; }})), addrIn, spNote, h('div', {style:'margin-top:6px'}, spIn), onlyBox, h('div', {style:'margin-top:6px'}, mk('spot', '指送地點備註（選填，例：後門卸貨區、請先電話聯絡）', '指送地點')),
       (contactsOf(partnerOf()).length > 1 ? h('div', {class:'chips', style:'padding:6px 0 0;flex-wrap:wrap', 'aria-label':'選聯絡人'}, h('small', {class:'hint', style:'align-self:center', text:'帶入聯絡人：'}), contactsOf(partnerOf()).map((c, i) => h('button', {class:'chip', type:'button', 'aria-label':'帶入聯絡人 ' + (c.name || i + 1), 'aria-pressed':sp.contact === c.name && (sp.phone === c.phone || !c.phone), onclick:() => { sp.contact = c.name; sp.phone = c.phone || sp.phone; sp.touched.contact = true; sp.touched.phone = true; paintShip(); }}, (c.name || '（未填姓名）') + (c.dept ? '・' + c.dept : '')))) : null),
       h('div', {class:'f2', style:'margin-top:6px'}, mk('contact', '聯絡人', '送貨聯絡人'), mk('phone', '電話', '送貨電話')),
-      h('div', {class:'chips', style:'padding:6px 0 0'}, SHIPM.map(m => h('button', {class:'chip', 'aria-pressed':sp.method === m, 'aria-label':'送貨方式 ' + m, onclick:() => { sp.method = m; sp.touched.method = true; paintShip(); }}, m))));
+      h('div', {class:'chips', style:'padding:6px 0 0'}, SHIPM.map(m => h('button', {class:'chip', 'aria-pressed':sp.method === m, 'aria-label':'送貨方式 ' + m, onclick:() => { sp.method = m; sp.touched.method = true; paintShip(); calc(); }}, m))));
   }
   const soldOf = (o, pid) => (o.lines || []).filter(l => l.pid === pid).reduce((a, l) => a + (Number(l.qty) || 0), 0);
   const retLeft = (o, pid) => r3(soldOf(o, pid) - returnedQty(o.id, pid, editO && editO.id));
@@ -1788,7 +1833,7 @@ function openOrder(type, pre){
     if (T.money && !(buyT(type) && !buyOn())){
       taxBox.textContent = taxLine(ts, st.taxType, st.taxMode);
       payInfo.textContent = type === 'sale_return' ? (st.pay === 'none' ? '沖減應收帳款 ' + money(st.total) + '（銷貨的負值：客戶的應收帳款減少）' : st.pay === 'full' ? '已退款 ' + money(st.total) + '（已經把錢退給客戶，應收帳款不變）' : '已退款 ' + money(Math.min(mInt(toNum(st.paid)), st.total)) + '，其餘 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)) + ' 沖減應收帳款') :
-        st.pay === 'cash' ? '銷貨收現：現金 ' + money(st.total) + '，記入零用金' : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
+        st.pay === 'cash' ? (codHold() && st.total > 0.004 ? '銷貨收現・送貨：貨款 ' + money(st.total) + ' 等送完貨、確認收到現金後才沖帳（還不會記入零用金；送達前先掛在應收帳款，單據自動蓋「順收貨款」）' : '銷貨收現：現金 ' + money(st.total) + '，記入零用金') : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
     }
   }
   const TAXOPT = [['taxable', 'excl', '應稅・未稅價'], ['taxable', 'incl', '應稅・含稅價'], ['zero', 'excl', '零稅率'], ['exempt', 'excl', '免稅']];
@@ -1902,9 +1947,10 @@ function openOrder(type, pre){
     const ts = isAdj ? {net:0, tax:0, total:0} : taxSplit(sum, st.taxType, st.taxMode);
     const total = ts.total;
     let paid = 0;
+    const hold = codHold() && total > 0.004;   /* -dp：待送達收款（paid 先是 0） */
     if (T.money){
       if (buyT(type) && !buyOn() && !st.partnerId && !editO) st.pay = 'full';
-      paid = (st.pay === 'full' || st.pay === 'cash') ? total : (st.pay === 'none' ? 0 : mInt(toNum(st.paid)));
+      paid = hold ? 0 : ((st.pay === 'full' || st.pay === 'cash') ? total : (st.pay === 'none' ? 0 : mInt(toNum(st.paid))));
       if (paid < 0 || paid > total) return toast(T.paidLabel + '金額需介於 0 與合計之間');
       if (total - paid > 0.004 && !st.partnerId) return toast('有未結金額時，請指定' + PLABEL[T.partner]);
     }
@@ -1940,7 +1986,7 @@ function openOrder(type, pre){
         for (const x of editO.lines || []) if (!pids.has(x.pid) && returnedQty(editO.id, x.pid) > 0.0004) return toast('「' + x.name + '」已有退貨，不能移除');
       }
       saving = true; saveBtn.disabled = true;
-      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, collect:!!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:hold ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), codWait:hold, codAmt:hold ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
       saving = false; saveBtn.disabled = false;
       if (ok){ toast('已更新 ' + editO.no); sh.forceClose(); }
       return;
@@ -1950,7 +1996,7 @@ function openOrder(type, pre){
     if (phList.length){ const okP = await run(async () => { await savePhotoDocs(phList); return true; }); if (!okP){ saving = false; saveBtn.disabled = false; return; } }
     const doc = await run(() => createOrder(type, {date:st.date, partnerId:st.partnerId, lines, total, paid, note:st.note.trim(),
       tax:T.money ? {net:ts.net, tax:ts.tax, type:st.taxType, mode:st.taxType === 'taxable' ? st.taxMode : 'excl'} : null,
-      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:(st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : ''), urgent:!!st.urgent, collect:!!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
+      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:hold ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), codWait:hold, codAmt:hold ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
     saving = false; saveBtn.disabled = false;
     if (!doc && phList.length) deletePhotoDocs(phList.map(x => x.id));
     if (doc && pre.rtn) S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no)}).catch(() => null);
@@ -1980,7 +2026,8 @@ function openOrderDetail(id){
     const canVoid = can('void') && !isVoid && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
     const canDel = o.type === 'sale' && can('void') && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
     const canEdit = o.type === 'sale' && !isVoid && !revLocked && can('sale') && fxOn('sale') && (S.isAdmin || (o.by && o.by === S.meId));
-    const canPay = can('pay') && fxOn((pt ? pt.type : T.partner) === 'supplier' ? 'ap' : 'settle') && !isVoid && T.money === 1 && o.partnerId && due > 0.004;
+    const canPay = can('pay') && fxOn((pt ? pt.type : T.partner) === 'supplier' ? 'ap' : 'settle') && !isVoid && T.money === 1 && o.partnerId && due > 0.004 && !codWaiting(o);
+    const canCod = codWaiting(o) && !isVoid && S.canWrite && (can('sale') || can('pay') || canField() || S.isAdmin);   /* -dp */
     const body = h('div', null,
       h('div', {class:'dhead'}, h('span', {class:'tag ' + dirCls(T), text:T.short}), h('div', null, h('b', {class:'big', text:o.no}), h('small', {text:T.label + '　' + o.date}))),
       isVoid ? h('div', {class:'note bad', text:'此單據已作廢（' + who(o.voidBy) + '，' + fmtDT(o.voidAt) + '），不計入庫存與帳款。'}) : null,
@@ -2008,9 +2055,11 @@ function openOrderDetail(id){
         isMonthTax(o) ? kv('營業稅', (() => { const md = mtaxDocOf(o), txt = '月底結帳時依整月未稅金額計算' + (md ? '（' + md.no + '，稅金 ' + money(md.tax) + '）' : mtaxWhenTxt(o)); return (can('pay') || S.isAdmin) && fxOn('monthTax') && pt ? h('button', {style:'text-decoration:underline;text-align:right', 'aria-label':'月結稅金 ' + o.no, onclick:() => openMonthTax(docBillMonth(o, pt))}, txt) : h('span', {'aria-label':'月結稅金 ' + o.no, text:txt}); })()) : null,
         isMonthTax(o) && o.taxConv ? kv('改成月底算稅', fmtDT(o.taxConv.at) + (o.taxConv.byName ? '　' + o.taxConv.byName : '') + '（原本稅金 ' + money(o.taxConv.tax) + '）') : null,
         o.type === 'sale_return' && o.retConv ? kv('改成沖減應收', fmtDT(o.retConv.at) + (o.retConv.byName ? '　' + o.retConv.byName : '') + '（原本記成已退款 ' + money(o.retConv.paid) + '）') : null,
-        kv('合計', money(total)), kv(T.paidLabel, money(paid)), o.type === 'sale' && o.paidMethod && paid > 0 ? kv('收款方式', o.paidMethod === 'cash' ? '現金（銷貨收現）' : '已結清（非現金）') : null, kv('未結', money(due)),
+        kv('合計', money(total)), kv(T.paidLabel, money(paid)), o.type === 'sale' && o.paidMethod && paid > 0 ? kv('收款方式', o.paidMethod === 'cash' ? (o.codDone ? '現金（銷貨收現・送達後收款）' : '現金（銷貨收現）') : '已結清（非現金）') : null,
+        codWaiting(o) ? kv('貨款', h('span', {class:'soon', 'aria-label':'待送達收款', text:'待送達收款 ' + money(codAmtOf(o)) + '（送完貨、確認收到現金才沖帳）'})) : null,
+        o.codDone && o.deliveredDate ? kv('送達', o.deliveredDate + (o.deliveredByName ? '　' + o.deliveredByName : '') + (o.codNote ? '　' + o.codNote : '')) : null, kv('未結', money(due)),
         T.money === 1 && pt ? kv('所屬帳期', cycleLabel(docBillMonth(o, pt), cutoffOf(pt)) + (BM_RE.test(String(o.bm || '')) && (o.type === 'sale' || o.type === 'sale_return') ? '（指定的帳款月份）' : '')) : null,
-        T.money === 1 && pt && due > 0.004 && !isVoid ? kv('到期日', dueDateOf(o) + (daysBetween(dueDateOf(o), today()) > 0 ? '（逾期 ' + daysBetween(dueDateOf(o), today()) + ' 天）' : '')) : null) : null,
+        T.money === 1 && pt && due > 0.004 && !isVoid && !codWaiting(o) ? kv('到期日', dueDateOf(o) + (daysBetween(dueDateOf(o), today()) > 0 ? '（逾期 ' + daysBetween(dueDateOf(o), today()) + ' 天）' : '')) : null) : null,
       pays.length ? [h('div', {class:'sec-h'}, h('h2', {text:'沖銷紀錄'})),
         h('div', {class:'panel'}, pays.map(pm => h('button', {class:'mv', style:'grid-template-columns:1fr auto', onclick:() => openPaymentDetail(pm.id)},
           h('span', null, h('b', {text:pm.no}), h('br'), h('small', {text:pm.date + '　' + METHODS[pm.method]})),
@@ -2026,6 +2075,7 @@ function openOrderDetail(id){
     if (o.type === 'sale' && !isVoid && canDErr() && fxOn('perf')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記配送錯誤', onclick:() => openDErrForm({orderId:id})}, '登記配送錯誤'));
     if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('picking')) foot.push(h('button', {class:'btn ghost', 'aria-label':'揀貨', onclick:() => openPickOrder(id)}, '揀貨'));
     if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('returns')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記退貨處理', onclick:() => openReturnForm({srcOrder:id})}, '登記退貨處理'));
+    if (canCod) foot.push(h('button', {class:'btn grow', 'aria-label':'確認送達收款', onclick:() => openCodConfirm(id)}, '確認送達收款'));
     if (canPay) foot.push(h('button', {class:'btn grow', onclick:() => openPayment({type:pt ? pt.type : T.partner, partnerId:o.partnerId, orderId:id})}, T.partner === 'customer' ? '登記收款' : '登記付款'));
     return {body, foot, title:T.label};
   });
@@ -2392,7 +2442,7 @@ function pRep(){
   const page = h('div', {class:'wrap page'});
   const ranges = [['today', '今日'], ['month', '本月'], ['last', '上月'], ...(cutoff() >= 2 ? [['cycle', '本帳期'], ['lastcycle', '上帳期']] : []), ['year', '今年'], ['custom', '自訂日期'], ['all', '全部']];
   const [from, to] = rangeOf(S.ui.rep), s = summarize(from, to);
-  const top = Object.values(s.items).filter(i => i.amt > 0).sort((a, b) => b.amt - a.amt).slice(0, 10);
+  const top = Object.entries(s.items).map(([pid, i]) => ({...i, pid})).filter(i => i.amt > 0).sort((a, b) => b.amt - a.amt).slice(0, 10);
   const maxAmt = top.length ? top[0].amt : 1;
   const debts = Object.entries(S.d.bal).filter(([id, b]) => S.partners[id] && Math.abs(b) > 0.004).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8);
 
@@ -2403,18 +2453,23 @@ function pRep(){
       fld('起', h('input', {class:'in', type:'date', value:from, style:'min-width:0;max-width:100%', 'aria-label':'營運報表起日', onchange:e => { const v = e.target.value; if (!v){ e.target.value = from; return; } S.ui.repFrom = v; if (S.ui.repTo && S.ui.repTo < v) S.ui.repTo = v; draw(); }})),
       fld('迄', h('input', {class:'in', type:'date', value:to, style:'min-width:0;max-width:100%', 'aria-label':'營運報表迄日', onchange:e => { const v = e.target.value; if (!v){ e.target.value = to; return; } S.ui.repTo = v; if (S.ui.repFrom && S.ui.repFrom > v) S.ui.repFrom = v; draw(); }}))),
       h('small', {class:'hint', 'aria-label':'自訂日期說明', style:'display:block;margin:-4px 0 4px', text:from + ' ~ ' + to + '，共 ' + (daysBetween(from, to) + 1) + ' 天（含起訖兩天）。月結帳款區塊另外依「帳款月份」計算，不受這裡影響。'})) : null));
+  /* -dq：每一項都可以點進去看「這個期間是哪些單據」（合計＝這裡的數字） */
+  const dr = (kind, name, val, canOpen = true) => canOpen ? h('button', {class:'row drill', 'aria-label':'看明細 ' + name, onclick:() => openRepDocs({kind, from, to})}, h('span', {text:name}), h('span', {text:val})) : h('div', {class:'row'}, h('span', {text:name}), h('span', {text:val}));
   page.append(h('section', {class:'sec'},
     h('div', {class:'panel ledger'},
-      h('div', {class:'row'}, h('span', {text:'銷貨淨額'}), h('span', {text:money(s.sale)})),
-      h('div', {class:'row'}, h('span', {text:'進貨淨額'}), h('span', {text:money(s.purchase)})),
-      see('cost') ? h('div', {class:'row'}, h('span', {text:'估算毛利（依商品進價）'}), h('span', {text:money(s.profit)})) : null,
-      see('cost') ? h('div', {class:'row'}, h('span', {text:'毛利率'}), h('span', {text:s.sale > 0 ? (s.profit / s.sale * 100).toFixed(1) + '%' : '—'})) : null,
-      h('div', {class:'row'}, h('span', {text:'收款折讓（期間內）'}), h('span', {text:money(s.disc)})),
-      h('div', {class:'row'}, h('span', {text:'進銷單據數'}), h('span', {text:s.count})))));
+      dr('sale', '銷貨淨額（未稅）', money(s.sale)),
+      dr('tax', '銷貨稅金（營業稅）', money(s.tax)),
+      dr('gross', '銷貨含稅合計', money(s.gross)),
+      dr('purchase', '進貨淨額（未稅）', money(s.purchase), see('cost')),
+      see('cost') ? dr('profit', '估算毛利（依商品進價）', money(s.profit)) : null,
+      see('cost') ? dr('profit', '毛利率', s.sale > 0 ? (s.profit / s.sale * 100).toFixed(1) + '%' : '—') : null,
+      dr('disc', '收款折讓（期間內）', money(s.disc)),
+      dr('count', '進銷單據數', s.count)),
+    h('small', {class:'hint', 'aria-label':'明細提示', style:'display:block;margin:6px 2px 0', text:'點上面的項目，可以看這段期間是哪些單據（再點單據看內容、也可匯出）。銷貨稅金＝單據上的營業稅＋月結稅金（月結客戶月底算的稅，算在帳款月份最後一天）；銷貨含稅合計＝未稅＋稅金。'})));
   page.append(repBillSection());
   page.append(h('section', {class:'sec'},
     h('div', {class:'sec-h'}, h('h2', {text:'商品銷售排行'})),
-    top.length ? h('div', {class:'panel'}, top.map(i => h('div', {class:'row'},
+    top.length ? h('div', {class:'panel'}, top.map(i => h('button', {class:'row', 'aria-label':'看商品明細 ' + i.name, style:'text-align:left', onclick:() => openRepDocs({kind:'item', from, to, pid:i.pid, name:i.name})},
       h('b', {text:i.name}), h('span', {class:'right'}, h('b', {text:money(r2(i.amt))}), h('br'), h('small', {text:'售出 ' + num(i.qty)})),
       h('span', {class:'bar', style:'grid-column:1/-1'}, h('i', {style:'width:' + Math.max(Math.round(i.amt / maxAmt * 100), 3) + '%'}))))) : h('div', {class:'panel empty', text:'這段期間沒有銷貨資料'})));
   page.append(h('section', {class:'sec'},
@@ -2432,6 +2487,82 @@ function pRep(){
   return page;
 }
 
+/* ================= -dq：營運報表 → 點數字看單據明細 ================= */
+const REP_DOC = {
+  sale:     {title:'銷貨淨額明細', val:'未稅金額', note:'未稅金額；銷貨退回算負數。合計＝營運報表的「銷貨淨額」。'},
+  tax:      {title:'銷貨稅金明細', val:'營業稅', note:'單據上的營業稅（銷貨退回算負數），加上「月結稅金」（月結客戶月底依整月銷貨額算的稅，日期是帳款月份最後一天）。免稅單據沒有稅金，不列出。合計＝營運報表的「銷貨稅金」。'},
+  gross:    {title:'銷貨含稅明細', val:'含稅金額', note:'未稅金額＋營業稅；月結客戶的稅金在「月結稅金」那一張。銷貨退回算負數。合計＝營運報表的「銷貨含稅合計」。'},
+  purchase: {title:'進貨淨額明細', val:'未稅金額', note:'未稅金額；進貨退出算負數。合計＝營運報表的「進貨淨額」。'},
+  profit:   {title:'估算毛利明細', val:'估算毛利', note:'（未稅單價 − 單據上記的進價）× 數量；銷貨退回算負數。合計＝營運報表的「估算毛利」。'},
+  count:    {title:'進銷單據明細', val:'未稅金額', note:'營運報表「進銷單據數」算進去的單據（已作廢的不算）；銷貨退回、進貨退出的金額是負數。'},
+  item:     {title:'商品銷售明細', val:'未稅銷售額', note:'這個商品在這段期間賣給誰、賣了多少（銷貨退回扣掉）。合計＝排行榜上的金額。'},
+  disc:     {title:'收款折讓明細', val:'折讓金額', note:'這段期間收款時給的折讓（含額外折讓）。合計＝營運報表的「收款折讓」。'}
+};
+/* 這段期間、這個項目的明細列 [{o 或 pm, val, qty, kind}]；合計一定等於報表（用同一個 repCalc） */
+function repDocRows(kind, from, to, pid){
+  const out = [];
+  if (kind === 'disc'){
+    for (const pm of Object.values(S.payments)){
+      if (pm.status === 'void' || pm.dir !== 'in' || !(pm.date >= from && pm.date <= to)) continue;
+      const v = (pm.discount || 0) + (pm.extra || 0); if (!v) continue;
+      out.push({pm, val:v, date:pm.date, at:pm.at || 0});
+    }
+    return out;
+  }
+  for (const o of Object.values(S.orders)){
+    if (!repInPeriod(o, from, to)) continue;
+    const c = repCalc(o); if (!c) continue;
+    if ((kind === 'sale' || kind === 'profit' || kind === 'item') && c.side !== 'sale') continue;
+    if (kind === 'purchase' && c.side !== 'purchase') continue;
+    if (kind === 'count' && c.side === 'tax') continue;               // 月結稅金不算「進銷單據數」
+    if ((kind === 'tax' || kind === 'gross') && c.side === 'purchase') continue;
+    let val = c.net, qty = null;
+    if (kind === 'tax'){ if (!c.tax) continue; val = c.tax; }
+    else if (kind === 'gross') val = c.net + c.tax;
+    else if (kind === 'profit') val = c.profit;
+    else if (kind === 'item'){ const it = c.items[pid]; if (!it) continue; val = it.amt; qty = it.qty; }
+    out.push({o, val, net:c.net, tax:c.tax, qty, date:o.date, at:o.at || 0});
+  }
+  return out;
+}
+function openRepDocs(opt){
+  const kind = opt.kind, cfg = REP_DOC[kind]; if (!cfg) return;
+  if ((kind === 'purchase' || kind === 'profit') && !see('cost')) return toast('你的角色看不到進貨成本，不能看這項明細');
+  const from = opt.from, to = opt.to, all = from === '0000-00-00', per = all ? '全部期間' : from + ' ~ ' + to;
+  const title = (kind === 'item' ? (opt.name || '商品') + '　' : '') + cfg.title;
+  const U = {sort:'date', type:'', n:100};
+  return liveSheet({title}, ['orders', 'partners', 'payments'], sh => {
+    const rows = repDocRows(kind, from, to, opt.pid);
+    const total = r2(rows.reduce((a, r) => a + r.val, 0));
+    const types = kind === 'disc' ? [] : [...new Set(rows.map(r => r.o.type))];
+    const shown = rows.filter(r => !U.type || (r.o && r.o.type === U.type));
+    shown.sort((a, b) => U.sort === 'amt' ? (Math.abs(b.val) - Math.abs(a.val)) || String(b.date).localeCompare(String(a.date)) : String(b.date).localeCompare(String(a.date)) || (b.at - a.at));
+    const subtotal = r2(shown.reduce((a, r) => a + r.val, 0));
+    const hidden = r => r.o && buyT(r.o.type) && !see('cost');   // 沒有看進貨成本權限的人，進貨單不顯示金額
+    const who = r => { const id = r.o ? r.o.partnerId : r.pm.partnerId, pt = S.partners[id]; return pt ? (pt.shortName || pt.name) : (r.o && TYPES[r.o.type] && TYPES[r.o.type].partner ? '未指定' + PLABEL[TYPES[r.o.type].partner] : ''); };
+    const rowEl = r => {
+      const T = r.o ? (TYPES[r.o.type] || TYPES.adjust) : null, no = r.o ? r.o.no : r.pm.no;
+      return h('button', {class:'row', 'aria-label':'明細 ' + no, style:'text-align:left', onclick:() => r.o ? openOrderDetail(r.o.id) : openPaymentDetail(r.pm.id)},
+        h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('span', {class:'tag ' + (T ? dirCls(T) : 'in'), text:T ? T.short : '收'}),
+          h('span', {style:'min-width:0'}, h('b', {text:no}), h('br'), h('small', {text:who(r)}))),
+        h('span', {class:'right'}, h('b', {text:hidden(r) ? '—' : money(r.val)}), h('br'), h('small', {text:r.date + (r.qty != null ? '　' + num(r.qty) + (r.o.lines && r.o.lines.find(l => String(l.pid) === String(opt.pid)) ? ' ' + (r.o.lines.find(l => String(l.pid) === String(opt.pid)).unit || '') : '') : (kind === 'profit' ? '　銷貨 ' + money(r.net) : (kind === 'tax' ? (r.o.type === 'tax' ? '　月結稅金' : '　未稅 ' + money(r.net)) : (kind === 'gross' ? (r.o.type === 'tax' ? '　月結稅金' : '　未稅 ' + money(r.net) + '　稅 ' + money(r.tax)) : ''))))})));
+    };
+    const ds = () => ({title:cfg.title, sub:(kind === 'item' ? opt.name + '　' : '') + per + '　共 ' + shown.length + ' 張　' + today(), filename:'營運報表_' + cfg.title + (kind === 'item' ? '_' + opt.name : '') + '_' + (all ? '全部' : from + '_' + to),
+      sections:[{name:'明細', cols:[XC('日期', 'text', 12), XC('單號', 'text', 20), XC('類型', 'text', 10), XC('往來對象', 'text', 22), ...(kind === 'item' ? [XC('數量', 'qty', 10)] : []), XC(cfg.val, 'money', 14)],
+        rows:shown.map(r => [r.date, r.o ? r.o.no : r.pm.no, r.o ? (TYPES[r.o.type] || {}).label : '收款折讓', who(r), ...(kind === 'item' ? [r.qty] : []), hidden(r) ? null : r.val]),
+        foot:['合計', '', '', '', ...(kind === 'item' ? [''] : []), subtotal]}]});
+    const body = h('div', null,
+      h('div', {class:'panel pad', style:'margin-bottom:8px'}, kv('期間', per), kv('單據', rows.length + ' 張'), kv(kind === 'count' ? '單據數（＝報表數字）' : cfg.val + '合計（＝報表數字）', h('b', {'aria-label':'明細合計', text:kind === 'count' ? String(rows.length) : money(total)}))),
+      h('p', {class:'note', text:cfg.note}),
+      types.length > 1 ? h('div', {class:'chips', style:'padding-top:0'}, [['', '全部（' + rows.length + '）'], ...types.map(t => [t, (TYPES[t] || {}).label + '（' + rows.filter(r => r.o.type === t).length + '）'])].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.type === k, 'aria-label':'類型 ' + (k ? (TYPES[k] || {}).label : '全部'), onclick:() => { U.type = k; U.n = 100; render('orders'); }}, t))) : null,
+      rows.length > 1 ? h('div', {class:'chips', style:'padding-top:0'}, [['date', '日期（新→舊）'], ['amt', kind === 'count' ? '金額（大→小）' : '金額（大→小）']].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':U.sort === k, 'aria-label':'排序 ' + t, onclick:() => { U.sort = k; render('orders'); }}, t))) : null,
+      U.type ? h('small', {class:'hint', style:'display:block;margin:0 2px 6px', 'aria-label':'篩選小計', text:'目前顯示 ' + shown.length + ' 張' + (kind === 'count' || hidden({o:{type:U.type}}) ? '' : '，小計 ' + money(subtotal))}) : null,
+      shown.length ? h('div', {class:'panel'}, shown.slice(0, U.n).map(rowEl)) : h('div', {class:'panel empty', text:'這段期間沒有符合的單據'}),
+      shown.length > U.n ? h('button', {class:'btn ghost', style:'width:100%;margin-top:8px', onclick:() => { U.n += 100; render('orders'); }}, '載入更多（還有 ' + (shown.length - U.n) + ' 張）') : null);
+    return {body, foot:[exportBtn(ds) || null]};
+  });
+}
+
 /* ================= 帳款：收付款 / 帳齡 ================= */
 const PAY = {in:{label:'收款', pref:'RC'}, out:{label:'付款', pref:'PM'}};
 const METHODS = {cash:'現金', transfer:'轉帳', note:'票據', discount:'折讓', other:'其他'};
@@ -2445,7 +2576,7 @@ function aging(type){
     const T = TYPES[o.type]; if (!T || T.money !== 1) continue;
     const pt = S.partners[o.partnerId]; if (!pt || pt.type !== type) continue;
     const due = dueOf(o); if (due <= 0.004) continue;
-    const i = ageIdx(daysBetween(dueDateOf(o), t));
+    const i = codWaiting(o) ? 0 : ageIdx(daysBetween(dueDateOf(o), t));   /* -dp：待送達收款不算逾期 */
     const r = byP[o.partnerId] || (byP[o.partnerId] = {b:[0, 0, 0, 0, 0], open:0});
     r.b[i] = r2(r.b[i] + due); r.open = r2(r.open + due); tot[i] = r2(tot[i] + due);
   }
@@ -2457,7 +2588,7 @@ function allocPanel(){
   let rows = [], pid = null, cb = () => {}, cbFilter = null;
   const chipBox = h('div'), listBox = h('div'), list = h('div', null, chipBox, listBox);
   const docBM = o => { const p = S.partners[o.partnerId]; return billingOf(p) === 'cycle' || BM_RE.test(String(o.bm || '')) ? docBillMonth(o, p) : String(o.date || '').slice(0, 7); };
-  const openOrders = () => Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004)
+  const openOrders = () => Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004 && !codWaiting(o))   /* -dp：待送達收款的單，送達前不能沖帳 */
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || ((a.at || 0) - (b.at || 0)));
   const vis = () => rows.filter(r => !api.month || r.bm === api.month);
   function paint(){
@@ -2580,6 +2711,7 @@ async function createPayment(o){
 
 function openPayment(opts){
   opts = opts || {};
+  if (opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單的貨款要等送完貨、確認收到現金後才能沖帳（單據詳情按「確認送達收款」）');
   const type = opts.type || (opts.partnerId && S.partners[opts.partnerId] ? S.partners[opts.partnerId].type : 'customer');
   if (!fxGate(type === 'supplier' ? 'ap' : 'settle')) return;
   const dir = type === 'customer' ? 'in' : 'out', P = PAY[dir];
@@ -2914,10 +3046,10 @@ function openStatement(pid){
       isAR ? mtaxStmtPanel(pt) : null,
       h('div', {class:'sec-h'}, h('h2', {text:'未結單據'})),
       dues.length ? h('div', {class:'panel', style:'margin-bottom:14px'}, dues.map(o => {
-        const late = daysBetween(dueDateOf(o), t);
+        const late = codWaiting(o) ? 0 : daysBetween(dueDateOf(o), t);
         return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
           h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:'到期 ' + dueDateOf(o) + '　' + docBillMonth(o, pt) + ' 帳'})),
-          h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:'未到期'})));
+          h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達收款' : '未到期'})));
       })) : h('div', {class:'panel empty', style:'margin-bottom:14px', text:'沒有未結單據'}),
       notes.length ? [h('div', {class:'sec-h'}, h('h2', {text:'未結票據'})), h('div', {class:'panel', style:'margin-bottom:14px'}, notes.map(noteRow))] : null,
       h('div', {class:'sec-h'}, h('h2', {text:'收付款紀錄'})),
@@ -5607,6 +5739,7 @@ function splitAlloc(list, amounts){
   return out;
 }
 function openSettle(opts){
+  if (opts && opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單的貨款要等送完貨、確認收到現金後才能沖帳（單據詳情按「確認送達收款」）');
   if (!fxGate(opts && opts.type === 'supplier' ? 'ap' : 'settle')) return;
   opts = opts || {};
   const type = opts.type || 'customer', dir = type === 'customer' ? 'in' : 'out', L = type === 'customer' ? '收款' : '付款';
@@ -5904,7 +6037,7 @@ function matchCustomers(q){
   return scored.filter(x => x[1] === scored[0][1]).map(x => x[0]);
 }
 function planBatch(rows){
-  const left = {}, opensOf = pid => Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004).sort((a, b) => (a.date || '').localeCompare(b.date || '') || ((a.at || 0) - (b.at || 0)));
+  const left = {}, opensOf = pid => Object.values(S.orders).filter(o => o.partnerId === pid && o.status !== 'void' && TYPES[o.type] && TYPES[o.type].money === 1 && dueOf(o) > 0.004 && !codWaiting(o)).sort((a, b) => (a.date || '').localeCompare(b.date || '') || ((a.at || 0) - (b.at || 0)));
   const walk = (opens, gross) => { let rem = gross; const allocs = []; for (const o of opens){ if (rem <= 0.004) break; const take = Math.min(rem, left[o.id]); if (take > 0.004){ allocs.push({orderId:o.id, orderNo:o.no, amount:r2(take)}); rem = r2(rem - take); } } return {allocs, rem}; };
   for (const r of rows){
     r.plan = null; if (!r.include || !r.pid || !(r.amount > 0)) continue;
@@ -6006,10 +6139,10 @@ const PMK = {cash:'現金', transfer:'匯款', check:'支票', discount:'折讓'
 function collectRows(from, to){
   const inR = d => (!from || d >= from) && (!to || d <= to), rows = [];
   for (const o of Object.values(S.orders)){
-    if (o.type !== 'sale' || o.status === 'void' || !inR(o.date)) continue;
+    if (o.type !== 'sale' || o.status === 'void' || !(inR(o.date) || ((o.paid || 0) > 0.004 && inR(paidDateOf(o))))) continue;
     const pt = S.partners[o.partnerId], cust = pt ? (pt.shortName || pt.name) : '散客', col = collectorOf(o);
-    if ((o.paid || 0) > 0.004) rows.push({kind:o.paidMethod === 'other' ? 'paid' : 'cash', src:'order', id:o.id, no:o.no, cust, amount:o.paid, col, note:o.paidMethod === 'other' ? '已結清（非現金）' : '銷貨收現'});
-    const due = dueOf(o); if (due > 0.004 && o.partnerId) rows.push({kind:'unpaid', src:'order', id:o.id, no:o.no, cust, amount:due, col, note:'未收款（記帳）'});
+    if ((o.paid || 0) > 0.004 && inR(paidDateOf(o))) rows.push({kind:o.paidMethod === 'other' ? 'paid' : 'cash', src:'order', id:o.id, no:o.no, cust, amount:o.paid, col, note:o.paidMethod === 'other' ? '已結清（非現金）' : '銷貨收現'});
+    const due = dueOf(o); if (due > 0.004 && o.partnerId && inR(o.date)) rows.push({kind:'unpaid', src:'order', id:o.id, no:o.no, cust, amount:due, col, note:codWaiting(o) ? '待送達收款（送達後才沖帳）' : '未收款（記帳）'});
   }
   for (const pm of Object.values(S.payments)){
     if (pm.dir !== 'in' || pm.status === 'void' || !inR(pm.date)) continue;
@@ -6536,7 +6669,7 @@ function deliveryRows(day, drv){
   for (const o of Object.values(S.orders)){
     if (o.type !== 'sale' || o.status === 'void' || deliveryOf(o) !== day) continue;
     if (drv === '__none' ? !!o.driver : (drv && o.driver !== drv)) continue;
-    const pt = S.partners[o.partnerId] || {}, due = dueOf(o), tags = [o.urgent ? '早一點' : '', o.collect ? '順收貨款' : '', o.store ? o.store + ' 叫貨' : '', o.paidMethod === 'cash' && (o.paid || 0) >= (o.total || 0) - 0.004 && o.total > 0 ? '銷貨收現（已收）' : '', due > 0.004 && o.partnerId ? '未收 ' + money(due) : '', o.shipMethod || ''].filter(Boolean).join('　');
+    const pt = S.partners[o.partnerId] || {}, due = dueOf(o), tags = [o.urgent ? '早一點' : '', o.collect ? '順收貨款' : '', o.store ? o.store + ' 叫貨' : '', o.paidMethod === 'cash' && (o.paid || 0) >= (o.total || 0) - 0.004 && o.total > 0 ? '銷貨收現（已收）' : '', codWaiting(o) ? '貨到收現 ' + money(codAmtOf(o)) + '（送達後沖帳）' : (due > 0.004 && o.partnerId ? '未收 ' + money(due) : ''), o.shipMethod || ''].filter(Boolean).join('　');
     rows.push({id:o.id, no:o.no, cust:pt.shortName || pt.name || '散客', addr:shipLine(o), contact:[orderShip(o).contact, orderShip(o).phone].filter(Boolean).join('　'), items:(o.lines || []).map(l => l.name + '×' + num(l.qty)).join('、'), tags, driver:o.driver || '', urgent:!!o.urgent, collect:!!o.collect, due});
   }
   return rows.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
@@ -6810,7 +6943,7 @@ function arBookOf(pt, U, I){
   const isPre = o => isBill ? docBillMonth(o, pt) < U.from : String(o.date || '') < a;
   const docs = (I.docs[pt.id] || []).filter(o => isBill ? docBillMonth(o, pt) <= U.to : String(o.date || '') <= b), byId = Object.fromEntries(docs.map(o => [o.id, o])), st = {}, preSet = new Set(docs.filter(isPre).map(o => o.id));
   const bump = (id, when, amt) => { const x = st[id] || (st[id] = {pre:0, cur:0}); if (when < a && preSet.has(id)) x.pre = r2(x.pre + amt); else x.cur = r2(x.cur + amt); };
-  for (const o of docs) if (Number(o.paid) > 0.004) bump(o.id, String(o.date), Number(o.paid));   /* 開單時收現（退款） */
+  for (const o of docs) if (Number(o.paid) > 0.004) bump(o.id, String(paidDateOf(o)), Number(o.paid));   /* 開單時收現（退款） */
   let depPre = 0, depCur = 0; const pays = [];
   for (const pm of (I.pays[pt.id] || []).filter(x => String(x.date || '') <= b).sort((x, y) => String(x.date).localeCompare(String(y.date)) || ((x.at || 0) - (y.at || 0)))){
     const pd = String(pm.date || ''), sign = pm.dir === 'out' ? -1 : 1, gross = r2((Number(pm.amount) || 0) + (Number(pm.discount) || 0) + (Number(pm.extra) || 0));
@@ -8054,7 +8187,7 @@ function remindPreview(pt){
     const M = prevMonth(billMonth(t, c)), cur = rows.filter(r => r.month === M), prior = r2(rows.filter(r => r.month < M).reduce((a, r) => a + r.f.due, 0)), due = r2(cur.reduce((a, r) => a + r.f.due, 0)), cum = r2(prior + due);
     if (cur.length || Math.abs(cum) > 0.004){ const card = lineStmtCard(pt, {month:M, n:cur.filter(r => r.o.type !== 'tax').length, net:cur.reduce((a, r) => a + r.f.net, 0), tax:cur.reduce((a, r) => a + r.f.tax, 0), total:cur.reduce((a, r) => a + r.f.total, 0), rec:cur.reduce((a, r) => a + r.f.rec, 0), prior, cum}); out.statement = {month:M, card, text:lineCard(card).text}; }
   }
-  const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && daysBetween(dueDateOf(r.o), t) > 0);
+  const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && !codWaiting(r.o) && daysBetween(dueDateOf(r.o), t) > 0);
   if (late.length){ const card = lineDueCard(pt, {n:late.length, amount:late.reduce((a, r) => a + r.f.due, 0), days:late.reduce((a, r) => Math.max(a, daysBetween(dueDateOf(r.o), t)), 0)}); out.overdue = {card, text:lineCard(card).text}; }
   return out;
 }
@@ -9090,7 +9223,7 @@ function openDispatch(pre){
         return h('div', {class:'row', style:'align-items:flex-start'}, h('span', {style:'min-width:0'}, h('button', {style:'text-align:left', onclick:() => openStopDoc(o)}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）', o && o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null), h('br'), h('small', {text:o ? (isCo(o) ? '客戶訂單 ' : '') + o.no + '　' + shipLine(o) + '　' + money(o.total) : st.orderId}))),
           h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, h('span', {style:'display:flex;gap:4px'}, h('button', {class:'ic sm', 'aria-label':'上移 ' + (i + 1), onclick:() => mv(-1)}, '↑'), h('button', {class:'ic sm', 'aria-label':'下移 ' + (i + 1), onclick:() => mv(1)}, '↓'), h('button', {class:'ic sm', 'aria-label':'移出 ' + (i + 1), onclick:() => updTrip(U.day, v.id, slot, {stops:t.stops.filter((_, j) => j !== i)})}, icon('x'))),
             o ? (() => { const opts = tripVehicles().flatMap(v2 => ['am', 'pm'].map(sl => [v2.id + '|' + sl, SLOTS[sl] + ' ' + vehLabel(v2)])).filter(([k]) => k !== v.id + '|' + slot), s4 = h('select', {class:'in', 'aria-label':'改排 ' + o.no, style:'height:34px;width:132px;font-size:13px', onchange:async e => { const [vid2, sl2] = e.target.value.split('|'); e.target.value = ''; if (!vid2) return; if (await dialog({title:'改排 ' + o.no + '？', msg:'這張單據已排在 ' + SLOTS[slot] + ' ' + vehLabel(v) + '，要改排到 ' + SLOTS[sl2] + ' ' + vehLabel(S.vehicles[vid2]) + '。（一張單據只能排在一趟）', ok:'改排'})) assignOrders(U.day, vid2, sl2, [o.id], {move:true}); }}, h('option', {value:'', text:'改排到…'}), ...opts.map(([k, t]) => h('option', {value:k, text:t}))); s4.value = ''; return s4; })() : null,
-            h('span', {style:'display:flex;gap:4px;align-items:center'}, h('small', {text:'送達'}), h('input', {class:'in', type:'time', value:st.doneTime || '', 'aria-label':'送達時間 ' + (o ? o.no : i + 1), style:'height:34px;width:104px', onchange:e => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = e.target.value; updTrip(U.day, v.id, slot, {stops:arr}); }}), h('button', {class:'btn ghost sm', 'aria-label':'送達現在 ' + (o ? o.no : i + 1), onclick:() => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = nowHM(); updTrip(U.day, v.id, slot, {stops:arr}); }}, '現在')))); });
+            h('span', {style:'display:flex;gap:4px;align-items:center'}, h('small', {text:'送達'}), h('input', {class:'in', type:'time', value:st.doneTime || '', 'aria-label':'送達時間 ' + (o ? o.no : i + 1), style:'height:34px;width:104px', onchange:e => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = e.target.value; updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (e.target.value && o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}), h('button', {class:'btn ghost sm', 'aria-label':'送達現在 ' + (o ? o.no : i + 1), onclick:() => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = nowHM(); updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}, '現在')))); });
       return h('div', {class:'panel pad', style:'margin-bottom:12px'}, h('b', {text:SLOTS[slot] + '　' + vehLabel(v)}),
         h('small', {style:'display:block;margin:2px 0 2px', text:orders.length + ' 張單據・' + facts.stores + ' 家店・' + money(facts.amt) + (t.outTime && t.backTime ? '・' + hmTxt(mins) : t.outTime ? '・出車中' : '') + (tripKmEff(t) !== null ? '・' + num(tripKmEff(t)) + ' km' : '')}),
         orders.length ? h('small', {class:'hint', style:'display:block;margin-bottom:8px', 'aria-label':'行程摘要 ' + SLOTS[slot] + vehLabel(v), text:'地區：' + (facts.regions.length ? facts.regions.join('、') : '未填') + '　材積 ' + num(facts.vol) + ' 才' + (cap ? '（占車斗 ' + pctTxt(pctT) + (pctT > 100 ? '　⚠ 超載' : '') + '）' : '') + (facts.noVol ? '（' + facts.noVol + ' 張有商品沒填材積）' : '')}) : h('div', {style:'height:6px'}),
@@ -11062,6 +11195,40 @@ function openPicking(pre){
   });
 }
 
+/* ================= -dp：銷貨收現・送貨 → 送完貨才沖帳 ================= */
+function openCodConfirm(orderId, opts){
+  opts = opts || {};
+  const o = S.orders[orderId]; if (!o) return toast('找不到這張單據');
+  if (!codWaiting(o)) return toast(o.codDone ? o.no + ' 已經確認送達並收款了' : '這張單據不是「送完貨才收款」的銷貨收現');
+  if (!S.canWrite || !(can('sale') || can('pay') || canField() || S.isAdmin)) return toast('你的角色沒有這項操作的權限');
+  if (revGuard('order', o, '確認送達收款')) return;
+  if (reviewOn() && monthLocked('orders', o.date)) return toast(ymOf(o.date) + ' 的單據已封存，不能修改；請管理員先解除封存');
+  const amt = codAmtOf(o), pt = S.partners[o.partnerId] || {}, st = {date:opts.date || today(), cash:String(amt), who:myName(), note:''};
+  const sh = sheet({title:'確認送達收款　' + o.no}), sumBox = h('div');
+  const cashOf = () => mInt(toNum(st.cash));
+  const paintSum = () => { const c = cashOf(), left = r2(amt - c);
+    setKids(sumBox, h('div', {class:'note ' + (c < 0 || c > amt ? 'bad' : (left > 0.004 ? 'warn' : '')), 'aria-label':'收款結果', style:'margin:8px 0 0', text:c < 0 || c > amt ? '實收現金要在 0 到 ' + money(amt) + ' 之間' : (left <= 0.004 ? '✓ 貨款全部收到：記入已收款、零用金（收款人的現金），這張單沖帳完成。' : (c > 0 ? '收了 ' + money(c) + '，其餘 ' + money(left) + ' 記在應收帳款，之後再用「應收沖帳」處理。' : '沒有收到錢：這張單改成記帳，未收 ' + money(amt) + ' 記在應收帳款，之後再用「應收沖帳」處理。'))})); };
+  const dIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'送達日期', style:'min-width:0;max-width:100%', onchange:e => { st.date = e.target.value || today(); }});
+  const cIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:st.cash, 'aria-label':'實收現金', onfocus:e => e.target.select(), oninput:e => { st.cash = e.target.value; paintSum(); }});
+  const wIn = h('input', {class:'in', list:'collectorList', value:st.who, autocomplete:'off', 'aria-label':'收款人', oninput:e => { st.who = e.target.value; }});
+  const nIn = h('input', {class:'in', placeholder:'選填（例：客戶簽收人）', autocomplete:'off', 'aria-label':'備註', oninput:e => { st.note = e.target.value; }});
+  let saving = false;
+  const saveBtn = h('button', {class:'btn grow', 'aria-label':'確認已送達並收款', onclick:async () => {
+    if (saving) return;
+    const c = cashOf(); if (c < 0 || c > amt + 0.004) return toast('實收現金要在 0 到 ' + money(amt) + ' 之間');
+    if (!st.date) return toast('請選送達日期'); if (st.date < o.date) return toast('送達日期不可早於開單日期 ' + o.date);
+    saving = true; saveBtn.disabled = true;
+    const ok = await run(async () => { await S.db.doc('orders/' + o.id).update({codWait:false, codDone:true, codAmt:amt, collect:false, delivered:true, deliveredDate:st.date, deliveredAt:Date.now(), deliveredBy:S.meId || null, deliveredByName:myName(), paid:c, paidMethod:c > 0 ? 'cash' : '', paidDate:c > 0 ? st.date : '', collector:c > 0 ? (st.who.trim() || myName()) : '', codNote:st.note.trim()}); return true; });
+    saving = false; saveBtn.disabled = false;
+    if (ok){ toast('已確認送達 ' + o.no + (c > 0 ? '，收現 ' + money(c) + (c < amt ? '，未收 ' + money(amt - c) + ' 記在應收帳款' : '，沖帳完成') : '，沒有收到貨款，改記在應收帳款')); sh.forceClose(); }
+  }}, '確認已送達並收款');
+  put(sh.bodyEl, h('div', {class:'panel pad', style:'margin-bottom:10px'}, kv('單號', o.no), kv('客戶', pt.shortName || pt.name || '散客'), kv('送貨', [shipMethodOf(o), shipLine(o)].filter(Boolean).join('　') || '—'), kv('貨款（送達後收現）', h('b', {text:money(amt)}))),
+    h('p', {class:'note', text:'銷貨收現的單據，需要送貨的要等送完貨、收到現金後才沖帳。確認後才會記入已收款和零用金。'}),
+    h('div', {class:'f2'}, fld('送達日期', dIn), fld('實收現金（應收 ' + money(amt) + '）', cIn)),
+    h('div', {class:'f', style:'margin-top:8px'}, h('label', {text:'收款人'}), wIn), collectorList(), fld('備註', nIn), sumBox);
+  sh.footEl.append(saveBtn); paintSum();
+}
+
 /* ================= 外務收款（只登記收款；之後由會計沖帳） ================= */
 const canField = () => S.canWrite && (S.isAdmin || rolePerm('fieldpay') || rolePerm('pay'));
 function fieldGroups(pendingOnly){
@@ -12577,6 +12744,8 @@ function openPickOrder(orderId, opts){
   try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders()}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{codWaiting, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
 function openDisPlanForm(ex){
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
@@ -13205,7 +13374,7 @@ function ledgerQuery(type, U){
   const groups = {};
   for (const o of list){ (groups[o.partnerId] = groups[o.partnerId] || {pid:o.partnerId, rows:[], sum:0}); const g = groups[o.partnerId]; g.rows.push(o); g.sum = r2(g.sum + dueOf(o)); }
   const gl = Object.values(groups).sort((a, b) => S.partners[a.pid].name.localeCompare(S.partners[b.pid].name, 'zh-TW'));
-  const late = list.filter(o => daysBetween(dueDateOf(o), t) > 0);
+  const late = list.filter(o => !codWaiting(o) && daysBetween(dueDateOf(o), t) > 0);
   return {kind:'open', groups:gl, rows:list, total:r2(list.reduce((a, o) => a + dueOf(o), 0)), gross:r2(list.reduce((a, o) => a + (o.total || 0), 0)), lateSum:r2(late.reduce((a, o) => a + dueOf(o), 0))};
 }
 function dsLedgerQuery(type, U){
@@ -13240,9 +13409,9 @@ function openLedgerQuery(type){
           h('div', {class:'row'}, h('span', {text:'未沖餘額合計'}), h('b', {text:money(q.total)})),
           h('div', {class:'row'}, h('span', {text:'其中已逾期'}), h('span', {class:q.lateSum ? 'overdue' : '', text:money(q.lateSum)}))),
         q.groups.length ? q.groups.map(g => h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:S.partners[g.pid].name}), h('b', {text:money(g.sum)})),
-          h('div', {class:'panel'}, g.rows.map(o => { const late = daysBetween(dueDateOf(o), t); return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
+          h('div', {class:'panel'}, g.rows.map(o => { const late = codWaiting(o) ? 0 : daysBetween(dueDateOf(o), t); return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
             h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:o.date + '　到期 ' + dueDateOf(o)})),
-            h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:'單據 ' + money(o.total)}))); })))) : h('div', {class:'panel empty', text:'這段期間沒有符合的單據'}))
+            h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達收款' : '單據 ' + money(o.total)}))); })))) : h('div', {class:'panel empty', text:'這段期間沒有符合的單據'}))
       : h('div', null,
         h('div', {class:'pd-tiles'}, h('div', {class:'pd-tile total'}, h('b', {text:'共 ' + q.rows.length + ' 筆，收（付）款金額'}), h('span', {text:money(q.total)})),
           ...[['cash', '現金'], ['transfer', '轉帳'], ['note', '票據'], ['other', '其他']].filter(([k]) => q.by[k].n).map(([k, t]) => h('div', {class:'pd-tile'}, h('b', {text:t}), h('small', {text:q.by[k].n + ' 筆'}), h('span', {text:money(q.by[k].amt)}))),
@@ -13768,7 +13937,7 @@ function cashEntries(){
   }
   for (const o of Object.values(S.orders)){
     if (o.status === 'void' || !(o.paid > 0)) continue;
-    if (o.type === 'sale' && cashSaleIn() && o.paidMethod !== 'other') out.push({key:'o' + o.id, auto:'order', ref:o.id, date:o.date, dir:'in', catId:'sys_pay', amount:o.paid, note:'銷貨當場收款 ' + (pn(o.partnerId) || '散客') + '　' + o.no, at:o.at || 0, fund:af});
+    if (o.type === 'sale' && cashSaleIn() && o.paidMethod !== 'other') out.push({key:'o' + o.id, auto:'order', ref:o.id, date:paidDateOf(o), dir:'in', catId:'sys_pay', amount:o.paid, note:(o.codDone ? '銷貨收現（送達後收款） ' : '銷貨當場收款 ') + (pn(o.partnerId) || '散客') + '　' + o.no, at:o.at || 0, fund:af});
     else if (o.type === 'purchase' && cashPurchOut()) out.push({key:'o' + o.id, auto:'order', ref:o.id, date:o.date, dir:'out', catId:'sys_pay', amount:o.paid, note:'進貨當場付款 ' + (pn(o.partnerId) || '') + '　' + o.no, at:o.at || 0, fund:af});
   }
   for (const f of Object.values(S.fuellogs)){
@@ -14492,7 +14661,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-do';
+const APP_VERSION = '2026.10.11-dq';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -16806,9 +16975,10 @@ function dsInventory(){
   return {title:'庫存清單', sub:invFilterText() + '　共 ' + items.length + ' 項　' + today(), filename:'庫存清單', sections:[{name:'庫存', cols, rows, foot}]};
 }
 function ordFiltered(){
-  const q = S.ui.ordQ.trim().toLowerCase();
+  const q = S.ui.ordQ.trim().toLowerCase(), sp = ordSpan();
   return Object.values(S.orders).filter(o => {
     if (S.ui.ordType && o.type !== S.ui.ordType) return false;
+    if (!ordDateOk(o, sp)) return false;
     if (!q) return true;
     const pt = S.partners[o.partnerId];
     return (o.no + ' ' + (pt ? pt.name : '') + ' ' + (o.note || '') + ' ' + (o.lines || []).map(l => l.name + ' ' + l.sku).join(' ')).toLowerCase().includes(q);
@@ -16827,7 +16997,7 @@ function dsOrders(){
   const foot = single ? ['合計', '', '', '', '', '', sumBy(list.filter(o => o.status !== 'void').map(o => [netOf(o)]), 0), sumBy(list.filter(o => o.status !== 'void').map(o => [o.tax || 0]), 0), sumBy(list.filter(o => o.status !== 'void').map(o => [o.total || 0]), 0), '', sumBy(list.filter(o => o.status !== 'void').map(o => [dueOf(o)]), 0), '', '', '', ''] : null;
   const det = [];
   for (const o of list){ const T = TYPES[o.type] || TYPES.adjust; for (const l of o.lines || []) det.push([o.date, o.no, T.label, o.type === 'transfer' ? whName(o.whFrom) + ' → ' + whName(o.whTo) : whName(orderWh(o)), pName(o), l.sku, l.name, l.qty, l.unit || '', T.money ? l.price : null, T.money ? amtOf(l.qty, l.price) : null, o.status === 'void' ? '作廢' : '有效']); }
-  return {title:'單據查詢', sub:'篩選：' + ((S.ui.ordType ? (TYPES[S.ui.ordType] || {}).label : '全部類型') + (S.ui.ordQ.trim() ? '　搜尋「' + S.ui.ordQ.trim() + '」' : '')) + '　共 ' + list.length + ' 張　' + today(), filename:'單據查詢',
+  return {title:'單據查詢', sub:'篩選：' + ((S.ui.ordType ? (TYPES[S.ui.ordType] || {}).label : '全部類型') + (ordSpan() ? '　日期 ' + ordSpanTxt(ordSpan()) : '') + (S.ui.ordQ.trim() ? '　搜尋「' + S.ui.ordQ.trim() + '」' : '')) + '　共 ' + list.length + ' 張　' + today(), filename:'單據查詢',
     sections:[{name:'單據', cols, rows, foot}, {name:'品項明細', opt:true, cols:[XC('日期', 'text', 12), XC('單號', 'text', 20), XC('類型', 'text', 10), XC('倉庫', 'text', 12), XC('往來對象', 'text', 20), XC('料號', 'text', 12), XC('品名', 'text', 26), XC('數量', 'qty', 10), XC('單位', 'text', 8), XC('單價', 'money', 10), XC('金額', 'money', 12), XC('狀態', 'text', 8)], rows:det}]};
 }
 const piPayOut = p => { const m = payMethodOf(p); return m === 'days' ? '開單後' + (Number(p.termDays) || 0) + '天' : (PAYM[m] || ''); };
@@ -16900,7 +17070,7 @@ function dsReport(){
   const [from, to] = rangeOf(S.ui.rep), s = summarize(from, to), costOk = see('cost');
   const top = Object.values(s.items).filter(i => i.amt > 0).sort((a, b) => b.amt - a.amt);
   const label = ({today:'今日', month:'本月', last:'上月', cycle:'本帳期', lastcycle:'上帳期', year:'今年', custom:'自訂', all:'全部'})[S.ui.rep] || S.ui.rep;
-  const sumRows = [['銷貨淨額（未稅）', s.sale], ['進貨淨額（未稅）', s.purchase], ['收款折讓', s.disc], ...(costOk ? [['估算毛利', s.profit], ['毛利率（%）', s.sale > 0 ? Math.round(s.profit / s.sale * 1000) / 10 : 0]] : []), ['進銷單據數', s.count]];
+  const sumRows = [['銷貨淨額（未稅）', s.sale], ['銷貨稅金（營業稅）', s.tax], ['銷貨含稅合計', s.gross], ['進貨淨額（未稅）', s.purchase], ['收款折讓', s.disc], ...(costOk ? [['估算毛利', s.profit], ['毛利率（%）', s.sale > 0 ? Math.round(s.profit / s.sale * 1000) / 10 : 0]] : []), ['進銷單據數', s.count]];
   const debts = Object.entries(S.d.bal).filter(([id, b]) => S.partners[id] && Math.abs(b) > 0.004).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   return {title:'營運報表', sub:label + '（' + (S.ui.rep === 'all' ? '全部期間' : from + ' ~ ' + to) + '）　' + today(), filename:'營運報表_' + (S.ui.rep === 'custom' ? from + '_' + to : label),
     sections:[{name:'摘要', cols:[XC('項目', 'text', 22), XC('數值', 'money', 16)], rows:sumRows},
