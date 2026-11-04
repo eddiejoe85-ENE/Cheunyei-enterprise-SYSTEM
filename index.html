@@ -513,6 +513,12 @@ const codWaiting = o => !!o && o.type === 'sale' && o.status !== 'void' && o.cod
 const codNeedShip = (method, pid) => !!pid && !!method && method !== '自取';   // 有選客戶、送貨方式不是自取（散客、自取當場收現）
 const codAmtOf = o => r2(Number(o.codAmt) > 0 ? Number(o.codAmt) : (o.total || 0) - (o.paid || 0));
 const paidDateOf = o => (o && o.paidDate) || (o && o.date) || '';
+/* -dr：銷貨收現不自動沖帳。cashSale＝這張單選的是銷貨收現（有選客戶），貨款先掛在應收帳款，收到現金後由人工按「沖帳」到沖帳系統處理。
+   cashPending(o)＝銷貨收現、還沒有任何沖帳 → 單據標「待沖帳」、不算逾期。codWaiting（-dp）＝需要送貨、還沒確認送達 → 連「沖帳」都不能按。
+   awaitCash(o)＝以上兩種（不算逾期、不寄逾期提醒）。 */
+const cashSaleOf = o => !!o && o.type === 'sale' && o.status !== 'void' && (o.cashSale === true || o.codWait === true);
+const cashPending = o => cashSaleOf(o) && effPaid(o) < 0.004 && dueOf(o) > 0.004;
+const awaitCash = o => codWaiting(o) || cashPending(o);
 
 function rangeOf(k){
   const n = new Date(), y = n.getFullYear(), m = n.getMonth();
@@ -951,6 +957,7 @@ function homeTodo(){
   if (fxOn('porder')){ const l = Object.values(S.porders).filter(d => docProgress('po', d).active); if (l.length){ const late = lateN(l); add('待收貨採購單', late > 0, '待收貨採購單 ' + l.length + ' 張', late ? '逾期 ' + late + ' 張未到貨' : '', go('po')); } }
   if (fxOn('purchaseSug')){ const n = suggestions().length; if (n) add('採購建議', false, '採購建議 ' + n + ' 項', '庫存低於安全庫存，建議採購', go('sug')); }
   if ((can('pay') || S.isAdmin) && fxOn('handover')){ const todo = handPending(); if (todo.length){ const cash = r2(todo.reduce((a, g) => a + g.cash, 0)), nChk = todo.reduce((a, g) => a + g.checks.length, 0), old = Math.max(...todo.map(g => g.ageDays)); add('外務待簽收', old >= 1, '外務待簽收 ' + todo.length + ' 位', '現金 ' + money(cash) + '　支票 ' + nChk + ' 張' + (old >= 1 ? '　最久 ' + old + ' 天沒交' : ''), openHandover); } }
+  if ((can('pay') || S.isAdmin) && fxOn('settle')){ const cp = Object.values(S.orders).filter(cashPending); if (cp.length){ const sum = r2(cp.reduce((a, o) => a + dueOf(o), 0)), old = cp.map(o => o.date || '').sort()[0]; add('銷貨收現待沖帳', old < today(), '銷貨收現待沖帳 ' + cp.length + ' 張', '合計 ' + money(sum) + '，收到現金後逐張按「沖帳」', openCashPending); } }
   if ((can('sale') || can('stock') || S.isAdmin) && fxOn('returns')){ const open = Object.values(S.returns).filter(rtOpen); if (open.length){ const old = Math.max(...open.map(rtAge)), late = open.filter(r => rtAge(r) >= rtWarnDays()).length; add('待處理退貨', late > 0, '待處理退貨 ' + open.length + ' 筆', late ? late + ' 筆已超過 ' + rtWarnDays() + ' 天沒動（最久 ' + old + ' 天）' : '最久 ' + old + ' 天', openReturnMgmt); } }
   if (tabAllowed('acc') && fxOn('notes')){ const due = Object.values(S.notes).filter(n => NOTE_OPEN.has(n.status) && daysBetween(today(), n.dueDate) <= 7); if (due.length){ const over = due.filter(n => daysBetween(today(), n.dueDate) < 0).length, first = due.map(n => n.dueDate).sort()[0]; add('近期到期票據', over > 0, '近期到期票據 ' + due.length + ' 張', over ? over + ' 張已過到期日' : '最早 ' + mdw(first) + ' 到期', () => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }); } }
   if (can('stock') && fxOn('replenish') && replenOn()){ const pl = replenPlan(); if (pl.rows.length) add('調庫補貨提示', false, whName(pl.dst) + ' 有 ' + pl.rows.length + ' 項低於安全庫存', '可以依規則從「' + whName(pl.src) + '」調庫補貨', openReplenish); }
@@ -972,7 +979,7 @@ function orderRow(o){
       h('span', {style:'min-width:0'}, h('b', null, o.no, reviewTag('order', o)), h('br'), h('small', {text:pt ? pt.name : (o.bomName ? o.bomName + ' × ' + num(o.bomQty) : o.type === 'transfer' ? whName(o.whFrom) + ' → ' + whName(o.whTo) : (T.partner ? '未指定' + PLABEL[T.partner] : '庫存調整' + (multiWh() ? '（' + whName(orderWh(o)) + '）' : '')))}))),
     h('span', {class:'right'},
       (T.money && !(buyT(o.type) && !see('cost'))) ? h('b', {text:money(o.total)}) : h('b', {text:(o.lines || []).length + ' 項'}), h('br'),
-      o.status === 'void' ? h('small', {text:'已作廢'}) : ((due > 0.004 || due < -0.004) && !(buyT(o.type) && !see('cost')) ? h('small', {text:'未結 ' + money(due)}) : h('small', {text:o.date}))));
+      o.status === 'void' ? h('small', {text:'已作廢'}) : ((due > 0.004 || due < -0.004) && !(buyT(o.type) && !see('cost')) ? h('small', {text:(codWaiting(o) ? '待送達 ' : (cashPending(o) ? '待沖帳 ' : '未結 ')) + money(due)}) : h('small', {text:o.date}))));
 }
 
 function pHome(){
@@ -1431,7 +1438,7 @@ function openOrder(type, pre){
       pm:!!l.pm, price0:Number(l.price) || 0, promo0:l.promoId && !l.gift ? {id:l.promoId, name:l.promoName || '', base:Number(l.basePrice) || 0} : null, ...(l.gift ? {gift:true, promoId:l.promoId || null, promoName:l.promoName || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
     const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' || type === 'sale_return' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
-    if (type === 'sale' && editO.codWait === true){ st.pay = 'cash'; st.paid = ''; }   /* -dp：待送達收款的單，原本選的是銷貨收現 */
+    if (type === 'sale' && (editO.cashSale === true || editO.codWait === true)){ st.pay = 'cash'; st.paid = ''; }   /* -dr：銷貨收現（待沖帳）的單，原本選的是銷貨收現 */
   }
   const stockEff = pid => stockAt(pid, st.wh) + ((editO && orderWh(editO) === st.wh) ? (oldQty[pid] || 0) : 0);
   st.payTouched = false;
@@ -1443,7 +1450,12 @@ function openOrder(type, pre){
   if (editO && type === 'sale') st.ship = {addr:editO.shipAddress || '', contact:editO.shipContact || '', phone:editO.shipPhone || '', spot:editO.shipSpot || '', special:editO.shipSpecial || '', only:!!editO.shipOnly, method:editO.shipMethod || '', touched:{addr:true, contact:true, phone:true, spot:true, method:true}}; else shipFill();
   st.driver = editO ? (editO.driver || '') : ''; st.driverTouched = !!editO;
   /* -dp：銷貨收現＋需要送貨（有選客戶、送貨方式不是自取）→ 貨款等送完貨才沖帳。修改舊單時，只有原本就是待送達收款的才維持，其他舊單照舊 */
-  const codHold = () => type === 'sale' && st.pay === 'cash' && codNeedShip(st.ship.method, st.partnerId) && (!editO || editO.codWait === true);
+  /* -dr：銷貨收現（有選客戶）→ 不自動沖帳：已收 0、不記零用金，單據標「待沖帳」，收到現金後人工按「沖帳」。
+     修改以前已經收現的舊單（已收 > 0、不是待沖帳）不動它；沒選客戶（散客）沒有應收帳款可沖，照舊當場收現。
+     其中需要送貨的（送貨方式不是自取）要等「確認送達」才能沖帳。 */
+  const legacyPaid = !!editO && (Number(editO.paid) || 0) > 0.004 && editO.cashSale !== true && editO.codWait !== true;
+  const cashHold = () => type === 'sale' && st.pay === 'cash' && !!st.partnerId && !legacyPaid;
+  const codHold = () => cashHold() && codNeedShip(st.ship.method, st.partnerId) && !(editO && editO.codDone);
   st.deliv = editO ? (editO.deliveryDate || editO.date) : st.date; st.delivTouched = !!(editO && editO.deliveryDate && editO.deliveryDate !== editO.date);
   if (!editO && pre.deliv && pre.deliv > st.date){ st.deliv = pre.deliv; st.delivTouched = true; }
   st.urgent = !!(editO && editO.urgent); st.collect = !!(editO && editO.collect && editO.codWait !== true);   /* -dp：待送達收款的單自動蓋「順收貨款」，不算手動勾的 */ st.store = editO ? (editO.store || '') : '';
@@ -1833,7 +1845,7 @@ function openOrder(type, pre){
     if (T.money && !(buyT(type) && !buyOn())){
       taxBox.textContent = taxLine(ts, st.taxType, st.taxMode);
       payInfo.textContent = type === 'sale_return' ? (st.pay === 'none' ? '沖減應收帳款 ' + money(st.total) + '（銷貨的負值：客戶的應收帳款減少）' : st.pay === 'full' ? '已退款 ' + money(st.total) + '（已經把錢退給客戶，應收帳款不變）' : '已退款 ' + money(Math.min(mInt(toNum(st.paid)), st.total)) + '，其餘 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)) + ' 沖減應收帳款') :
-        st.pay === 'cash' ? (codHold() && st.total > 0.004 ? '銷貨收現・送貨：貨款 ' + money(st.total) + ' 等送完貨、確認收到現金後才沖帳（還不會記入零用金；送達前先掛在應收帳款，單據自動蓋「順收貨款」）' : '銷貨收現：現金 ' + money(st.total) + '，記入零用金') : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
+        st.pay === 'cash' ? (cashHold() && st.total > 0.004 ? (codHold() ? '銷貨收現・送貨：貨款 ' + money(st.total) + '，系統不會自動沖帳（先掛在應收帳款、不記零用金）。送完貨按「確認送達」，收到現金後按「沖帳」，由人工到沖帳系統沖帳；單據自動蓋「順收貨款」' : '銷貨收現：貨款 ' + money(st.total) + '，系統不會自動沖帳（先掛在應收帳款、不記零用金）。收到現金後，按單據上的「沖帳」，由人工到沖帳系統沖帳') : '銷貨收現：現金 ' + money(st.total) + '，記入零用金' + (type === 'sale' && !st.partnerId ? '（沒選客戶，沒有應收帳款可沖，直接記為已收）' : '')) : st.pay === 'full' ? T.paidLabel + ' ' + money(st.total) : (st.pay === 'none' ? (type === 'sale' ? '月結：未收 ' + money(st.total) + '，記入應收帳款' : '尚未' + T.paidLabel.slice(1) + '，未結 ' + money(st.total)) : '未結 ' + money(Math.max(mInt(st.total - toNum(st.paid)), 0)));
     }
   }
   const TAXOPT = [['taxable', 'excl', '應稅・未稅價'], ['taxable', 'incl', '應稅・含稅價'], ['zero', 'excl', '零稅率'], ['exempt', 'excl', '免稅']];
@@ -1947,10 +1959,11 @@ function openOrder(type, pre){
     const ts = isAdj ? {net:0, tax:0, total:0} : taxSplit(sum, st.taxType, st.taxMode);
     const total = ts.total;
     let paid = 0;
-    const hold = codHold() && total > 0.004;   /* -dp：待送達收款（paid 先是 0） */
+    const hold = codHold() && total > 0.004;   /* -dp：需要送貨、等確認送達才能沖帳 */
+    const cashHoldNow = cashHold() && total > 0.004;   /* -dr：銷貨收現，不自動沖帳（paid 先是 0） */
     if (T.money){
       if (buyT(type) && !buyOn() && !st.partnerId && !editO) st.pay = 'full';
-      paid = hold ? 0 : ((st.pay === 'full' || st.pay === 'cash') ? total : (st.pay === 'none' ? 0 : mInt(toNum(st.paid))));
+      paid = cashHoldNow ? 0 : ((st.pay === 'full' || st.pay === 'cash') ? total : (st.pay === 'none' ? 0 : mInt(toNum(st.paid))));
       if (paid < 0 || paid > total) return toast(T.paidLabel + '金額需介於 0 與合計之間');
       if (total - paid > 0.004 && !st.partnerId) return toast('有未結金額時，請指定' + PLABEL[T.partner]);
     }
@@ -1986,7 +1999,7 @@ function openOrder(type, pre){
         for (const x of editO.lines || []) if (!pids.has(x.pid) && returnedQty(editO.id, x.pid) > 0.0004) return toast('「' + x.name + '」已有退貨，不能移除');
       }
       saving = true; saveBtn.disabled = true;
-      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:hold ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), codWait:hold, codAmt:hold ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:cashHoldNow ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), cashSale:cashHoldNow, codWait:hold, codAmt:cashHoldNow ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
       saving = false; saveBtn.disabled = false;
       if (ok){ toast('已更新 ' + editO.no); sh.forceClose(); }
       return;
@@ -1996,7 +2009,7 @@ function openOrder(type, pre){
     if (phList.length){ const okP = await run(async () => { await savePhotoDocs(phList); return true; }); if (!okP){ saving = false; saveBtn.disabled = false; return; } }
     const doc = await run(() => createOrder(type, {date:st.date, partnerId:st.partnerId, lines, total, paid, note:st.note.trim(),
       tax:T.money ? {net:ts.net, tax:ts.tax, type:st.taxType, mode:st.taxType === 'taxable' ? st.taxMode : 'excl'} : null,
-      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:hold ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), codWait:hold, codAmt:hold ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
+      extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:cashHoldNow ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), cashSale:cashHoldNow, codWait:hold, codAmt:cashHoldNow ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
     saving = false; saveBtn.disabled = false;
     if (!doc && phList.length) deletePhotoDocs(phList.map(x => x.id));
     if (doc && pre.rtn) S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no)}).catch(() => null);
@@ -2027,6 +2040,7 @@ function openOrderDetail(id){
     const canDel = o.type === 'sale' && can('void') && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
     const canEdit = o.type === 'sale' && !isVoid && !revLocked && can('sale') && fxOn('sale') && (S.isAdmin || (o.by && o.by === S.meId));
     const canPay = can('pay') && fxOn((pt ? pt.type : T.partner) === 'supplier' ? 'ap' : 'settle') && !isVoid && T.money === 1 && o.partnerId && due > 0.004 && !codWaiting(o);
+    const cashP = cashPending(o);   /* -dr：銷貨收現，等人工沖帳 */
     const canCod = codWaiting(o) && !isVoid && S.canWrite && (can('sale') || can('pay') || canField() || S.isAdmin);   /* -dp */
     const body = h('div', null,
       h('div', {class:'dhead'}, h('span', {class:'tag ' + dirCls(T), text:T.short}), h('div', null, h('b', {class:'big', text:o.no}), h('small', {text:T.label + '　' + o.date}))),
@@ -2056,10 +2070,10 @@ function openOrderDetail(id){
         isMonthTax(o) && o.taxConv ? kv('改成月底算稅', fmtDT(o.taxConv.at) + (o.taxConv.byName ? '　' + o.taxConv.byName : '') + '（原本稅金 ' + money(o.taxConv.tax) + '）') : null,
         o.type === 'sale_return' && o.retConv ? kv('改成沖減應收', fmtDT(o.retConv.at) + (o.retConv.byName ? '　' + o.retConv.byName : '') + '（原本記成已退款 ' + money(o.retConv.paid) + '）') : null,
         kv('合計', money(total)), kv(T.paidLabel, money(paid)), o.type === 'sale' && o.paidMethod && paid > 0 ? kv('收款方式', o.paidMethod === 'cash' ? (o.codDone ? '現金（銷貨收現・送達後收款）' : '現金（銷貨收現）') : '已結清（非現金）') : null,
-        codWaiting(o) ? kv('貨款', h('span', {class:'soon', 'aria-label':'待送達收款', text:'待送達收款 ' + money(codAmtOf(o)) + '（送完貨、確認收到現金才沖帳）'})) : null,
+        codWaiting(o) ? kv('貨款', h('span', {class:'soon', 'aria-label':'待送達', text:'待送達　貨款 ' + money(codAmtOf(o)) + '（銷貨收現：送完貨、按「確認送達」後，才能沖帳）'})) : (cashP ? kv('貨款', h('span', {class:'soon', 'aria-label':'待沖帳', text:'待沖帳　貨款 ' + money(due) + '（銷貨收現：收到現金後，按「沖帳」由人工沖帳）'})) : null),
         o.codDone && o.deliveredDate ? kv('送達', o.deliveredDate + (o.deliveredByName ? '　' + o.deliveredByName : '') + (o.codNote ? '　' + o.codNote : '')) : null, kv('未結', money(due)),
         T.money === 1 && pt ? kv('所屬帳期', cycleLabel(docBillMonth(o, pt), cutoffOf(pt)) + (BM_RE.test(String(o.bm || '')) && (o.type === 'sale' || o.type === 'sale_return') ? '（指定的帳款月份）' : '')) : null,
-        T.money === 1 && pt && due > 0.004 && !isVoid && !codWaiting(o) ? kv('到期日', dueDateOf(o) + (daysBetween(dueDateOf(o), today()) > 0 ? '（逾期 ' + daysBetween(dueDateOf(o), today()) + ' 天）' : '')) : null) : null,
+        T.money === 1 && pt && due > 0.004 && !isVoid && !awaitCash(o) ? kv('到期日', dueDateOf(o) + (daysBetween(dueDateOf(o), today()) > 0 ? '（逾期 ' + daysBetween(dueDateOf(o), today()) + ' 天）' : '')) : null) : null,
       pays.length ? [h('div', {class:'sec-h'}, h('h2', {text:'沖銷紀錄'})),
         h('div', {class:'panel'}, pays.map(pm => h('button', {class:'mv', style:'grid-template-columns:1fr auto', onclick:() => openPaymentDetail(pm.id)},
           h('span', null, h('b', {text:pm.no}), h('br'), h('small', {text:pm.date + '　' + METHODS[pm.method]})),
@@ -2075,8 +2089,8 @@ function openOrderDetail(id){
     if (o.type === 'sale' && !isVoid && canDErr() && fxOn('perf')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記配送錯誤', onclick:() => openDErrForm({orderId:id})}, '登記配送錯誤'));
     if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('picking')) foot.push(h('button', {class:'btn ghost', 'aria-label':'揀貨', onclick:() => openPickOrder(id)}, '揀貨'));
     if (o.type === 'sale' && !isVoid && (can('sale') || can('stock')) && fxOn('returns')) foot.push(h('button', {class:'btn ghost', 'aria-label':'登記退貨處理', onclick:() => openReturnForm({srcOrder:id})}, '登記退貨處理'));
-    if (canCod) foot.push(h('button', {class:'btn grow', 'aria-label':'確認送達收款', onclick:() => openCodConfirm(id)}, '確認送達收款'));
-    if (canPay) foot.push(h('button', {class:'btn grow', onclick:() => openPayment({type:pt ? pt.type : T.partner, partnerId:o.partnerId, orderId:id})}, T.partner === 'customer' ? '登記收款' : '登記付款'));
+    if (canCod) foot.push(h('button', {class:'btn grow', 'aria-label':'確認送達', onclick:() => openCodConfirm(id)}, '確認送達'));
+    if (canPay) foot.push(h('button', {class:'btn grow', 'aria-label':cashP ? '沖帳' : '登記收款', onclick:() => openPayment({type:pt ? pt.type : T.partner, partnerId:o.partnerId, orderId:id})}, cashP ? '沖帳' : (T.partner === 'customer' ? '登記收款' : '登記付款')));
     return {body, foot, title:T.label};
   });
 }
@@ -2576,7 +2590,7 @@ function aging(type){
     const T = TYPES[o.type]; if (!T || T.money !== 1) continue;
     const pt = S.partners[o.partnerId]; if (!pt || pt.type !== type) continue;
     const due = dueOf(o); if (due <= 0.004) continue;
-    const i = codWaiting(o) ? 0 : ageIdx(daysBetween(dueDateOf(o), t));   /* -dp：待送達收款不算逾期 */
+    const i = awaitCash(o) ? 0 : ageIdx(daysBetween(dueDateOf(o), t));   /* -dp／-dr：待送達、待沖帳的銷貨收現不算逾期 */
     const r = byP[o.partnerId] || (byP[o.partnerId] = {b:[0, 0, 0, 0, 0], open:0});
     r.b[i] = r2(r.b[i] + due); r.open = r2(r.open + due); tot[i] = r2(tot[i] + due);
   }
@@ -2711,7 +2725,7 @@ async function createPayment(o){
 
 function openPayment(opts){
   opts = opts || {};
-  if (opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單的貨款要等送完貨、確認收到現金後才能沖帳（單據詳情按「確認送達收款」）');
+  if (opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單要等送完貨、按「確認送達」後才能沖帳（單據詳情按「確認送達」）');
   const type = opts.type || (opts.partnerId && S.partners[opts.partnerId] ? S.partners[opts.partnerId].type : 'customer');
   if (!fxGate(type === 'supplier' ? 'ap' : 'settle')) return;
   const dir = type === 'customer' ? 'in' : 'out', P = PAY[dir];
@@ -3046,10 +3060,10 @@ function openStatement(pid){
       isAR ? mtaxStmtPanel(pt) : null,
       h('div', {class:'sec-h'}, h('h2', {text:'未結單據'})),
       dues.length ? h('div', {class:'panel', style:'margin-bottom:14px'}, dues.map(o => {
-        const late = codWaiting(o) ? 0 : daysBetween(dueDateOf(o), t);
+        const late = awaitCash(o) ? 0 : daysBetween(dueDateOf(o), t);
         return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
           h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:'到期 ' + dueDateOf(o) + '　' + docBillMonth(o, pt) + ' 帳'})),
-          h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達收款' : '未到期'})));
+          h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達' : (cashPending(o) ? '待沖帳' : '未到期')})));
       })) : h('div', {class:'panel empty', style:'margin-bottom:14px', text:'沒有未結單據'}),
       notes.length ? [h('div', {class:'sec-h'}, h('h2', {text:'未結票據'})), h('div', {class:'panel', style:'margin-bottom:14px'}, notes.map(noteRow))] : null,
       h('div', {class:'sec-h'}, h('h2', {text:'收付款紀錄'})),
@@ -4290,7 +4304,7 @@ const PAPERS = {
   a4:         ['A4 單張', 210, 297, {fs:14, mt:12, mr:12, mb:12, ml:12}],
   custom:     ['自訂尺寸', 0, 0, {}]
 };
-const PRINT_DEFAULT = {mode:'form', form:'north', paper:'9.5x5.5', w:241.3, h:139.7, fsv2:1, fs:12, mt:5, mr:8, mb:6, ml:8, ox:0, oy:0, price:true, listp:false, sku:true, bold:true, qr:true, spStamp:true, ss:true, qrSize:0, qx:0, qy:0, auto:false};
+const PRINT_DEFAULT = {mode:'form', form:'north', paper:'9.5x5.5', w:241.3, h:139.7, fsv2:1, fs:12, mt:5, mr:8, mb:6, ml:8, ox:0, oy:0, price:true, listp:false, sku:true, bold:true, qr:true, spStamp:true, ss:true, rcStamp:true, qrSize:0, qx:0, qy:0, auto:false};
 const PRINT_KEY = 'slipPrefs2';
 function loadPrint(){
   try {
@@ -4416,6 +4430,7 @@ function slipHTML(o, P, standalone){
   const totalRow = showPrice
     ? '<div class="tot"><span class="caps">' + (caps ? '新台幣 ' + twCaps(total) : '') + '</span>' + (compact ? taxTxt + pay : '') + '<span><b>合計 ' + e(S.set.cur || '') + n2(total) + '</b></span></div>' + (!compact && (pay || taxTxt) ? '<div class="pay">' + taxTxt + (taxTxt && pay ? '　' : '') + pay + '</div>' : '')
     : '<div class="tot"><span>共 ' + lines.length + ' 項</span><span><b>數量合計 ' + n2(qtySum) + '</b></span></div>';
+  const rcBlk = !isRet && cashStampOn(o) && P.rcStamp !== false ? '<div class="rcs"><span class="stp">銷貨收款</span></div>' : '';
   const sn = slipNoteOf(o), notes = [sn ? '備註：' + e(sn) : '', S.set.slipNote ? e(S.set.slipNote) : ''].filter(Boolean).join('　');
   const css = '@page{size:' + w + 'mm ' + hh + 'mm;margin:' + P.mt + 'mm ' + P.mr + 'mm ' + P.mb + 'mm ' + P.ml + 'mm;@bottom-right{content:counter(page) " / " counter(pages);font-size:7pt}}' +
     '*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000}' +
@@ -4431,7 +4446,7 @@ function slipHTML(o, P, standalone){
     '.c{text-align:center}.r{text-align:right;white-space:nowrap}' +
     '.bot{break-inside:avoid;page-break-inside:avoid;margin-top:' + (compact ? '2px' : '5px') + '}' +
     '.tot{display:flex;justify-content:space-between;gap:12px;border:1px solid #000;padding:' + (compact ? '0 5px' : '2px 6px') + '}.tot .caps{flex:1}' +
-    '.pay{display:flex;justify-content:flex-end;margin-top:2px}.note{margin-top:2px;font-weight:400;font-size:' + Math.max(fs - 1, 7) + 'pt}' +
+    '.rcs{display:flex;justify-content:flex-end;padding:.6mm 4mm 0 0}.rcs .stp{display:inline-block;font-size:' + (compact ? '10' : '12') + 'pt;padding:.2mm 2.2mm;border-width:.45mm;letter-spacing:.4mm;transform:rotate(2deg);transform-origin:right center}.pay{display:flex;justify-content:flex-end;margin-top:2px}.note{margin-top:2px;font-weight:400;font-size:' + Math.max(fs - 1, 7) + 'pt}' +
     '.sign{display:grid;grid-template-columns:repeat(4,1fr);margin-top:' + (compact ? '2px' : '6px') + ';border:1px solid #000}.sign div{padding:' + (compact ? '0 5px 9px' : '2px 6px 22px') + ';border-left:1px solid #000;font-weight:400}.sign div:first-child{border-left:0}' +
     '.pt{margin-top:2px;font-size:7pt;font-weight:400;text-align:right}' +
     '@media screen{body{background:#dfe3e8;padding:12px}.paper{background:#fff;width:' + w + 'mm;min-height:' + hh + 'mm;margin:0 auto;padding:' + P.mt + 'mm ' + P.mr + 'mm ' + P.mb + 'mm ' + P.ml + 'mm;box-shadow:0 1px 6px rgba(0,0,0,.25)}.bar{max-width:' + w + 'mm;margin:0 auto 10px;font:14px "Microsoft JhengHei",sans-serif;display:flex;gap:12px;align-items:center}.bar button{font:inherit;padding:6px 16px}}' +
@@ -4441,7 +4456,7 @@ function slipHTML(o, P, standalone){
     (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>印表機請選 EPSON LQ-690C，紙張選中一刀（9.5×5.5 吋）；邊界選「無」、比例 100%，並取消頁首頁尾。</span></div>' : '') +
     '<div class="paper"><div class="sheet">' + stampsFull + '<table class="it"><thead><tr><td class="hd" colspan="' + ncol + '">' + head + '</td></tr>' +
     '<tr><th class="h" style="width:5%">項次</th>' + (showSku ? '<th class="h">料號</th>' : '') + '<th class="h">品名</th><th class="h">數量</th><th class="h">單位</th>' + (showList ? '<th class="h">定價</th><th class="h">折數</th>' : '') + (showPrice ? '<th class="h">單價</th><th class="h">金額</th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<div class="bot">' + totalRow + (notes ? '<div class="note">' + notes + '</div>' : '') +
+    '<div class="bot">' + totalRow + rcBlk + (notes ? '<div class="note">' + notes + '</div>' : '') +
     '<div class="sign"><div>製單' + (madeBy ? '：' + e(madeBy) : '') + '</div><div>' + (isRet ? '驗收' : '送貨' + (o.driver ? '：' + e(o.driver) : '')) + '</div><div>主管</div><div>' + (isRet ? '客戶退貨人' : '客戶簽收') + '</div></div>' +
     (compact ? '' : '<div class="pt">列印時間 ' + e(new Date().toLocaleString('zh-TW', {hour12:false})) + '</div>') + '</div>' +
     '</div></div></body></html>';
@@ -4573,7 +4588,13 @@ function slipEnv(L, local, opt, fs, title){
     let em = 0; for (const ch of txt) em += ch.charCodeAt(0) > 255 ? 1 : 0.6; const tw = Math.min(em * fz * 0.3528, at.w);
     return '<div class="stp stp-in" style="position:absolute;left:' + rd(at.x + tw + 3) + 'mm;top:' + rd(at.y - 0.8) + 'mm">指送</div>';
   };
-  return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp, storeStamp};
+  /* -dr：「銷貨收款」戳章蓋在合計數字的正下方（右邊對齊）；列印設定可關閉、可再微調位置（rcx／rcy） */
+  const rcStamp = (o, at) => {
+    if (!cashStampOn(o) || (local && local.rc === false) || !at) return '';
+    const rd = v => Math.round(v * 100) / 100, fz = L.w < 200 ? 9 : 11.5, dx = has(local && local.rcx) ? toNum(local.rcx) : 0, dy = has(local && local.rcy) ? toNum(local.rcy) : 0;
+    return '<div class="stp stp-rc" style="position:absolute;right:' + rd(L.w - at.xr - dx) + 'mm;top:' + rd(Math.min(at.y + 4 + dy, L.h - 9)) + 'mm;font-size:' + fz + 'pt;padding:.3mm 1.6mm;letter-spacing:.3mm;transform:rotate(2deg);transform-origin:right top">銷貨收款</div>';
+  };
+  return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp, storeStamp, rcStamp};
 }
 function slipRows(o, F, per){
   const c = invCalc(o, {mode:F.mode, taxType:F.taxType, merge:false});
@@ -4619,7 +4640,7 @@ function slipFormHTML(o, F, L, local, opt){
     if (note) h += '<div class="f nt" style="left:' + f.note.x + 'mm;top:' + f.note.y + 'mm;width:' + L.noteW + 'mm;height:' + (L.noteLines * L.notePitch) + 'mm;line-height:' + L.notePitch + 'mm;font-size:' + env.upFs(hfs) + 'pt">' + e(note) + '</div>';
     const pageSum = pr.reduce((a, r) => a + r.amt, 0);
     h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
-    if (last){ h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}); }
+    if (last){ h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y}); }
     if (F.driver && f.driver) h += T(f.driver.x, f.driver.y, F.driver, {w:28, fs:hfs});
     if (F.maker) h += T(f.maker.x, f.maker.y, F.maker, {w:34, fs:hfs});
     if (opt.grid) h += env.gridHtml();
@@ -4664,7 +4685,7 @@ function slipSouthHTML(o, F, L, local, opt){
     if (note.trim()) h += T(f.note.x, f.note.y, note, {w:28.5, fs:hfs});
     const pageSum = pr.reduce((a, r) => a + r.amt, 0);
     h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
-    if (last) h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w});
+    if (last) h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y});
     if (opt.grid) h += env.gridHtml();
     return '<div class="form"><div class="in">' + h + '</div></div>';
   }).join('');
@@ -4674,7 +4695,7 @@ function slipSouthHTML(o, F, L, local, opt){
 function slipFormSample(){
   const lines = [{sku:'A1001', name:'礦泉水 600ml 24 入', unit:'箱', qty:12, price:180}, {sku:'A1002', name:'綠茶 500ml 24 入 檸檬口味加大裝', unit:'箱', qty:10, price:250}, {sku:'B2001', name:'蘇打餅乾 家庭號', unit:'包', qty:5, price:320}];
   const total = lines.reduce((a, l) => a + l.qty * l.price, 0);
-  return {o:{no:'SO260921-TEST', date:today(), lines, total, type:'sale'}, F:{code:'C001', name:'測試股份有限公司', addr:'台北市中正區測試路 1 號 5 樓', ship:'台北市內湖區測試路 8 號', tel:'02-1234-5678', contact:'王小姐', tax:'12345678', inv:'AB-12345678', sales:'王小明', wh:'A 倉', dm:0, mode:'excl', taxType:'taxable', note:'週五前送達', driver:'李大哥', maker:'王小明'}};
+  return {o:{no:'SO260921-TEST', date:today(), lines, total, type:'sale', rcDemo:true}, F:{code:'C001', name:'測試股份有限公司', addr:'台北市中正區測試路 1 號 5 樓', ship:'台北市內湖區測試路 8 號', tel:'02-1234-5678', contact:'王小姐', tax:'12345678', inv:'AB-12345678', sales:'王小明', wh:'A 倉', dm:0, mode:'excl', taxType:'taxable', note:'週五前送達', driver:'李大哥', maker:'王小明'}};
 }
 function slipSouthSample(){
   const s = slipFormSample();
@@ -4686,7 +4707,9 @@ const zheTxt = pct => { const z = r3(Number(pct) / 100); return isFinite(z) && z
 const zheIn = ln => Number(ln.list) > 0 ? zheTxt(ln.disc) : '';
 const parseZhe = v => { const n = toNum(v); if (!(n > 0)) return null; if (n <= 1) return r3(n * 100); return n <= 10 ? r2(n * 10) : r2(n); };
 const discNote = l => (Number(l.listPrice) > 0 && Number(l.disc) > 0 && Math.abs(Number(l.disc) - 100) > 0.004) ? '定價 ' + money(l.listPrice) + '・折數 ' + zheTxt(l.disc) : '';
-const stampItems = o => { const a = []; if (o && o.type === 'sale'){ if (o.paidMethod === 'cash' && (o.total || 0) > 0 && (o.paid || 0) >= (o.total || 0) - 0.004) a.push('銷貨收現'); if (o.urgent) a.push('早一點'); if (o.collect) a.push('順收貨款'); if (o.store) a.push(o.store + ' 叫貨'); } return a; };
+/* -dr：銷貨收現的單據，列印時在合計金額下方蓋「銷貨收款」戳章（和右上角的「銷貨收現」「順收貨款」是各自獨立的）。rcDemo＝列印設定的範例單，讓人調整位置。 */
+const cashStampOn = o => !!o && o.type === 'sale' && o.status !== 'void' && (o.cashSale === true || o.codWait === true || o.rcDemo === true || (o.paidMethod === 'cash' && (o.total || 0) > 0 && (o.paid || 0) >= (o.total || 0) - 0.004));
+const stampItems = o => { const a = []; if (o && o.type === 'sale'){ if ((o.paidMethod === 'cash' && (o.total || 0) > 0 && (o.paid || 0) >= (o.total || 0) - 0.004) || (o.cashSale === true && !o.collect)) a.push('銷貨收現'); if (o.urgent) a.push('早一點'); if (o.collect) a.push('順收貨款'); if (o.store) a.push(o.store + ' 叫貨'); } return a; };
 const STAMP_CSS = '.stp{border:.7mm solid #000;border-radius:1.4mm;padding:.5mm 2.4mm;font:900 15pt \"Microsoft JhengHei\",\"PingFang TC\",\"Noto Sans TC\",sans-serif;letter-spacing:.6mm;white-space:nowrap;line-height:1.15;transform-origin:left top}@media screen{.stp{color:#c00;border-color:#c00}}';
 const STAMP_ROT = [-9, 5, -4];
 const buyOn = () => see('cost') && !!S.ui.showBuy;
@@ -4808,7 +4831,7 @@ const SLIPFORMS = {
     fields:[[['type', '單據類別'], ['code', '商號代碼']], [['short', '商號簡稱'], ['tel', '電話']], [['ship', '送貨地點']], [['maker', '製單員'], ['carrier', '承運人員']], [['inv', '發票號碼']]]}
 };
 
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, shipLine:x => shipLine(x), stationOffset:(...x) => stationOffset(...x), printNow:(...x) => printNow(...x), openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipFormForTest:{slipFormSample, SLIPFORMS, SLIPFORM_DEFAULT, SLIPFORM_SOUTH_DEFAULT, FORM_BG_NORTH, slipFormHTML, slipSouthHTML, slipFormLayout:id => slipFormLayout(id), layoutDiffs, layoutDiffTxt, driftTestHTML, shipLine:x => shipLine(x), stationOffset:(...x) => stationOffset(...x), printNow:(...x) => printNow(...x), openPrint:x => openPrint(x), openSlipFormLayout:(...x) => openSlipFormLayout(...x)}}); } catch (_) {}
 function openSlipFormLayout(id, reset){
   id = id || 'north'; const tp = layoutTp(id);
   const L = clone(reset ? tp.def : slipFormLayout(id)), local = slipFormLocal(id), smp = tp.sample();
@@ -4935,7 +4958,7 @@ function openPrint(ref){
   const fullCtl = h('div', null,
     h('div', {class:'f2'}, fld('紙張', paperSel), fld('字級', fsSel)),
     customRow,
-    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章'), chk('ss', '單據選了叫貨店面時，把「○○店 叫貨」戳章印在客戶名稱後面，不再蓋在右上角'),
+    chk('price', '顯示單價與金額（取消＝出貨單，不含價格）'), chk('listp', '同時顯示定價與折數（單據有記錄時）'), chk('sku', '顯示料號'), chk('bold', '加粗字體（多聯複寫比較清楚）'), chk('qr', '單號後面印銷貨單編號 QR Code（手機掃一下就能找到這張單據）'), chk('spStamp', '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章'), chk('ss', '單據選了叫貨店面時，把「○○店 叫貨」戳章印在客戶名稱後面，不再蓋在右上角'), chk('rcStamp', '銷貨收現的單據，在合計金額下方蓋「銷貨收款」戳章'),
     h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'進階：邊界與位置微調（mm）'}),
       h('div', {style:'display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px'}, num_('mt', '上邊界'), num_('mr', '右邊界'), num_('mb', '下邊界'), num_('ml', '左邊界')),
       h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, num_('ox', '整體右移'), num_('oy', '整體下移')),
@@ -5010,7 +5033,9 @@ function openPrint(ref){
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（送貨地址本身一定改印特別地址）'),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ss !== false, 'aria-label':'套表印分店戳章', onchange:e => { if (e.target.checked) delete local.ss; else local.ss = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單據選了叫貨店面時，把「○○店 叫貨」戳章蓋在客戶編號上方（例如「八德店 叫貨」；中南區表單會稍微靠右，避開預印的單據類別）'),
         local.ss !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['ssx', '分店戳章 再往右（mm，可填負數）'], ['ssy', '分店戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
-        local.qr !== false ? h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px'}, ...[['qs', 'QR 大小（mm）', (slipFormLayout(tp.id).w || 241) < 200 ? '11' : '12'], ['qdx', 'QR 再往右（mm，可填負數）', '0'], ['qdy', 'QR 再往下（mm，可填負數）', '0']].map(([k, t, d0]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + d0, 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
+        h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.rc !== false, 'aria-label':'套表印銷貨收款戳章', onchange:e => { if (e.target.checked) delete local.rc; else local.rc = false; saveSlipFormLocal(local, tp.id); paint(); }}), '銷貨收現的單據，在合計金額下方蓋「銷貨收款」戳章（右邊對齊合計數字）'),
+    local.rc !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['rcx', '銷貨收款戳章 再往右（mm，可填負數）'], ['rcy', '銷貨收款戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
+    local.qr !== false ? h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px'}, ...[['qs', 'QR 大小（mm）', (slipFormLayout(tp.id).w || 241) < 200 ? '11' : '12'], ['qdx', 'QR 再往右（mm，可填負數）', '0'], ['qdy', 'QR 再往下（mm，可填負數）', '0']].map(([k, t, d0]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + d0, 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
         h('ol', {style:'margin:10px 0 0 18px;font-size:14px;color:var(--ink2)'},
           h('li', {text:'Windows「印表機與掃描器」→ 列印伺服器內容 → 建立新格式（例如「' + tp.name + '」），尺寸 ' + tp.paperMm + '；LQ-690C 的列印喜好設定選這個紙張，進紙來源選後方拖曳進紙，導入紙張讓第一行對齊列印頭。'}),
           h('li', {text:'瀏覽器列印視窗：印表機選 EPSON LQ-690C、邊界選「無」、比例 100%，取消頁首頁尾與背景圖形。'}),
@@ -5739,7 +5764,7 @@ function splitAlloc(list, amounts){
   return out;
 }
 function openSettle(opts){
-  if (opts && opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單的貨款要等送完貨、確認收到現金後才能沖帳（單據詳情按「確認送達收款」）');
+  if (opts && opts.orderId && codWaiting(S.orders[opts.orderId])) return toast('這張單要等送完貨、按「確認送達」後才能沖帳（單據詳情按「確認送達」）');
   if (!fxGate(opts && opts.type === 'supplier' ? 'ap' : 'settle')) return;
   opts = opts || {};
   const type = opts.type || 'customer', dir = type === 'customer' ? 'in' : 'out', L = type === 'customer' ? '收款' : '付款';
@@ -6142,7 +6167,7 @@ function collectRows(from, to){
     if (o.type !== 'sale' || o.status === 'void' || !(inR(o.date) || ((o.paid || 0) > 0.004 && inR(paidDateOf(o))))) continue;
     const pt = S.partners[o.partnerId], cust = pt ? (pt.shortName || pt.name) : '散客', col = collectorOf(o);
     if ((o.paid || 0) > 0.004 && inR(paidDateOf(o))) rows.push({kind:o.paidMethod === 'other' ? 'paid' : 'cash', src:'order', id:o.id, no:o.no, cust, amount:o.paid, col, note:o.paidMethod === 'other' ? '已結清（非現金）' : '銷貨收現'});
-    const due = dueOf(o); if (due > 0.004 && o.partnerId && inR(o.date)) rows.push({kind:'unpaid', src:'order', id:o.id, no:o.no, cust, amount:due, col, note:codWaiting(o) ? '待送達收款（送達後才沖帳）' : '未收款（記帳）'});
+    const due = dueOf(o); if (due > 0.004 && o.partnerId && inR(o.date)) rows.push({kind:'unpaid', src:'order', id:o.id, no:o.no, cust, amount:due, col, note:codWaiting(o) ? '待送達（送達後才能沖帳）' : (cashPending(o) ? '待沖帳（銷貨收現）' : '未收款（記帳）')});
   }
   for (const pm of Object.values(S.payments)){
     if (pm.dir !== 'in' || pm.status === 'void' || !inR(pm.date)) continue;
@@ -6669,7 +6694,7 @@ function deliveryRows(day, drv){
   for (const o of Object.values(S.orders)){
     if (o.type !== 'sale' || o.status === 'void' || deliveryOf(o) !== day) continue;
     if (drv === '__none' ? !!o.driver : (drv && o.driver !== drv)) continue;
-    const pt = S.partners[o.partnerId] || {}, due = dueOf(o), tags = [o.urgent ? '早一點' : '', o.collect ? '順收貨款' : '', o.store ? o.store + ' 叫貨' : '', o.paidMethod === 'cash' && (o.paid || 0) >= (o.total || 0) - 0.004 && o.total > 0 ? '銷貨收現（已收）' : '', codWaiting(o) ? '貨到收現 ' + money(codAmtOf(o)) + '（送達後沖帳）' : (due > 0.004 && o.partnerId ? '未收 ' + money(due) : ''), o.shipMethod || ''].filter(Boolean).join('　');
+    const pt = S.partners[o.partnerId] || {}, due = dueOf(o), tags = [o.urgent ? '早一點' : '', o.collect ? '順收貨款' : '', o.store ? o.store + ' 叫貨' : '', o.paidMethod === 'cash' && (o.paid || 0) >= (o.total || 0) - 0.004 && o.total > 0 ? '銷貨收現（已收）' : '', codWaiting(o) ? '貨到收現 ' + money(codAmtOf(o)) + '（送達後才能沖帳）' : (cashPending(o) ? '銷貨收現 ' + money(due) + '（待沖帳）' : (due > 0.004 && o.partnerId ? '未收 ' + money(due) : '')), o.shipMethod || ''].filter(Boolean).join('　');
     rows.push({id:o.id, no:o.no, cust:pt.shortName || pt.name || '散客', addr:shipLine(o), contact:[orderShip(o).contact, orderShip(o).phone].filter(Boolean).join('　'), items:(o.lines || []).map(l => l.name + '×' + num(l.qty)).join('、'), tags, driver:o.driver || '', urgent:!!o.urgent, collect:!!o.collect, due});
   }
   return rows.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
@@ -8187,7 +8212,7 @@ function remindPreview(pt){
     const M = prevMonth(billMonth(t, c)), cur = rows.filter(r => r.month === M), prior = r2(rows.filter(r => r.month < M).reduce((a, r) => a + r.f.due, 0)), due = r2(cur.reduce((a, r) => a + r.f.due, 0)), cum = r2(prior + due);
     if (cur.length || Math.abs(cum) > 0.004){ const card = lineStmtCard(pt, {month:M, n:cur.filter(r => r.o.type !== 'tax').length, net:cur.reduce((a, r) => a + r.f.net, 0), tax:cur.reduce((a, r) => a + r.f.tax, 0), total:cur.reduce((a, r) => a + r.f.total, 0), rec:cur.reduce((a, r) => a + r.f.rec, 0), prior, cum}); out.statement = {month:M, card, text:lineCard(card).text}; }
   }
-  const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && !codWaiting(r.o) && daysBetween(dueDateOf(r.o), t) > 0);
+  const late = rows.filter(r => r.f.sg === 1 && r.f.due > 0.004 && !awaitCash(r.o) && daysBetween(dueDateOf(r.o), t) > 0);
   if (late.length){ const card = lineDueCard(pt, {n:late.length, amount:late.reduce((a, r) => a + r.f.due, 0), days:late.reduce((a, r) => Math.max(a, daysBetween(dueDateOf(r.o), t)), 0)}); out.overdue = {card, text:lineCard(card).text}; }
   return out;
 }
@@ -9191,8 +9216,8 @@ async function fixDupStops(){
 function setMerge(day, vid, state){ return run(async () => { for (const slot of ['am', 'pm']){ const nt = {...getTrip(day, vid, slot), merge:state, mergeBy:S.meId || null, mergeByName:myName(), mergeAt:Date.now()}; await writeTrip(nt); await syncTripOrders(nt); } return true; }); }
 function unassignedOrders(day, back){
   const map = assignedMap(), from = back ? addDays(day, -7) : day;
-  const sales = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && !map[o.id] && deliveryOf(o) >= from && deliveryOf(o) <= day);
-  const cos = Object.values(S.corders || {}).filter(c => !map[c.id] && docProgress('co', c).active && (c.expected || '') >= from && (c.expected || '') <= day && !Object.values(S.orders).some(o => o.type === 'sale' && o.status !== 'void' && saleCoIds(o).includes(c.id) && map[o.id]));
+  const sales = Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && !map[o.id] && shipMethodOf(o) !== '自取' && deliveryOf(o) >= from && deliveryOf(o) <= day);   /* -dr：自取的單據不需要派車，不列在「還沒排車」 */
+  const cos = Object.values(S.corders || {}).filter(c => !map[c.id] && shipMethodOf(c) !== '自取' && docProgress('co', c).active && (c.expected || '') >= from && (c.expected || '') <= day && !Object.values(S.orders).some(o => o.type === 'sale' && o.status !== 'void' && saleCoIds(o).includes(c.id) && map[o.id]));
   return [...sales, ...cos].sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(stopDate(a)).localeCompare(String(stopDate(b))) || String(a.no).localeCompare(String(b.no)));
 }
 const stopCust = o => { const pt = S.partners[o.partnerId] || {}; return (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : ''); };
@@ -11195,38 +11220,60 @@ function openPicking(pre){
   });
 }
 
-/* ================= -dp：銷貨收現・送貨 → 送完貨才沖帳 ================= */
+/* ================= -dp／-dr：銷貨收現・不自動沖帳；送貨的要先確認送達 ================= */
 function openCodConfirm(orderId, opts){
   opts = opts || {};
   const o = S.orders[orderId]; if (!o) return toast('找不到這張單據');
-  if (!codWaiting(o)) return toast(o.codDone ? o.no + ' 已經確認送達並收款了' : '這張單據不是「送完貨才收款」的銷貨收現');
+  if (!codWaiting(o)) return toast(o.codDone ? o.no + ' 已經確認送達了' : '這張單據不是「送完貨才能沖帳」的銷貨收現');
   if (!S.canWrite || !(can('sale') || can('pay') || canField() || S.isAdmin)) return toast('你的角色沒有這項操作的權限');
-  if (revGuard('order', o, '確認送達收款')) return;
+  if (revGuard('order', o, '確認送達')) return;
   if (reviewOn() && monthLocked('orders', o.date)) return toast(ymOf(o.date) + ' 的單據已封存，不能修改；請管理員先解除封存');
-  const amt = codAmtOf(o), pt = S.partners[o.partnerId] || {}, st = {date:opts.date || today(), cash:String(amt), who:myName(), note:''};
-  const sh = sheet({title:'確認送達收款　' + o.no}), sumBox = h('div');
-  const cashOf = () => mInt(toNum(st.cash));
-  const paintSum = () => { const c = cashOf(), left = r2(amt - c);
-    setKids(sumBox, h('div', {class:'note ' + (c < 0 || c > amt ? 'bad' : (left > 0.004 ? 'warn' : '')), 'aria-label':'收款結果', style:'margin:8px 0 0', text:c < 0 || c > amt ? '實收現金要在 0 到 ' + money(amt) + ' 之間' : (left <= 0.004 ? '✓ 貨款全部收到：記入已收款、零用金（收款人的現金），這張單沖帳完成。' : (c > 0 ? '收了 ' + money(c) + '，其餘 ' + money(left) + ' 記在應收帳款，之後再用「應收沖帳」處理。' : '沒有收到錢：這張單改成記帳，未收 ' + money(amt) + ' 記在應收帳款，之後再用「應收沖帳」處理。'))})); };
+  const amt = codAmtOf(o), pt = S.partners[o.partnerId] || {}, st = {date:opts.date || today(), note:''};
+  const sh = sheet({title:'確認送達　' + o.no});
   const dIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'送達日期', style:'min-width:0;max-width:100%', onchange:e => { st.date = e.target.value || today(); }});
-  const cIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:st.cash, 'aria-label':'實收現金', onfocus:e => e.target.select(), oninput:e => { st.cash = e.target.value; paintSum(); }});
-  const wIn = h('input', {class:'in', list:'collectorList', value:st.who, autocomplete:'off', 'aria-label':'收款人', oninput:e => { st.who = e.target.value; }});
   const nIn = h('input', {class:'in', placeholder:'選填（例：客戶簽收人）', autocomplete:'off', 'aria-label':'備註', oninput:e => { st.note = e.target.value; }});
+  const canSettle = (can('pay') || S.isAdmin) && fxOn('settle');
   let saving = false;
-  const saveBtn = h('button', {class:'btn grow', 'aria-label':'確認已送達並收款', onclick:async () => {
+  const btns = [];
+  const save = async next => {
     if (saving) return;
-    const c = cashOf(); if (c < 0 || c > amt + 0.004) return toast('實收現金要在 0 到 ' + money(amt) + ' 之間');
     if (!st.date) return toast('請選送達日期'); if (st.date < o.date) return toast('送達日期不可早於開單日期 ' + o.date);
-    saving = true; saveBtn.disabled = true;
-    const ok = await run(async () => { await S.db.doc('orders/' + o.id).update({codWait:false, codDone:true, codAmt:amt, collect:false, delivered:true, deliveredDate:st.date, deliveredAt:Date.now(), deliveredBy:S.meId || null, deliveredByName:myName(), paid:c, paidMethod:c > 0 ? 'cash' : '', paidDate:c > 0 ? st.date : '', collector:c > 0 ? (st.who.trim() || myName()) : '', codNote:st.note.trim()}); return true; });
-    saving = false; saveBtn.disabled = false;
-    if (ok){ toast('已確認送達 ' + o.no + (c > 0 ? '，收現 ' + money(c) + (c < amt ? '，未收 ' + money(amt - c) + ' 記在應收帳款' : '，沖帳完成') : '，沒有收到貨款，改記在應收帳款')); sh.forceClose(); }
-  }}, '確認已送達並收款');
-  put(sh.bodyEl, h('div', {class:'panel pad', style:'margin-bottom:10px'}, kv('單號', o.no), kv('客戶', pt.shortName || pt.name || '散客'), kv('送貨', [shipMethodOf(o), shipLine(o)].filter(Boolean).join('　') || '—'), kv('貨款（送達後收現）', h('b', {text:money(amt)}))),
-    h('p', {class:'note', text:'銷貨收現的單據，需要送貨的要等送完貨、收到現金後才沖帳。確認後才會記入已收款和零用金。'}),
-    h('div', {class:'f2'}, fld('送達日期', dIn), fld('實收現金（應收 ' + money(amt) + '）', cIn)),
-    h('div', {class:'f', style:'margin-top:8px'}, h('label', {text:'收款人'}), wIn), collectorList(), fld('備註', nIn), sumBox);
-  sh.footEl.append(saveBtn); paintSum();
+    saving = true; btns.forEach(b => { b.disabled = true; });
+    const ok = await run(async () => { await S.db.doc('orders/' + o.id).update({codWait:false, codDone:true, cashSale:true, codAmt:amt, collect:false, delivered:true, deliveredDate:st.date, deliveredAt:Date.now(), deliveredBy:S.meId || null, deliveredByName:myName(), codNote:st.note.trim()}); return true; });
+    saving = false; btns.forEach(b => { b.disabled = false; });
+    if (!ok) return;
+    toast('已確認送達 ' + o.no + '（沒有記錄收款）。收到現金後，按單據上的「沖帳」由人工沖帳');
+    sh.forceClose();
+    if (next){
+      const t0 = Date.now(); while (codWaiting(S.orders[o.id]) && Date.now() - t0 < 2500) await new Promise(r => setTimeout(r, 50));
+      openPayment({type:'customer', partnerId:o.partnerId, orderId:o.id});
+    }
+  };
+  btns.push(h('button', {class:'btn ghost grow', 'aria-label':'確認送達', onclick:() => save(false)}, '確認送達'));
+  if (canSettle) btns.push(h('button', {class:'btn grow', 'aria-label':'確認送達並沖帳', onclick:() => save(true)}, '確認送達，接著沖帳'));
+  put(sh.bodyEl, h('div', {class:'panel pad', style:'margin-bottom:10px'}, kv('單號', o.no), kv('客戶', pt.shortName || pt.name || '散客'), kv('送貨', [shipMethodOf(o), shipLine(o)].filter(Boolean).join('　') || '—'), kv('貨款（銷貨收現）', h('b', {text:money(amt)}))),
+    h('p', {class:'note', text:'銷貨收現的單據，需要送貨的要等送完貨才能沖帳。這裡只記錄「已送達」，不會記錄收款、也不會自動沖帳；確認後單據上會出現「沖帳」按鈕，收到現金再由人工按「沖帳」到沖帳系統處理。'}),
+    h('div', {class:'f2'}, fld('送達日期', dIn), fld('備註', nIn)));
+  sh.footEl.append(...btns);
+}
+/* -dr：銷貨收現待沖帳清單（首頁待辦進來）。收到現金後，逐張按「沖帳」到沖帳系統 */
+function openCashPending(){
+  if (!(can('pay') || S.isAdmin) || !fxGate('settle')) return;
+  return liveSheet({title:'銷貨收現待沖帳'}, ['orders', 'payments', 'partners'], sh => {
+    const list = Object.values(S.orders).filter(cashPending).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || ((a.at || 0) - (b.at || 0)));
+    const total = r2(list.reduce((a, o) => a + dueOf(o), 0));
+    const body = h('div', null,
+      h('div', {class:'panel pad', style:'margin-bottom:8px'}, kv('待沖帳', list.length + ' 張'), kv('合計', h('b', {'aria-label':'待沖帳合計', text:money(total)}))),
+      h('p', {class:'note', text:'銷貨收現的單據，系統不會自動沖帳。收到現金後，按「沖帳」到沖帳系統登記收款（已帶入客戶與這張單）。需要送貨的，要先在單據按「確認送達」。'}),
+      list.length ? h('div', {class:'panel'}, list.map(o => {
+        const pt = S.partners[o.partnerId] || {}, w = codWaiting(o);
+        return h('div', {class:'row', style:'grid-template-columns:minmax(0,1fr) auto auto;align-items:center'},
+          h('button', {class:'plain', style:'text-align:left;min-width:0', 'aria-label':'看單據 ' + o.no, onclick:() => openOrderDetail(o.id)}, h('b', {text:o.no}), h('br'), h('small', {text:(pt.shortName || pt.name || '') + '　' + o.date + (w ? '　待送達' : '')})),
+          h('b', {text:money(dueOf(o))}),
+          w ? h('button', {class:'btn ghost sm', 'aria-label':'確認送達 ' + o.no, onclick:() => openCodConfirm(o.id)}, '確認送達') : h('button', {class:'btn sm', 'aria-label':'沖帳 ' + o.no, onclick:() => openPayment({type:'customer', partnerId:o.partnerId, orderId:o.id})}, '沖帳'));
+      })) : h('div', {class:'panel empty', text:'沒有待沖帳的銷貨收現'}));
+    return {body};
+  });
 }
 
 /* ================= 外務收款（只登記收款；之後由會計沖帳） ================= */
@@ -12745,7 +12792,7 @@ function openPickOrder(orderId, opts){
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders()}}); } catch(_){}
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{codWaiting, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{unassignedOrders, cashStampOn, codWaiting, cashSaleOf, cashPending, awaitCash, openCashPending, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
 function openDisPlanForm(ex){
   if (!can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
@@ -13374,7 +13421,7 @@ function ledgerQuery(type, U){
   const groups = {};
   for (const o of list){ (groups[o.partnerId] = groups[o.partnerId] || {pid:o.partnerId, rows:[], sum:0}); const g = groups[o.partnerId]; g.rows.push(o); g.sum = r2(g.sum + dueOf(o)); }
   const gl = Object.values(groups).sort((a, b) => S.partners[a.pid].name.localeCompare(S.partners[b.pid].name, 'zh-TW'));
-  const late = list.filter(o => !codWaiting(o) && daysBetween(dueDateOf(o), t) > 0);
+  const late = list.filter(o => !awaitCash(o) && daysBetween(dueDateOf(o), t) > 0);
   return {kind:'open', groups:gl, rows:list, total:r2(list.reduce((a, o) => a + dueOf(o), 0)), gross:r2(list.reduce((a, o) => a + (o.total || 0), 0)), lateSum:r2(late.reduce((a, o) => a + dueOf(o), 0))};
 }
 function dsLedgerQuery(type, U){
@@ -13409,9 +13456,9 @@ function openLedgerQuery(type){
           h('div', {class:'row'}, h('span', {text:'未沖餘額合計'}), h('b', {text:money(q.total)})),
           h('div', {class:'row'}, h('span', {text:'其中已逾期'}), h('span', {class:q.lateSum ? 'overdue' : '', text:money(q.lateSum)}))),
         q.groups.length ? q.groups.map(g => h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:S.partners[g.pid].name}), h('b', {text:money(g.sum)})),
-          h('div', {class:'panel'}, g.rows.map(o => { const late = codWaiting(o) ? 0 : daysBetween(dueDateOf(o), t); return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
+          h('div', {class:'panel'}, g.rows.map(o => { const late = awaitCash(o) ? 0 : daysBetween(dueDateOf(o), t); return h('button', {class:'row', onclick:() => openOrderDetail(o.id)},
             h('span', null, h('b', {text:o.no}), h('br'), h('small', {text:o.date + '　到期 ' + dueDateOf(o)})),
-            h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達收款' : '單據 ' + money(o.total)}))); })))) : h('div', {class:'panel empty', text:'這段期間沒有符合的單據'}))
+            h('span', {class:'right'}, h('b', {text:money(dueOf(o))}), h('br'), late > 0 ? h('small', {class:'overdue', text:'逾期 ' + late + ' 天'}) : h('small', {text:codWaiting(o) ? '待送達' : (cashPending(o) ? '待沖帳' : '單據 ' + money(o.total))}))); })))) : h('div', {class:'panel empty', text:'這段期間沒有符合的單據'}))
       : h('div', null,
         h('div', {class:'pd-tiles'}, h('div', {class:'pd-tile total'}, h('b', {text:'共 ' + q.rows.length + ' 筆，收（付）款金額'}), h('span', {text:money(q.total)})),
           ...[['cash', '現金'], ['transfer', '轉帳'], ['note', '票據'], ['other', '其他']].filter(([k]) => q.by[k].n).map(([k, t]) => h('div', {class:'pd-tile'}, h('b', {text:t}), h('small', {text:q.by[k].n + ' 筆'}), h('span', {text:money(q.by[k].amt)}))),
@@ -14661,7 +14708,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dq';
+const APP_VERSION = '2026.10.11-dr';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
