@@ -1129,7 +1129,7 @@ function openProduct(id){
         gauge(p)),
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
         ...(multiWh() ? whActive().map(w => { const r = whRuleOf(p, w.id), st = stockAt(p.id, w.id); return kv(w.name, '庫存 ' + num(st) + '　安全 ' + num(r.safety) + (r.moq ? '　最小批量 ' + num(r.moq) : '') + (r.lot ? '　批量 ' + num(r.lot) : '') + (r.safety > 0 && st <= r.safety + 0.0004 ? '　⚠ 低於安全庫存' : '')); }) : []),
-        p.family ? kv('系列', p.family) : null, p.labelSpec ? kv('標籤規格', p.labelSpec) : null, cartonOf(p) ? kv('每箱入數', num(cartonOf(p)) + ' ' + (p.unit || '') + (cartonTxt(p, s) ? '（目前庫存 ' + cartonTxt(p, s, true) + '）' : '')) : null, shelfRow(p), Array.isArray(p.shelfLog) && p.shelfLog.length ? kv('架位最近調整', shelfLogTxt(p.shelfLog[0])) : null, p.barcode ? kv('條碼', p.barcode) : null, see('cost') ? kv('進價', money(p.cost || 0)) : null, kv('售價', money(p.price || 0)),
+        p.family ? kv('系列', p.family) : null, p.labelSpec ? kv('標籤規格', p.labelSpec) : null, cartonOf(p) ? kv('每箱入數', num(cartonOf(p)) + ' ' + (p.unit || '') + (cartonTxt(p, s) ? '（目前庫存 ' + cartonTxt(p, s, true) + '）' : '')) : null, ...DIM_GRP.map(g => { const t = dimCell(p[g[0]], p[g[1]], p[g[2]]); return t ? kv(g[3], t + ' 公分') : null; }), shelfRow(p), Array.isArray(p.shelfLog) && p.shelfLog.length ? kv('架位最近調整', shelfLogTxt(p.shelfLog[0])) : null, p.barcode ? kv('條碼', p.barcode) : null, see('cost') ? kv('進價', money(p.cost || 0)) : null, kv('售價', money(p.price || 0)),
         multiWh() ? whList().map(w => kv('　' + w.name + (w.active === false ? '（停用）' : ''), num(stockAt(id, w.id)))) : null,
         kv('安全庫存', p.safety > 0 ? num(p.safety) + ' ' + (p.unit || '') : '未設定'),
         see('cost') ? kv('庫存價值', money(Math.max(s, 0) * (p.cost || 0))) : null,
@@ -1137,7 +1137,7 @@ function openProduct(id){
         (S.d.commit[id] || S.d.incoming[id]) ? kv('預估可用', num(r3(s + (S.d.incoming[id] || 0) - (S.d.commit[id] || 0)))) : null,
         supplierOf(p) && S.partners[supplierOf(p)] ? kv('供應商', S.partners[supplierOf(p)].name) : null,
         kv('採購來源', p.procSrc === 'make' ? '自行生產' : '國內採購'),
-        (Number(p.volume) || 0) > 0 ? kv('材積', num(p.volume) + ' 才／' + (p.unit || '單位') + ((p.dimL && p.dimW && p.dimH) ? '（' + p.dimL + '×' + p.dimW + '×' + p.dimH + ' 公分）' : '')) : null,
+        (Number(p.volume) || 0) > 0 ? kv('材積', num(p.volume) + ' 才／' + (p.unit || '單位')) : null,
         p.note ? kv('備註', p.note) : null),
       Array.isArray(p.shelfLog) && p.shelfLog.length > 1 ? h('details', {class:'fold', 'aria-label':'架位異動紀錄', style:'margin-bottom:14px'}, h('summary', {text:'架位異動紀錄（' + p.shelfLog.length + '）'}), h('div', {class:'fold-b'}, p.shelfLog.slice(0, 10).map(x => h('div', {class:'kv'}, h('span', {text:shelfLogTxt(x)}))))) : null,
       hasBom(p) ? [h('div', {class:'sec-h'}, h('h2', {text:'產品組成（BOM）'})),
@@ -1182,9 +1182,12 @@ function openProductForm(id){
     price:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex ? ex.price || 0 : ''}),
     safety:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex ? ex.safety || 0 : ''}),
     volume:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.volume ? ex.volume : '', placeholder:'0 = 未設定', 'aria-label':'材積'}),
-    dimL:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimL ? ex.dimL : '', placeholder:'公分', 'aria-label':'長'}),
-    dimW:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimW ? ex.dimW : '', placeholder:'公分', 'aria-label':'寬'}),
-    dimH:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimH ? ex.dimH : '', placeholder:'公分', 'aria-label':'高'}),
+    specL:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.specL ? ex.specL : '', placeholder:'長', 'aria-label':'產品規格 長'}),
+    specW:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.specW ? ex.specW : '', placeholder:'寬', 'aria-label':'產品規格 寬'}),
+    specH:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.specH ? ex.specH : '', placeholder:'高', 'aria-label':'產品規格 高'}),
+    dimL:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimL ? ex.dimL : '', placeholder:'長', 'aria-label':'包裝 長'}),
+    dimW:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimW ? ex.dimW : '', placeholder:'寬', 'aria-label':'包裝 寬'}),
+    dimH:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.dimH ? ex.dimH : '', placeholder:'高', 'aria-label':'包裝 高'}),
     moq:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.moq ? ex.moq : '', placeholder:'0 = 不限'}),
     lot:h('input', {class:'in', type:'text', inputmode:'decimal', value:ex && ex.lot ? ex.lot : '', placeholder:'0 = 不限'}),
     supplier:(() => { const s = h('select', {class:'in'}, h('option', {value:'', text:'不指定（依最近一次進貨）'}), ...Object.values(S.partners).filter(p => p.type === 'supplier').sort(cmpName).map(p => h('option', {value:p.id, text:p.name}))); s.value = ex ? ex.supplierId || '' : defaultSupplierId(); return s; })(),
@@ -1228,16 +1231,17 @@ function openProductForm(id){
     fld('產品編號', f.sku), fld('產品名稱', f.name), fld('系列（同款不同顏色，每個顏色各建一個商品、系列填一樣；數量優惠可以合併計算，選填）', familyIn), famDl,
     h('div', {class:'f2'}, fld('產品大類', f.category), h('div', {class:'f'}, h('label', {text:'基本單位'}), unitSel, f.unit)),
     fld('每箱入數（外箱裡有幾個基本單位；盤點時可以直接輸入箱數，選填）', f.cartonQty), cartonHint,
+    h('div', {class:'f'}, h('label', {text:'產品規格尺寸（公分）：長 × 寬 × 高，商品本身的大小，選填'}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px'}, f.specL, f.specW, f.specH)),
+    h('div', {class:'f'}, h('label', {text:'包裝尺寸（公分）：長 × 寬 × 高，外箱、包裝的大小，系統自動算出材積'}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px'}, f.dimL, f.dimW, f.dimH), dimHint),
     ex ? h('div', {class:'panel pad', style:'margin-bottom:10px'}, kv('目前庫存（已連結庫存）', num(stockOf(id)) + ' ' + (ex.unit || '')), multiWh() ? whList().map(w => kv('　' + w.name, num(stockAt(id, w.id)))) : null) : null,
     h('div', {class:'f2'}, fld('進價', f.cost), fld('國內定價（台幣 NT$）', f.price)),
     fld('安全庫存（低於此數會提醒補貨）', f.safety),
     ex ? null : fld('期初庫存', f.open),
-    h('details', {class:'fold', open:!!(ex && (ex.barcode || ex.procSrc === 'make' || ex.costMode || ex.supplierId || ex.moq || ex.lot || ex.volume || ex.dimL))}, h('summary', {text:'進階設定（條碼、採購來源、進貨規則、材積）'}), h('div', {class:'fold-b'},
+    h('details', {class:'fold', open:!!(ex && (ex.barcode || ex.procSrc === 'make' || ex.costMode || ex.supplierId || ex.moq || ex.lot || ex.volume))}, h('summary', {text:'進階設定（條碼、採購來源、進貨規則、材積）'}), h('div', {class:'fold-b'},
       fld('條碼（掃碼用，選填）', f.barcode), fld('採購來源', f.procSrc), fld('預設進貨廠商（採購建議用）', f.supplier),
       h('div', {class:'f2'}, fld('進貨最小數量', f.moq), fld('進貨批量（倍數）', f.lot)),
       h('p', {class:'hint', style:'margin:-4px 0 10px', text:'採購建議會先算出缺口，再補到最小數量，並進位到批量的整數倍。例：缺 7、最小量 10、批量 12 → 建議買 12。'}),
-      h('div', {class:'f'}, h('label', {text:'外箱尺寸（公分）：長 × 寬 × 高，系統自動算出材積'}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px'}, f.dimL, f.dimW, f.dimH), dimHint),
-      fld('材積（每單位幾才，回頭車運費用；填了尺寸會自動算，也可手動改）', f.volume), fld('進價計價方式（依實際進貨成本）', f.costMode))),
+      fld('材積（每單位幾才，回頭車運費用；填了包裝尺寸會自動算，也可手動改）', f.volume), fld('進價計價方式（依實際進貨成本）', f.costMode))),
     multiWh() ? h('details', {class:'fold', 'aria-label':'各倉庫規則', open:!!(ex && ex.whRules && Object.keys(ex.whRules).length)}, h('summary', {text:'各倉庫的安全庫存與進貨批量（工廠、營業所分開設定）'}), h('div', {class:'fold-b'}, h('p', {class:'hint', style:'margin:0 0 8px', text:'沒填的欄位，沿用上面全公司的數字。'}), ...whActive().map(w => h('div', {style:'margin-bottom:10px'}, h('b', {text:w.name}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px'}, ...['safety', 'moq', 'lot'].map((k, i) => h('div', null, h('small', {text:['安全庫存', '最小進貨批量', '進貨批量'][i]}), whRuleIn[w.id + '|' + k]))))))) : null,
     h('details', {class:'fold', open:!!(ex && ex.bom && ex.bom.length)}, h('summary', {text:'產品組成 BOM（選填，組裝／拆解用）'}), h('div', {class:'fold-b'}, f.bomEd.el)),
     fld('備註', f.note),
@@ -1258,7 +1262,7 @@ function openProductForm(id){
     const bm = f.bomEd.get(); if (bm.err) return toast(bm.err);
     const cqT = f.cartonQty.value.trim(); if (cqT !== '' && !(toNum(cqT) > 1)) return toast('每箱入數要大於 1（沒有外箱就留空）');
     const data = {sku, barcode, supplierId:f.supplier.value, bom:bm.bom, name, category:f.category.value.trim(), unit:f.unit.value.trim() || '個', cartonQty:cqT === '' ? 0 : r3(toNum(cqT)),
-      cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:Math.max(toNum(f.dimL.value), 0), dimW:Math.max(toNum(f.dimW.value), 0), dimH:Math.max(toNum(f.dimH.value), 0), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), family:familyIn.value.trim(), shelf:normShelf(shelfIn.value), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = normShelf(shelfWh[k].value); if (v) a[k] = v; return a; }, {})};
+      cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:r3(Math.max(toNum(f.dimL.value), 0)), dimW:r3(Math.max(toNum(f.dimW.value), 0)), dimH:r3(Math.max(toNum(f.dimH.value), 0)), specL:r3(Math.max(toNum(f.specL.value), 0)), specW:r3(Math.max(toNum(f.specW.value), 0)), specH:r3(Math.max(toNum(f.specH.value), 0)), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), family:familyIn.value.trim(), shelf:normShelf(shelfIn.value), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = normShelf(shelfWh[k].value); if (v) a[k] = v; return a; }, {})};
     /* 其他架位：主要架位空白時，第一個其他架位變成主要架位；沒顯示在表單上的倉庫（已停用）保留原本的 */
     { const alt = ex && ex.shelfAlt && typeof ex.shelfAlt === 'object' ? {...ex.shelfAlt} : {};
       const fix = (k, prim) => { const l = shelfDedupe([prim, ...shelfAltEd[k].get()]); if (l.length > 1) alt[k] = l.slice(1, 1 + SHELF_ALT_MAX); else delete alt[k]; return l[0] || ''; };
@@ -3178,6 +3182,9 @@ function pAcc(){
    盤點（條碼盤點、循環盤點、庫存調整單的實盤數量）時，可以用「幾箱＋幾個散貨」輸入，系統換算成基本單位再存。
    存進去的數量永遠是基本單位的總數（盤點差異、調整單都照舊），箱數只是輸入和顯示的方式；之後把每箱入數改掉，已經盤好的總數不會變。 */
 const cartonOf = p => { const n = Number(p && p.cartonQty); return n > 1 ? r3(n) : 0; };
+/* 尺寸（公分）：長×寬×高；後面沒填的（連續的 0）不顯示，全部沒填＝空字串。產品規格尺寸是 specL/specW/specH，包裝尺寸是 dimL/dimW/dimH */
+const dimCell = (a, b, c) => { const v = [a, b, c].map(x => Math.max(Number(x) || 0, 0)); let n = 3; while (n > 0 && !v[n - 1]) n--; return v.slice(0, n).map(x => String(r3(x))).join('×'); };
+const DIM_GRP = [['specL', 'specW', 'specH', '產品規格尺寸'], ['dimL', 'dimW', 'dimH', '包裝尺寸']];
 /* 總數拆成「幾箱＋幾個散貨」。沒設每箱入數、或總數不到一箱，回傳 null（不用拆） */
 function cartonSplit(p, total){
   const c = cartonOf(p), t = Number(total);
@@ -14708,7 +14715,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dr';
+const APP_VERSION = '2026.10.11-ds';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -17161,6 +17168,8 @@ const COLS = {
   safety:['安全庫存', 'safety', '安全存量', '安全庫存量', '安全量', '安全庫存數', '安全庫存數量', '安全存量數', '最低庫存', '最低存量', '最低庫存量', '最低安全庫存', 'safetystock', 'minstock'],
   shelf:['架位', '貨架', '儲位', 'shelf', 'location', '貨位', '庫位', '儲位編號', '貨架位置', '架位代碼'],
   labelSpec:['標籤規格', '標籤', 'label'],
+  spec:['產品規格尺寸', '商品規格尺寸', '規格尺寸', '產品尺寸', '商品尺寸', '單品尺寸', '產品大小', '商品大小', '產品長寬高', '商品長寬高', 'productsize', 'productdimensions', 'itemsize', 'itemdimensions'],
+  pkg:['包裝尺寸', '外箱尺寸', '包裝規格尺寸', '外包裝尺寸', '箱子尺寸', '紙箱尺寸', '裝箱尺寸', '包裝大小', '外箱大小', '包裝長寬高', '外箱長寬高', 'packagesize', 'packagedimensions', 'packingsize', 'cartonsize', 'cartondimensions'],
   family:['系列', '系列名稱', 'family', '產品系列', '商品系列'],
   opening:['期初庫存', '庫存', 'opening', 'stock', '期初數量', '期初量', '期初存量', '現有庫存', '庫存量', '庫存數量', '初始庫存'],
   supplier:['供應商', '進貨廠商', '廠商', 'supplier', '主要供應商', '供應商名稱', '進貨商', '廠商名稱', 'vendor'],
@@ -17171,7 +17180,7 @@ const COLS = {
   status:['狀態', '停用', '啟用狀態', '使用狀態', '是否啟用', '商品狀態', '產品狀態'],
   note:['備註', 'note', '附註', '商品備註', '產品備註', 'remark', 'remarks', 'memo']};
 /* 每個欄位在畫面上的名稱（欄位對應的下拉選單用）；「目前庫存（參考）」是匯出才有的參考欄，匯入時不用，也不算看不懂 */
-const PROD_FIELD = {sku:'料號', barcode:'條碼', name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', opening:'期初庫存', supplier:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積（才）', procSrc:'採購來源', status:'狀態', note:'備註'};
+const PROD_FIELD = {sku:'料號', barcode:'條碼', name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', spec:'產品規格尺寸（公分）', pkg:'包裝尺寸（公分）', family:'系列', opening:'期初庫存', supplier:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積（才）', procSrc:'採購來源', status:'狀態', note:'備註'};
 const PROD_IGNORE = ['目前庫存'];
 const pcNorm = t => String(t == null ? '' : t).normalize('NFKC').toLowerCase().replace(/[\s_\-.]/g, '').replace(/^[*＊※#]+/, '').replace(/[*＊※:：]+$/, '');
 const pcBare = t => pcNorm(t).replace(/[(\[{【〔「][^)\]}】〕」]*[)\]}】〕」]/g, '');
@@ -17186,6 +17195,26 @@ const BC_CLEAR = /^(清除|刪除|無|沒有|none|-|—|－)$/i;
 /* 匯出 CSV 時，Excel 會改掉的值（開頭是 0、12 位以上的數字、像日期或科學記號、小數）寫成 ="…"，用 Excel 打開仍保持原樣 */
 const xlRisk = v => { const t = String(v == null ? '' : v); return /^0\d+$/.test(t) || /^\d{12,}$/.test(t) || /^\d+(\.\d+)?e[+-]?\d+$/i.test(t) || /^\d{1,4}[-/]\d{1,2}([-/]\d{1,4})?$/.test(t) || /^\d*\.\d+$/.test(t); };
 const xlCode = v => xlRisk(v) ? {xlText:String(v)} : v;
+/* 尺寸「長×寬×高」（公分）：× x X * ＊ ✕ 乘 都可以分隔，寫 1～3 個數字（只寫兩個＝長×寬，沒寫的是 0）。
+   數字後面可以加單位：cm、公分（照原樣）、mm、毫米（換成公分）；只有最後一個數字寫了單位，前面的也用同一個單位（40×30×20mm）。
+   空白＝不改；清除／無／- ＝全部清成 0。回傳 {blank:true}｜{v:[長, 寬, 高], clear?:true}（公分，最多 3 位小數）｜null（看不懂） */
+const pcDim = raw => {
+  const t = String(raw == null ? '' : raw).normalize('NFKC').trim();
+  if (t === '') return {blank:true};
+  if (BC_CLEAR.test(t)) return {v:[0, 0, 0], clear:true};
+  const parts = t.split(/\s*[×xX*✕乘]\s*/);
+  if (parts.length > 3) return null;
+  let unit = 1; const v = [];
+  for (let i = parts.length - 1; i >= 0; i--){
+    const m = /^(\d{1,3}(?:,\d{3})+(?:\.\d*)?|\d+(?:\.\d*)?|\.\d+)\s*(cm|公分|釐米|厘米|mm|毫米|公釐)?$/i.exec(parts[i]);
+    if (!m) return null;
+    if (m[2]) unit = /^(mm|毫米|公釐)$/i.test(m[2]) ? 0.1 : 1;
+    v[i] = r3(Number(m[1].replace(/,/g, '')) * unit);
+  }
+  while (v.length < 3) v.push(0);
+  return {v};
+};
+const PROD_DIMS = [['spec', ['specL', 'specW', 'specH'], '產品規格尺寸'], ['pkg', ['dimL', 'dimW', 'dimH'], '包裝尺寸']];
 const pcNum = v => { const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,\s$元]/g, ''); return /^(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : null; };
 /* 分隔符號：第一列裡 Tab、分號比逗號多就用 Tab、分號（Excel 的「Unicode 文字」是 Tab 分隔） */
 const prodSep = t => { const first = (String(t == null ? '' : t).slice(0, 4000).replace(/^﻿/, '').split(/\r\n|\r|\n/).find(l => l.trim() !== '')) || '', n = ch => first.split(ch).length - 1, c = n(','), tab = n('\t'), semi = n(';'); return tab > 0 && tab >= c && tab >= semi ? '\t' : (semi > c ? ';' : ','); };
@@ -17224,11 +17253,13 @@ function matchProdCols(head, override){
 /* 預覽「會更新的商品」：欄位名稱＋（原本→新的），一眼看出安全庫存等數字會變成多少 */
 const PROD_KEY_LABEL = {name:'品名', category:'分類', unit:'單位', cartonQty:'每箱入數', cost:'進價', price:'售價', safety:'安全庫存', shelf:'架位', labelSpec:'標籤規格', family:'系列', barcode:'條碼', supplierId:'供應商', moq:'最小採購量', lot:'進貨批量', volume:'材積', procSrc:'採購來源', active:'狀態', note:'備註'};
 const prodChangeText = it => [...Object.keys(it.data).map(k => {
+  const dg = DIM_GRP.find(x => x.slice(0, 3).includes(k));
+  if (dg){ if (k !== dg.slice(0, 3).find(x => x in it.data)) return null; const at = o => dimCell(o && o[dg[0]], o && o[dg[1]], o && o[dg[2]]) || '未設定'; return dg[3] + '（' + at(it.old) + '→' + at({...(it.old || {}), ...it.data}) + '）'; }
   const lb = PROD_KEY_LABEL[k] || k; if (['name', 'supplierId', 'procSrc', 'active'].includes(k)) return lb;
   const f = x => PROD_NUM.includes(k) ? num(Number(x) || 0) : (x == null || x === '' ? '空' : String(x));
   return lb + '（' + f(it.old && it.old[k]) + '→' + (k === 'barcode' && !it.data[k] ? '刪除' : f(it.data[k])) + '）';
-}), ...Object.entries(it.wh || {}).map(([wid, c]) => whName(wid) + '安全庫存（' + num(c.from) + '→' + (c.to === null ? '沿用全公司 ' + num(c.cw) : num(c.to)) + '）')].join('、');
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{inflateRaw, unzipText, xlsxRows, xlsxText, xlsxBuild, shelfImportDecode, pcSku, pcCode, skuKey, pcSci, xlRisk, xlCode, csvText, matchProdCols, pcNorm, pcBare, pcNum, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x)}}); } catch (_) {}
+}).filter(Boolean), ...Object.entries(it.wh || {}).map(([wid, c]) => whName(wid) + '安全庫存（' + num(c.from) + '→' + (c.to === null ? '沿用全公司 ' + num(c.cw) : num(c.to)) + '）')].join('、');
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {importForTest:{inflateRaw, unzipText, xlsxRows, xlsxText, xlsxBuild, shelfImportDecode, pcSku, pcCode, skuKey, pcSci, xlRisk, xlCode, csvText, matchProdCols, pcNorm, pcBare, pcNum, pcDim, dimCell, prodSep, prodChangeText, prodFields, whOwnSafety, applyWhSafety, whSafetyCands, PROD_FIELD, COLS, planImport:(...x) => planImport(...x), dsProductMaster:() => dsProductMaster()}}); } catch (_) {}
 function parseCSV(t, sep){
   sep = sep || ',';
   t = String(t).replace(/^\ufeff/, '');
@@ -17294,6 +17325,9 @@ function planImport(text, mode, override, opt){
     if (bcWant !== undefined) data.barcode = bcWant;
     for (const k of PROD_NUM){ const v = g(k); if (v !== ''){ const x = pcNum(v); if (x !== null) data[k] = x; else warn.push(COLS[k][0] + '「' + v + '」不是有效的數字（只填數字，不要加單位），已略過'); } }
     if (data.cartonQty > 0 && data.cartonQty <= 1){ warn.push(COLS.cartonQty[0] + '「' + g('cartonQty') + '」要大於 1（沒有外箱請留空或填 0），已略過'); delete data.cartonQty; }
+    for (const [dk, keys, nm] of PROD_DIMS){ const v = g(dk); if (v === '') continue; const dm = pcDim(v);
+      if (!dm) warn.push(nm + '「' + v + '」看不懂（請寫 長×寬×高，單位公分，例如 40×30×20），已略過');
+      else { if (dm.v.some(x => x > 500)) warn.push(nm + '「' + v + '」有一邊超過 500 公分（單位是公分，毫米請在數字後面寫 mm），請確認'); keys.forEach((kk, i) => { data[kk] = dm.v[i]; }); } }
     const sp = piSup(g('supplier')); if (sp === null) warn.push('供應商「' + g('supplier') + '」在供應商資料裡找不到，已略過'); else if (sp) data.supplierId = sp;
     const ps = piSrc(g('procSrc')); if (ps === null) warn.push('採購來源「' + g('procSrc') + '」看不懂（請寫國內採購或自行生產），已略過'); else if (ps) data.procSrc = ps;
     const ac = piActive(g('status')); if (ac === null) warn.push('狀態「' + g('status') + '」看不懂（請寫啟用或停用），已略過'); else if (ac !== '') data.active = ac;
@@ -17310,6 +17344,7 @@ function planImport(text, mode, override, opt){
       if (idx.barcode >= 0 && !bcIn && pcCode(ex.barcode)) nBcBlank++;   // 條碼格空白，但商品原本有條碼（空白＝不改）
       const patch = {}; if (name !== ex.name) patch.name = name;
       for (const [k, v] of Object.entries(data)){ const cur = ex[k]; if (typeof v === 'number' ? Number(cur || 0) !== v : (k === 'active' ? (ex.active !== false) !== v : (k === 'procSrc' ? (ex.procSrc === 'make' ? 'make' : 'buy') !== v : String(cur == null ? '' : cur) !== String(v)))) patch[k] = v; }
+      for (const [, keys] of PROD_DIMS) if (keys.some(k => patch[k] !== undefined)) keys.forEach(k => { if (data[k] !== undefined) patch[k] = data[k]; });
       const cwNew = patch.safety !== undefined ? patch.safety : Number(ex.safety) || 0, wh = {};
       for (const [wid, x] of Object.entries(whWant)){ const own = whOwnSafety(ex, wid), eff = own !== null ? own : (Number(ex.safety) || 0); if (x === null ? own !== null : x !== eff) wh[wid] = {from:eff, to:x, cw:cwNew}; }
       if (!Object.keys(patch).length && !Object.keys(wh).length){ nSame++; return; }
@@ -17354,8 +17389,8 @@ function planImport(text, mode, override, opt){
 }
 const dsProductMaster = () => {
   const list = Object.values(S.products).sort(cmpSku), sup = id => (S.partners[id] || {}).name || '', whs = multiWh() ? whActive() : [];
-  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('備註', 'text', 24), XC('目前庫存（參考）', 'number', 14)];
-  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', p.note || '', stockOf(p.id)]);
+  const cols = [{...XC('料號', 'text', 14), code:1}, {...XC('條碼', 'text', 16), code:1}, XC('品名', 'text', 30), XC('分類', 'text', 12), XC('單位', 'text', 7), XC('每箱入數', 'number', 10), XC('進價', 'money', 11), XC('售價', 'money', 11), XC('安全庫存', 'number', 10), ...whs.map(w => XC('安全庫存（' + w.name + '）', 'number', 12)), XC('架位', 'text', 10), XC('標籤規格', 'text', 16), XC('產品規格尺寸（公分）', 'text', 20), XC('包裝尺寸（公分）', 'text', 20), XC('系列', 'text', 14), XC('供應商', 'text', 18), XC('最小採購量', 'number', 11), XC('進貨批量', 'number', 10), XC('材積（才）', 'number', 10), XC('採購來源', 'text', 10), XC('狀態', 'text', 8), XC('備註', 'text', 24), XC('目前庫存（參考）', 'number', 14)];
+  const rows = list.map(p => [p.sku || '', p.barcode || '', p.name || '', p.category || '', p.unit || '', cartonOf(p) || null, Number(p.cost) || 0, Number(p.price) || 0, Number(p.safety) || 0, ...whs.map(w => whRuleOf(p, w.id).safety), p.shelf || '', p.labelSpec || '', dimCell(p.specL, p.specW, p.specH), dimCell(p.dimL, p.dimW, p.dimH), p.family || '', sup(p.supplierId), Number(p.moq) || 0, Number(p.lot) || 0, Number(p.volume) || 0, p.procSrc === 'make' ? '自行生產' : '國內採購', p.active === false ? '停用' : '啟用', p.note || '', stockOf(p.id)]);
   return {title:'產品基本資料', sub:'共 ' + list.length + ' 項　' + today() + '　欄位和匯入相同：修改後直接匯入這個 Excel 檔（或存成 CSV 再匯入），就會依料號更新' + (whs.length ? '。「安全庫存（倉庫名稱）」是那個倉庫現在實際使用的數字：改了數字就是幫那個倉庫單獨設定，沒改的不會動，要改回沿用全公司的安全庫存請寫「沿用」' : ''), filename:'產品基本資料_' + today(), sections:[{name:'產品基本資料', cols, rows}]};
 };
 /* ================= 資料匯入匯出（客戶、供應商、產品基本資料集中在一頁） ================= */
@@ -17372,7 +17407,7 @@ function openDataHub(){
       h('div', {class:'note', style:'margin-top:0', text:'匯出的 CSV，欄位和匯入完全一樣：先匯出、在 Excel 改好，再匯入，就能批次更新。匯入時，檔案裡空白的欄位不會清掉原本的資料。'}),
       card('cust', '客戶資料', nCust, '位', '公司、聯絡人、三種地址、統編、付款方式、稅別、結帳日、客戶類別、負責營業所等。', () => openExport(dsCustomerMaster()), () => openPartnerImport('customer')),
       card('sup', '供應商資料', nSup, '家', '名稱、聯絡人、地址、統編、付款方式、匯款帳號等。', () => openExport(dsPartners('supplier')), () => openPartnerImport('supplier')),
-      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存（有多個倉庫時，每個倉庫各一欄）、架位、供應商、最小採購量、進貨批量、材積、採購來源、狀態、備註。匯出的 Excel 檔改好可以直接匯入；有同料號就更新，沒有就新增' + (S.isAdmin ? '。' : '（匯入只有管理員可以做）。'), () => openExport(dsProductMaster()), S.isAdmin ? openImport : null),
+      card('prod', '產品基本資料', nProd, '項', '料號、條碼、品名、分類、單位、每箱入數、進價、售價、安全庫存（有多個倉庫時，每個倉庫各一欄）、架位、產品規格尺寸、包裝尺寸、供應商、最小採購量、進貨批量、材積、採購來源、狀態、備註。匯出的 Excel 檔改好可以直接匯入；有同料號就更新，沒有就新增' + (S.isAdmin ? '。' : '（匯入只有管理員可以做）。'), () => openExport(dsProductMaster()), S.isAdmin ? openImport : null),
       canShelf() && fxOn('shelfMgmt') ? card('shelf', '架位清單', Object.keys(S.shelves || {}).length, '個', '架位代碼、倉庫、備註、狀態（啟用／停用）。有同樣的架位就更新備註和狀態，沒有就新增。匯出檔裡的「商品數」「商品料號」只是參考，匯入時會忽略，商品放在哪個架位不會改變。', () => openExport(dsShelves()), () => openShelfImport()) : null,
       S.isAdmin ? h('div', {class:'panel pad', style:'margin-bottom:12px', 'aria-label':'資料區塊 價格策略'}, h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {class:'big', text:'價格策略'}), h('span', {class:'hint', text:Object.keys(S.prules).length + ' 條規則・' + Object.keys(S.promos || {}).length + ' 個組合／買送'})), h('p', {class:'hint', style:'margin:4px 0 10px', text:'價格規則（等級價、數量階梯、促銷期間、客戶專屬價）、組合優惠與買送贈品。匯入前會先預覽，確認後才寫入。'}), h('button', {class:'btn', style:'width:100%', 'aria-label':'價格策略匯入匯出', onclick:openPriceIO}, '價格策略匯入／匯出')) : null,
       S.isAdmin ? h('div', {class:'panel pad', 'aria-label':'資料區塊 備份'}, h('b', {text:'整份資料備份'}), h('p', {class:'hint', style:'margin:4px 0 10px', text:'包含單據、帳款、人事、設定的整份備份，用來保存或搬移資料；不是用來編輯的。'}), h('button', {class:'btn ghost', style:'width:100%', 'aria-label':'前往資料庫備份', onclick:() => { sh.forceClose(); openBackup(); }}, '前往資料庫備份')) : null);
@@ -17447,9 +17482,9 @@ function openImport(){
     if (ok){ toast('已匯入：新增 ' + pl.nNew + '、更新 ' + pl.nUp + ' 項'); sh.forceClose(); } else goBtn.disabled = false;
   });
   const whHead = multiWh() && S.isAdmin ? whActive().map(w => '安全庫存（' + w.name + '）') : [];
-  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', ...whHead, '期初庫存', '條碼', '架位', '標籤規格', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態', '備註'];
+  const HEAD = ['料號', '品名', '分類', '單位', '每箱入數', '進價', '售價', '安全庫存', ...whHead, '期初庫存', '條碼', '架位', '標籤規格', '產品規格尺寸（公分）', '包裝尺寸（公分）', '系列', '供應商', '最小採購量', '進貨批量', '材積（才）', '採購來源', '狀態', '備註'];
   /* 範本的範例列照欄位名稱填，不會再因為多一欄、少一欄而錯位 */
-  const TPL = [{'料號':'A001', '品名':'礦泉水 600ml', '分類':'飲料', '單位':'瓶', '每箱入數':24, '進價':8, '售價':15, '安全庫存':48, '期初庫存':120, '條碼':'4710000000017', '架位':'A-01', '標籤規格':'600ml × 24 瓶／箱', '供應商':'鑫城實業股份有限公司', '最小採購量':24, '進貨批量':12, '材積（才）':0.02, '採購來源':'國內採購', '狀態':'啟用'},
+  const TPL = [{'料號':'A001', '品名':'礦泉水 600ml', '分類':'飲料', '單位':'瓶', '每箱入數':24, '進價':8, '售價':15, '安全庫存':48, '期初庫存':120, '條碼':'4710000000017', '架位':'A-01', '標籤規格':'600ml × 24 瓶／箱', '產品規格尺寸（公分）':'6.5×6.5×21', '包裝尺寸（公分）':'40×27×22', '供應商':'鑫城實業股份有限公司', '最小採購量':24, '進貨批量':12, '材積（才）':0.02, '採購來源':'國內採購', '狀態':'啟用'},
     {'料號':'A002', '品名':'綠茶 500ml', '分類':'飲料', '單位':'瓶', '進價':12, '售價':25, '安全庫存':24, '期初庫存':60, '採購來源':'國內採購', '狀態':'啟用'}];
   whHead.forEach((k, i) => { TPL[0][k] = [30, 20, 10][i % 3]; });
   /* 範本是 Excel 檔：欄位格式和匯出的一樣（料號、條碼是文字格式），填好直接匯入 */
@@ -17464,7 +17499,7 @@ function openImport(){
     h('p', {class:'note', text:'選 Excel 檔（.xlsx，讀第一個工作表）或 CSV 檔，第一列是欄位名稱（系統匯出的 Excel 檔上面的標題列會自動略過）。料號、品名必填；有同料號的商品就更新，沒有就新增。檔案裡空白的欄位，不會清掉商品原本的資料。'}),
     h('div', {class:'btns', style:'margin-bottom:12px'}, h('button', {class:'btn ghost sm', 'aria-label':'下載匯入範本', onclick:() => saveFile('商品匯入範本.xlsx', xlsxBuild(tplDs()))}, icon('down'), '下載範本（Excel）')),
     fld('選擇檔案（Excel .xlsx 或 CSV）', file), h('div', {class:'f'}, h('label', {text:'遇到已存在的料號'}), modeChips), info,
-    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」。把整欄條碼清空再匯入時，預覽會提示，按提示裡的「刪除這 N 項的條碼」才會刪除（要一次刪除全部或整個大類的條碼，也可以用「整批修改作業」→「刪除條碼」）。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：直接匯入 Excel 檔（.xlsx）最保險；用這裡匯出的 CSV 修改也不會有這個問題（料號、條碼會保持原樣）；自己做的 CSV，請先把料號、條碼欄設成「文字」格式再輸入。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'})))] : null);
+    h('details', {class:'fold'}, h('summary', {text:'可用的欄位與寫法'}), h('div', {class:'fold-b'}, h('small', {class:'hint', style:'display:block', text:'欄位：' + HEAD.join('、') + '。'}), h('small', {class:'hint', style:'display:block;margin-top:6px', text:'欄位名稱不用一模一樣：「安全存量」「安全庫存量」「產品編號」「零售價」這類常見的寫法會自動對應；看不懂的欄位會在預覽列出來，也可以自己選要對應到哪一欄。數字欄位（進價、售價、安全庫存…）只填數字，不要加單位（全形數字、千分位逗號可以）；空白的欄位不會改商品原本的資料，要把安全庫存清成 0 請填 0。'}), h('small', {class:'hint', 'aria-label':'條碼的寫法', style:'display:block;margin-top:6px', text:'條碼：有填就照檔案更新（新增的商品也一樣），空白的不會改；要清掉條碼請寫「清除」。把整欄條碼清空再匯入時，預覽會提示，按提示裡的「刪除這 N 項的條碼」才會刪除（要一次刪除全部或整個大類的條碼，也可以用「整批修改作業」→「刪除條碼」）。同一個條碼只能給一個商品，和別的商品的條碼或料號重複的不會匯入。Excel 會把很長的條碼改成 4.71E+12、把開頭的 0 去掉：直接匯入 Excel 檔（.xlsx）最保險；用這裡匯出的 CSV 修改也不會有這個問題（料號、條碼會保持原樣）；自己做的 CSV，請先把料號、條碼欄設成「文字」格式再輸入。'}), h('small', {class:'hint', 'aria-label':'尺寸的寫法', style:'display:block;margin-top:6px', text:'尺寸（產品規格尺寸、包裝尺寸）：寫成「長×寬×高」，單位是公分，例如 40×30×20（× 也可以寫 x 或 *；只寫兩個數字就是長×寬；數字後面加 mm 會換成公分）。空白的不會改；要清掉請寫「清除」。匯入不會自動重算材積，材積要改請在「材積（才）」欄填。'}), whHead.length ? h('small', {class:'hint', style:'display:block;margin-top:6px', text:'「安全庫存（倉庫名稱）」是各倉庫自己的安全庫存：匯出的是這個倉庫現在實際使用的數字（有單獨設定就是單獨設定的，沒有就是全公司的「安全庫存」）。你改了某個數字，就是幫那個倉庫單獨設定；沒改的、空白的都不會動；要改回沿用全公司的安全庫存，請寫「沿用」。最小進貨批量、進貨批量要在「倉庫庫存規則」設定。'}) : null, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'供應商要和「供應商管理」裡的名稱（或簡稱、編號）一樣，找不到會提醒並略過這一欄。採購來源寫「國內採購」或「自行生產」。狀態寫「啟用」或「停用」。期初庫存只用在新增的商品。每箱入數是外箱裡有幾個「單位」（要大於 1），盤點時可以直接輸入箱數；沒有外箱就留空，要清掉原本的設定請填 0。'})))] : null);
   if (canImp) sh.footEl.append(goBtn);
 }
 
