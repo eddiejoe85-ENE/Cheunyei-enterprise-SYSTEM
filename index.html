@@ -9700,16 +9700,30 @@ function photoSection(o){
 const RT_ST = {received:'已收到，待處理', processing:'檢測／維修中', ready:'待退還客戶', refunding:'待退款', exchanging:'待換貨', goods:'待處理退回的商品', supplier:'退廠商處理中', done:'已結案', cancelled:'已作廢'};
 const RT_ACT = {repair:'排除故障後退還客戶', return:'原物退還客戶（檢測沒有故障）', refund:'直接退款', exchange:'換貨', improve:'改善後歸位（重新入庫）', scrap:'直接報廢'}, RT_ACT_S = {repair:'修復退還', return:'原物退還', refund:'退款', exchange:'換貨', improve:'改善歸位', scrap:'報廢'};
 const RT_AFTER = {supplier:'退回廠商', scrap:'報廢', restock:'重新入庫（良品）'}, RT_SUP_RES = {replaced:'廠商換新品給我們', fixed:'廠商修好寄回', credit:'廠商退款／折讓', rejected:'廠商拒絕，退回給我們'};
-const rtCost = r => r2((r.items || []).reduce((a, i) => a + (Number(i.qty) || 0) * (Number((S.products[i.pid] || {}).cost) || 0), 0));
+const rtCost = (r, items) => r2((items || r.items || []).reduce((a, i) => a + (Number(i.qty) || 0) * (Number((S.products[i.pid] || {}).cost) || 0), 0));
 const rtInStock = r => !!r.returnOrderId && !!S.orders[r.returnOrderId] && S.orders[r.returnOrderId].status !== 'void';
 const rtAge = r => { const l = (r.log || []).slice(-1)[0]; return Math.max(daysBetween((l && l.d) || r.date || today(), today()), 0); };
 const rtWarnDays = () => Math.max(Number(S.set.rtWarnDays) || 7, 1);
-async function rtAdjust(r, sign, note){
-  const lines = (r.items || []).filter(i => S.products[i.pid] && Number(i.qty) > 0).map(i => ({pid:i.pid, name:i.name, sku:i.sku || S.products[i.pid].sku, unit:i.unit || '', qty:sign * Number(i.qty), counted:'', price:0, cost:Number(S.products[i.pid].cost) || 0}));
+async function rtAdjust(r, sign, note, items){ return rtAdjustMix(r, [[items || r.items || [], sign]], note); }
+/* parts：[[商品清單, 1 或 -1], …]；加回庫存（1）、從庫存扣掉（-1）可以放在同一張調整單 */
+async function rtAdjustMix(r, parts, note){
+  const lines = parts.flatMap(([items, sign]) => (items || []).filter(i => S.products[i.pid] && Number(i.qty) > 0).map(i => ({pid:i.pid, name:i.name, sku:i.sku || S.products[i.pid].sku, unit:i.unit || '', qty:sign * Number(i.qty), counted:'', price:0, cost:Number(S.products[i.pid].cost) || 0})));
   if (!lines.length) throw new Error('這張退貨裡沒有可以調整庫存的商品');
   return createOrder('adjust', {date:today(), lines, note, extra:{wh:defaultWh(), returnId:r.id, returnNo:r.no}});
 }
 const RT_PAY = {cash:'現金', transfer:'匯款', offset:'沖抵貨款'};
+/* -dt：直接退款——退回的每項商品分成「良品」（檢查沒問題，可以再賣）或「不良品」（有瑕疵，不能再賣），並確認退款單價和金額。
+   items[].cond 是 good／bad（舊的退貨沒有＝還沒分類）；items[].refundPrice 是退款單價；refundAmount 是確認的退款金額、refundCalc 是當時的明細合計；
+   goodDone：良品已經處理完了（之後「退回商品怎麼處理」只剩不良品） */
+const RT_COND = {good:'良品', bad:'不良品'};
+const rtCondOf = i => i && (i.cond === 'good' || i.cond === 'bad') ? i.cond : '';
+const rtCondDefault = i => String((i && i.reason) || '').trim() ? 'bad' : 'good';
+const rtSplit = r => { const it = (r && r.items) || []; return {good:it.filter(i => rtCondOf(i) === 'good'), bad:it.filter(i => rtCondOf(i) === 'bad'), none:it.filter(i => !rtCondOf(i))}; };
+const rtClassified = r => { const sp = rtSplit(r); return sp.good.length + sp.bad.length > 0 && !sp.none.length; };
+const rtCondTxt = r => { const sp = rtSplit(r); return [sp.good.length ? '良品 ' + sp.good.length + ' 項' : '', sp.bad.length ? '不良品 ' + sp.bad.length + ' 項' : ''].filter(Boolean).join('、'); };
+const rtCondItems = r => { const sp = rtSplit(r), t = a => a.map(i => i.name + '×' + num(i.qty)).join('、'); return [sp.good.length ? '良品：' + t(sp.good) : '', sp.bad.length ? '不良品：' + t(sp.bad) : ''].filter(Boolean).join('；'); };
+const rtScope = r => r && r.goodDone ? rtSplit(r).bad : ((r && r.items) || []);
+const rtItemPrice = (r, i) => { if (i && i.refundPrice !== undefined && i.refundPrice !== null && i.refundPrice !== '' && Number(i.refundPrice) >= 0) return Number(i.refundPrice); const src = r && r.srcId ? S.orders[r.srcId] : null, sl = src && (src.lines || []).find(l => l.pid === i.pid); return sl ? Number(sl.price) || 0 : Number((S.products[i.pid] || {}).price) || 0; };
 /* -dh：狀態文字（改善後歸位的維修中，叫「改善中」）、結案去向、這位客戶待退還（歸還）的退貨 */
 const rtStTxt = r => r.status === 'processing' && r.action === 'improve' ? '改善中，待歸位' : (RT_ST[r.status] ?? r.status);
 const rtDest = r => r.status !== 'done' ? '' : r.after === 'scrap' ? '報廢' : r.after === 'restock' ? '歸位（重新入庫）' : r.after === 'supplier' ? '退回廠商' : r.returnedDate ? '退還客戶' : r.action === 'refund' ? '退款' : r.action === 'exchange' ? '換貨' : '';
@@ -9722,12 +9736,11 @@ async function rtUpdate(r, patch, logS, logNote){
   return !!(await run(async () => { await S.db.doc('returns/' + r.id).update({...patch, ...(logS ? {log:rtLog(r, logS, logNote)} : {}), updatedAt:Date.now()}); return true; }));
 }
 function rtRefundDefault(r){
-  const src = r.srcId ? S.orders[r.srcId] : null;
-  return r2((r.items || []).reduce((a, i) => { const sl = src && (src.lines || []).find(l => l.pid === i.pid), pr = sl ? Number(sl.price) || 0 : Number((S.products[i.pid] || {}).price) || 0; return a + amtOf(i.qty, pr); }, 0));
+  return r2((r.items || []).reduce((a, i) => a + amtOf(i.qty, rtItemPrice(r, i)), 0));
 }
 function rtStepSheet(title, fields, onSave, okText){
-  const st = {}; fields.forEach(f => { st[f.k] = f.value === undefined ? '' : f.value; });
-  const sh = sheet({title}), inputs = fields.map(f => f.type === 'select'
+  const st = {}; fields.forEach(f => { if (f.k) st[f.k] = f.value === undefined ? '' : f.value; });
+  const sh = sheet({title}), inputs = fields.map(f => f.type === 'note' ? h('p', {class:'note', style:'margin:0 0 10px', text:f.text}) : f.type === 'select'
     ? fld(f.label, (() => { const s2 = h('select', {class:'in', 'aria-label':f.label, onchange:e => { st[f.k] = e.target.value; }}, ...f.options.map(([v, t]) => h('option', {value:v, text:t}))); s2.value = st[f.k]; return s2; })())
     : fld(f.label, h('input', {class:'in', type:f.type || 'text', inputmode:f.type === 'number' ? 'decimal' : undefined, value:st[f.k], placeholder:f.placeholder || '', 'aria-label':f.label, autocomplete:'off', oninput:e => { st[f.k] = e.target.value; }})));
   put(sh.bodyEl, ...inputs);
@@ -9736,8 +9749,7 @@ function rtStepSheet(title, fields, onSave, okText){
 function openReturnStep(r, kind){
   if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
   if (kind === 'repair') return rtUpdate(r, {action:'repair', status:'processing'}, 'repair', '決定：排除故障後退還客戶').then(ok => ok && toast('已記錄：排除故障後退還客戶'));
-  if (kind === 'refund') return rtUpdate(r, {action:'refund', status:'refunding', refundAmount:r.refundAmount || rtRefundDefault(r)}, 'refund', '決定：直接退款').then(ok => ok && toast('已記錄：直接退款'));
-  if (kind === 'switch') return dialog({title:'改成直接退款？', msg:'維修不成或客戶不要了，改成直接退款。', ok:'改成直接退款'}).then(y => y && rtUpdate(r, {action:'refund', status:'refunding', refundAmount:r.refundAmount || rtRefundDefault(r)}, 'switch', '改為直接退款').then(ok => ok && toast('已改成直接退款')));
+  if (kind === 'refund' || kind === 'switch' || kind === 'plan') return openReturnRefundPlan(r, kind);
   if (kind === 'asis') return rtUpdate(r, {action:'return', status:'ready'}, 'asis', '決定：原物退還客戶（沒有故障，不用維修）').then(ok => ok && toast('已記錄：原物退還客戶'));
   if (kind === 'improve') return rtUpdate(r, {action:'improve', status:'processing'}, 'improve', '決定：改善後歸位（重新入庫），不退還客戶').then(ok => ok && toast('已記錄：改善後歸位'));
   if (kind === 'exchange') return rtUpdate(r, {action:'exchange', status:'exchanging'}, 'exchange', '決定：換貨').then(ok => ok && toast('已記錄：換貨'));
@@ -9751,13 +9763,81 @@ function openReturnStep(r, kind){
     st => rtUpdate(r, {status:'ready', diagnosis:st.diagnosis.trim(), repairNote:st.repairNote.trim(), repairBy:st.repairBy.trim(), repairCost:toNum(st.repairCost), fixedDate:st.fixedDate || today()}, 'fixed', st.repairNote.trim()).then(ok => { if (ok) toast('已記錄：修好了，等著退還客戶'); return ok; }), '記錄已修好');
   if (kind === 'returned') return rtStepSheet('已退還客戶', [{k:'returnedDate', label:'退還日期', value:today(), type:'date'}, {k:'returnNote', label:'備註（誰送、客戶簽收等）', value:''}],
     st => rtUpdate(r, {status:'done', returnedDate:st.returnedDate || today(), returnNote:st.returnNote.trim()}, 'returned', st.returnNote.trim()).then(ok => { if (ok) toast('已結案：修好的商品已退還客戶'); return ok; }), '結案');
-  if (kind === 'refunded') return rtStepSheet('登記已退款', [{k:'refundAmount', label:'退款金額', value:r.refundAmount || rtRefundDefault(r), type:'number'}, {k:'refundMethod', label:'退款方式', type:'select', value:r.refundMethod || 'cash', options:Object.entries(RT_PAY)}, {k:'refundDate', label:'退款日期', value:today(), type:'date'}, {k:'refundNote', label:'備註', value:''}, {k:'goods', label:'客戶退回來的商品之後怎麼處理', type:'select', value:'pending', options:[['pending', '之後再決定：退廠商、報廢或重新入庫'], ['none', '不用處理，直接結案']]}],
-    async st => { if (!r.returnOrderId && !await dialog({title:'還沒建立銷貨退回單', msg:'這筆退款還沒有對應的銷貨退回單，庫存和客戶帳款不會跟著調整。仍要登記退款嗎？（建議先按「建立銷貨退回單」）', ok:'仍要登記'})) return false;
-      const ok = await rtUpdate(r, {status:st.goods === 'pending' ? 'goods' : 'done', refundAmount:toNum(st.refundAmount), refundMethod:st.refundMethod, refundDate:st.refundDate || today(), refundNote:st.refundNote.trim()}, 'refunded', RT_PAY[st.refundMethod] + ' ' + money(toNum(st.refundAmount))); if (ok) toast(st.goods === 'pending' ? '已退款。退回的商品請接著決定怎麼處理' : '已結案：已退款'); return ok; }, '登記已退款');
+  if (kind === 'refunded'){
+    const sp = rtSplit(r), cls = rtClassified(r), inStock = rtInStock(r), canAdj = can('stock') || S.isAdmin, ro = r.returnOrderId ? S.orders[r.returnOrderId] : null;
+    const fields = [{k:'refundAmount', label:'退款金額（確認）', value:r.refundAmount || rtRefundDefault(r), type:'number'}, {k:'refundMethod', label:'退款方式', type:'select', value:r.refundMethod || 'cash', options:Object.entries(RT_PAY)}, {k:'refundDate', label:'退款日期', value:today(), type:'date'}, {k:'refundNote', label:'備註', value:''}];
+    if (cls){
+      if (sp.good.length) fields.push(!inStock && canAdj ? {k:'goodAdj', label:'良品（' + sp.good.length + ' 項）：庫存怎麼處理（還沒用銷貨退回單入庫）', type:'select', value:'yes', options:[['yes', '建立調整單，把良品加回庫存'], ['no', '只記錄，不調整庫存']]} : {type:'note', text:'良品 ' + sp.good.length + ' 項：' + (inStock ? '已隨銷貨退回單入庫，不用另外處理。' : '還沒入庫，只記錄（你的角色不能調整庫存）。')});
+      if (sp.bad.length) fields.push({k:'badWay', label:'不良品（' + sp.bad.length + ' 項）之後怎麼處理', type:'select', value:'pending', options:[['pending', '之後再決定：退回廠商或報廢'], ['scrap', '直接報廢（記報廢成本' + (inStock && canAdj ? '，同時從庫存扣除' : '') + '）'], ['none', '不用處理，直接結案' + (inStock ? '（不良品仍留在庫存裡）' : '')]]});
+    } else fields.push({k:'goods', label:'客戶退回來的商品之後怎麼處理', type:'select', value:'pending', options:[['pending', '之後再決定：退廠商、報廢或重新入庫'], ['none', '不用處理，直接結案']]});
+    return rtStepSheet('登記已退款', fields,
+      async st => { const amt = toNum(st.refundAmount);
+        if (!(amt > 0)){ toast('請輸入退款金額（要大於 0）'); return false; }
+        if (!r.returnOrderId && !await dialog({title:'還沒建立銷貨退回單', msg:'這筆退款還沒有對應的銷貨退回單，庫存和客戶帳款不會跟著調整。仍要登記退款嗎？（建議先按「建立銷貨退回單」）', ok:'仍要登記'})) return false;
+        if (ro && Math.abs((Number(ro.total) || 0) - amt) > 0.004 && !await dialog({title:'退款金額和銷貨退回單不同', msg:'你確認的退款金額是 ' + money(amt) + '，銷貨退回單 ' + ro.no + ' 的金額是 ' + money(ro.total) + '（有稅金時會不一樣）。仍要登記嗎？', ok:'仍要登記'})) return false;
+        const rd = st.refundDate || today();
+        let patch = {refundAmount:amt, refundMethod:st.refundMethod, refundDate:rd, refundNote:st.refundNote.trim()}, extra = '';
+        if (cls){
+          const parts = [], scrapNow = sp.bad.length && st.badWay === 'scrap', addGood = sp.good.length && !inStock && canAdj && st.goodAdj === 'yes', cutBad = scrapNow && inStock && canAdj;
+          if (addGood) parts.push([sp.good, 1]); if (cutBad) parts.push([sp.bad, -1]);
+          let adjId = ''; if (parts.length){ const a = await run(() => rtAdjustMix(r, parts, '退貨處理 ' + r.no + (addGood ? '　良品入庫' : '') + (cutBad ? '　不良品報廢' : ''))); if (!a) return false; adjId = a.id; }
+          patch = {...patch, goodDone:sp.good.length > 0, ...(sp.good.length ? {goodDate:rd} : {}), ...(addGood ? {goodAdjId:adjId} : {})};
+          if (scrapNow) patch = {...patch, status:'done', after:'scrap', scrapDate:rd, scrapNote:'退款時判定為不良品', scrapLoss:rtCost(r, sp.bad), scrapAdjId:cutBad ? adjId : ''};
+          else patch.status = sp.bad.length && st.badWay === 'pending' ? 'goods' : 'done';
+          extra = '　' + rtCondTxt(r) + (addGood ? '，良品已加回庫存' : '') + (scrapNow ? '，不良品報廢' + (cutBad ? '、已扣庫存' : '') : '');
+        } else patch.status = st.goods === 'pending' ? 'goods' : 'done';
+        const ok = await rtUpdate(r, patch, 'refunded', RT_PAY[st.refundMethod] + ' ' + money(amt) + extra);
+        if (ok) toast(patch.status === 'goods' ? (cls ? '已退款。不良品請接著決定怎麼處理' : '已退款。退回的商品請接著決定怎麼處理') : '已結案：已退款'); return ok; }, '登記已退款');
+  }
+}
+/* -dt：直接退款：退回的每項商品分成良品／不良品，確認退款單價和金額（這一步只是決定；錢實際退出去，在下一步「登記已退款」） */
+function openReturnRefundPlan(r, kind){
+  if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
+  const items = r.items || []; if (!items.length) return toast('這張退貨沒有商品');
+  const rows = items.map(i => ({i, cond:rtCondOf(i) || rtCondDefault(i), price:String(rtItemPrice(r, i))}));
+  const calc = () => r2(rows.reduce((a, x) => a + amtOf(x.i.qty, toNum(x.price)), 0));
+  let manual = kind === 'plan' && Number(r.refundAmount) > 0 && Math.abs(Number(r.refundAmount) - calc()) > 0.004, busy = false;
+  const sh = sheet({title:kind === 'switch' ? '改成直接退款' : kind === 'plan' ? '調整商品與退款金額' : '直接退款：確認商品與金額'});
+  const sumBox = h('div', {class:'panel pad', 'aria-label':'退款金額確認', style:'margin:12px 0'}), hint = h('small', {class:'hint', style:'display:block;margin-top:4px', 'aria-label':'金額差異'}), saveBtn = h('button', {class:'btn grow'}, '確認退款');
+  const amtIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:String(manual ? Number(r.refundAmount) : calc()), 'aria-label':'確認退款金額', autocomplete:'off', onfocus:e => e.target.select(), oninput:() => { manual = true; upd(); }});
+  const subs = [];
+  const rowEls = rows.map((x, n) => {
+    const sub = h('b', {'aria-label':'小計 ' + (n + 1)});
+    const pIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:x.price, 'aria-label':'退款單價 ' + (n + 1), autocomplete:'off', onfocus:e => e.target.select(), oninput:e => { x.price = e.target.value; if (!manual) amtIn.value = String(calc()); upd(); }});
+    const chip = k => h('button', {class:'chip', type:'button', 'aria-label':RT_COND[k] + ' ' + (n + 1), onclick:() => { x.cond = k; upd(); }}, RT_COND[k]);
+    const cg = chip('good'), cb = chip('bad');
+    subs.push(() => { sub.textContent = money(amtOf(x.i.qty, toNum(x.price))); cg.setAttribute('aria-pressed', String(x.cond === 'good')); cb.setAttribute('aria-pressed', String(x.cond === 'bad')); });
+    return h('div', {class:'ln'}, h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline'}, h('b', {text:x.i.name}), h('small', {text:num(x.i.qty) + ' ' + (x.i.unit || '')})),
+      x.i.reason ? h('small', {class:'hint', style:'display:block', text:'故障情形：' + x.i.reason}) : null,
+      h('div', {class:'chips', style:'padding:6px 0 0'}, cg, cb),
+      h('div', {class:'f2', style:'margin-top:6px'}, fld('退款單價', pIn), fld('小計', h('div', {style:'padding:10px 0'}, sub))));
+  });
+  function upd(){
+    subs.forEach(f => f());
+    const c = calc(), a = toNum(amtIn.value), g = rows.filter(x => x.cond === 'good').length, d = r2(a - c);
+    setKids(sumBox, kv('良品', g + ' 項'), kv('不良品', (rows.length - g) + ' 項'), kv('明細合計', money(c)));
+    hint.textContent = Math.abs(d) > 0.004 ? '確認的金額和明細合計差 ' + money(d) + '（打折、扣運費、抹零等），確認沒問題再儲存。' : '和明細合計相同。';
+    hint.className = Math.abs(d) > 0.004 ? 'hint overdue' : 'hint';
+    saveBtn.textContent = '確認退款 ' + money(a);
+  }
+  saveBtn.onclick = async () => {
+    if (busy) return;
+    const c = calc(), a = toNum(amtIn.value);
+    if (!(a > 0)) return toast('請輸入退款金額（要大於 0）');
+    if (Math.abs(a - c) > 0.004 && !await dialog({title:'退款金額和明細合計不同', msg:'確認的退款金額是 ' + money(a) + '，明細合計是 ' + money(c) + '（差 ' + money(r2(a - c)) + '）。確定要退 ' + money(a) + ' 嗎？', ok:'確定'})) return;
+    busy = true;
+    const nItems = rows.map(x => ({...x.i, cond:x.cond, refundPrice:toNum(x.price)}));
+    const ok = await rtUpdate(r, {action:'refund', status:'refunding', items:nItems, refundAmount:a, refundCalc:c}, kind === 'plan' ? 'refundPlan' : kind, '退款 ' + money(a) + '　' + rtCondTxt({items:nItems}));
+    busy = false;
+    if (ok){ toast(kind === 'plan' ? '已更新退款商品與金額' : kind === 'switch' ? '已改成直接退款：' + money(a) : '已記錄：直接退款 ' + money(a)); sh.forceClose(); }
+  };
+  put(sh.bodyEl, h('p', {class:'note', style:'margin-top:0', text:(kind === 'switch' ? '維修不成或客戶不要了，改成直接退款。' : '') + '客戶退回來的每項商品，先分成良品（檢查沒問題、可以再賣）或不良品（有瑕疵、不能再賣），再確認退款單價和金額。有填故障情形的先選不良品，不對可以改。'}),
+    h('div', {class:'panel', style:'margin-bottom:6px'}, ...rowEls), sumBox, fld('確認退款金額', amtIn), hint);
+  sh.footEl.append(saveBtn); upd();
 }
 function openReturnGoods(r, kind){
   if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
-  const inStock = rtInStock(r), canAdj = can('stock') || S.isAdmin, loss = rtCost(r);
+  const inStock = rtInStock(r), canAdj = can('stock') || S.isAdmin, scope = rtScope(r), loss = rtCost(r, scope);
   if (kind === 'supplier'){
     const sups = Object.values(S.partners).filter(p => p.type === 'supplier').sort(cmpName);
     return rtStepSheet('退回廠商', [{k:'supplierId', label:'廠商', type:'select', value:r.supplierId || '', options:[['', '（請選擇）'], ...sups.map(p => [p.id, p.name])]}, {k:'rma', label:'廠商的退貨編號（RMA）或寄件單號', value:r.rma || ''}, {k:'sentDate', label:'寄出日期', value:today(), type:'date'}, {k:'expectDate', label:'預計廠商回覆日（選填）', value:'', type:'date'}, {k:'supplierNote', label:'備註（故障情形、寄送方式）', value:''}],
@@ -9766,10 +9846,10 @@ function openReturnGoods(r, kind){
   if (kind === 'supplierReply') return rtStepSheet('廠商回覆', [{k:'result', label:'廠商怎麼處理', type:'select', value:'replaced', options:Object.entries(RT_SUP_RES)}, {k:'amount', label:'廠商退款或折讓的金額（選填，只做紀錄）', value:'', type:'number'}, {k:'date', label:'回覆日期', value:today(), type:'date'}, {k:'note', label:'備註', value:''}],
     st => rtUpdate(r, {status:st.result === 'rejected' ? 'goods' : 'done', after:st.result === 'rejected' ? '' : 'supplier', supplierResult:st.result, supplierAmount:toNum(st.amount), supplierReplyDate:st.date || today(), supplierReplyNote:st.note.trim()}, 'supplierReply', RT_SUP_RES[st.result] + (toNum(st.amount) ? '　' + money(toNum(st.amount)) : '') + (st.note.trim() ? '　' + st.note.trim() : '')).then(ok => { if (ok) toast(st.result === 'rejected' ? '廠商拒絕了，請決定這批商品怎麼處理' : '已結案：廠商已回覆'); return ok; }), '記錄廠商回覆');
   if (kind === 'scrap') return rtStepSheet('報廢', [{k:'date', label:'報廢日期', value:today(), type:'date'}, {k:'note', label:'報廢原因', value:'', placeholder:'例：無法修復、廠商不收'}, ...(inStock && canAdj ? [{k:'adj', label:'庫存怎麼處理（這批商品已經用銷貨退回單入庫了）', type:'select', value:'yes', options:[['yes', '建立庫存調整單，把這些商品從庫存扣掉（建議）'], ['no', '不調整庫存']]}] : [])],
-    async st => { let adjId = ''; if (inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, -1, '退貨報廢 ' + r.no)); if (!a) return false; adjId = a.id; }
+    async st => { let adjId = ''; if (inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, -1, '退貨報廢 ' + r.no, scope)); if (!a) return false; adjId = a.id; }
       const ok = await rtUpdate(r, {status:'done', ...(r.action ? {} : {action:'scrap'}), after:'scrap', scrapDate:st.date || today(), scrapNote:st.note.trim(), scrapLoss:loss, scrapAdjId:adjId}, 'scrap', '報廢　成本 ' + money(loss) + (adjId ? '　已扣庫存' : '')); if (ok) toast('已結案：報廢（成本 ' + money(loss) + '）' + (adjId ? '，已從庫存扣除' : '')); return ok; }, '記錄報廢');
   if (kind === 'restock') return rtStepSheet(r.action === 'improve' ? '改善完成，重新歸位' : '重新入庫（良品）', [...(r.action === 'improve' ? [{k:'diagnosis', label:'故障原因／檢查結果', value:r.diagnosis || '', placeholder:'例：外殼刮傷、包裝破損'}, {k:'repairNote', label:'改善內容', value:r.repairNote || '', placeholder:'例：重新包裝、更換外盒'}, {k:'repairBy', label:'改善的人', value:r.repairBy || ''}, {k:'repairCost', label:'改善費用（選填，只做紀錄）', value:r.repairCost || '', type:'number'}] : []), {k:'date', label:'入庫日期', value:today(), type:'date'}, {k:'note', label:'備註（檢查結果、放在哪裡）', value:''}, ...(!inStock && canAdj ? [{k:'adj', label:'庫存怎麼處理（這批商品還沒入庫）', type:'select', value:'yes', options:[['yes', '建立庫存調整單，把這些商品加回庫存（預設倉庫）'], ['no', '只記錄，不調整庫存']]}] : [])],
-    async st => { let adjId = ''; if (!inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, 1, '退貨良品入庫 ' + r.no)); if (!a) return false; adjId = a.id; }
+    async st => { let adjId = ''; if (!inStock && canAdj && st.adj === 'yes') { const a = await run(() => rtAdjust(r, 1, '退貨良品入庫 ' + r.no, scope)); if (!a) return false; adjId = a.id; }
       const ok = await rtUpdate(r, {status:'done', after:'restock', restockDate:st.date || today(), restockNote:st.note.trim(), restockAdjId:adjId, ...(r.action === 'improve' ? {diagnosis:st.diagnosis.trim(), repairNote:st.repairNote.trim(), repairBy:st.repairBy.trim(), repairCost:toNum(st.repairCost), fixedDate:st.date || today()} : {})}, 'restock', '重新入庫' + (adjId ? '　已加回庫存' : (inStock ? '　（已隨銷貨退回單入庫）' : ''))); if (ok) toast('已結案：重新入庫' + (adjId ? '，庫存已增加' : '')); return ok; }, r.action === 'improve' ? '記錄歸位' : '記錄入庫');
 }
 function openReturnSaleOrder(r){
@@ -9844,17 +9924,17 @@ function openReturnDetail(id){
       h('div', {class:'panel pad', style:'margin-bottom:14px'}, kv('狀態', h('b', {text:rtStTxt(r)})), kv('處理方式', r.action ? RT_ACT[r.action] : '還沒決定'), kv('客戶', pt ? pt.name : '—'),
         src ? kv('對應銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(src.id)}, src.no)) : null, r.reason ? kv('退貨原因', r.reason) : null, r.note ? kv('備註', r.note) : null,
         kv('登記者', (r.byName || who(r.by)) + (r.at ? '，' + fmtDT(r.at) : '')), reviewKv('return', r)),
-      h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '')}), Array.isArray(i.mfgs) && i.mfgs.length ? [h('br'), h('small', {class:'hint', 'aria-label':'製造日期', text:'製造日期 ' + i.mfgs.join('、')})] : null), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
+      h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), rtCondOf(i) ? h('span', {class:'pill', style:'margin-left:6px', 'aria-label':'分類 ' + i.name, text:RT_COND[rtCondOf(i)]}) : null, h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '') + (r.action === 'refund' && i.refundPrice !== undefined ? '　退款單價 ' + money(i.refundPrice) : '')}), Array.isArray(i.mfgs) && i.mfgs.length ? [h('br'), h('small', {class:'hint', 'aria-label':'製造日期', text:'製造日期 ' + i.mfgs.join('、')})] : null), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
       r.action === 'repair' || r.action === 'improve' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:r.action === 'improve' ? '檢測與改善' : '檢測與維修'}), h('div', {style:'height:6px'}), kv('故障原因', r.diagnosis || '—'), kv('維修內容', r.repairNote || '—'), r.repairBy ? kv('維修的人／廠商', r.repairBy) : null, r.repairCost ? kv('維修費用', money(r.repairCost)) : null, r.fixedDate ? kv('修好日期', r.fixedDate) : null, r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
-      r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
+      r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), r.refundCalc !== undefined && Math.abs(Number(r.refundCalc) - Number(r.refundAmount || 0)) > 0.004 ? kv('明細合計', money(r.refundCalc)) : null, rtCondTxt(r) ? kv('商品分類', rtCondTxt(r)) : null, r.goodDone ? kv('良品庫存', r.goodAdjId ? '已建立調整單加回庫存' : (rtInStock(r) ? '已隨銷貨退回單入庫' : '只記錄，沒有調整庫存')) : null, kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
       r.action === 'return' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'原物退還'}), h('div', {style:'height:6px'}), kv('處理', '檢測沒有故障（或客戶不要退了），原物退還客戶'), r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
       r.action === 'exchange' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'換貨'}), h('div', {style:'height:6px'}), kv('換貨商品', rtItemsTxt(r)), r.exchangeDate ? kv('換貨日期', r.exchangeDate + (r.exchangeNote ? '　' + r.exchangeNote : '')) : kv('狀態', '還沒換貨'), r.exchangeOrderId && S.orders[r.exchangeOrderId] ? kv('換貨的銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(r.exchangeOrderId)}, S.orders[r.exchangeOrderId].no)) : null) : null,
-      r.after || r.status === 'goods' ? h('div', {class:'panel pad', style:'margin-bottom:14px', 'aria-label':'退回商品的處理'}, h('b', {text:'客戶退回來的商品怎麼處理'}), h('div', {style:'height:6px'}), kv('處理方式', r.after ? RT_AFTER[r.after] : '還沒決定'), kv('庫存', rtInStock(r) ? '已用銷貨退回單入庫' : '還沒入庫（在退貨區）'),
+      r.after || r.status === 'goods' ? h('div', {class:'panel pad', style:'margin-bottom:14px', 'aria-label':'退回商品的處理'}, h('b', {text:r.goodDone ? '不良品怎麼處理' : '客戶退回來的商品怎麼處理'}), h('div', {style:'height:6px'}), r.goodDone ? kv('處理的商品', rtSplit(r).bad.map(i => i.name + '×' + num(i.qty)).join('、') || '—') : null, kv('處理方式', r.after ? RT_AFTER[r.after] : '還沒決定'), kv('庫存', rtInStock(r) ? '已用銷貨退回單入庫' : '還沒入庫（在退貨區）'),
         r.after === 'supplier' ? [kv('廠商', r.supplierName || '—'), r.rma ? kv('廠商退貨編號', r.rma) : null, kv('寄出日期', r.sentDate || '—'), r.expectDate ? kv('預計回覆', r.expectDate) : null, r.supplierResult ? kv('廠商回覆', RT_SUP_RES[r.supplierResult] + (r.supplierAmount ? '　' + money(r.supplierAmount) : '') + '　' + (r.supplierReplyDate || '')) : null] : null,
         r.after === 'scrap' ? [kv('報廢日期', r.scrapDate || '—'), kv('報廢成本', money(r.scrapLoss || 0)), r.scrapNote ? kv('原因', r.scrapNote) : null, kv('庫存', r.scrapAdjId ? '已建立調整單扣除' : '沒有調整庫存')] : null,
         r.after === 'restock' ? [kv('入庫日期', r.restockDate || '—'), r.restockNote ? kv('備註', r.restockNote) : null, kv('庫存', r.restockAdjId ? '已建立調整單加回' : '沒有另外調整')] : null) : null,
-      r.status === 'received' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理這批退貨'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'要怎麼處理這批退貨？'})), ...[['repair', '排除故障後退還客戶', '先檢測、維修，修好再還給客戶'], ['asis', '原物退還客戶', '檢測沒有故障，或客戶不要退了，直接還給客戶'], ['refund', '直接退款', '把錢退給客戶，退回來的商品之後再決定怎麼處理'], ['exchange', '換貨', '給客戶一個新的，退回來的商品之後再決定怎麼處理'], ['improve', '改善後歸位（重新入庫）', '不還給客戶，檢查或改善（例如重新包裝）後放回架位再賣'], ['scrap', '直接報廢', '壞了不能用，不退還客戶也不再賣；記錄報廢和成本（要同時退款請選「直接退款」，之後再報廢）']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => k === 'scrap' ? openReturnGoods(r, 'scrap') : openReturnStep(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
-      r.status === 'goods' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理退回的商品'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'客戶退回來的商品，要怎麼處理？'})), ...[['supplier', '退回廠商', '寄回廠商維修、換新或請款（記錄廠商、寄出日、回覆）'], ['scrap', '報廢', '壞了不能用，記錄報廢和成本；已入庫的可以同時扣庫存'], ['restock', '重新入庫（良品）', '檢查過沒問題，可以再賣；還沒入庫的可以同時加回庫存']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => openReturnGoods(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
+      r.status === 'received' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理這批退貨'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:'要怎麼處理這批退貨？'})), ...[['repair', '排除故障後退還客戶', '先檢測、維修，修好再還給客戶'], ['asis', '原物退還客戶', '檢測沒有故障，或客戶不要退了，直接還給客戶'], ['refund', '直接退款', '把錢退給客戶：先分良品／不良品、確認退款金額，退回來的商品再處理'], ['exchange', '換貨', '給客戶一個新的，退回來的商品之後再決定怎麼處理'], ['improve', '改善後歸位（重新入庫）', '不還給客戶，檢查或改善（例如重新包裝）後放回架位再賣'], ['scrap', '直接報廢', '壞了不能用，不退還客戶也不再賣；記錄報廢和成本（要同時退款請選「直接退款」，之後再報廢）']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => k === 'scrap' ? openReturnGoods(r, 'scrap') : openReturnStep(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
+      r.status === 'goods' && !locked && live && (can('sale') || can('stock') || S.isAdmin) ? h('div', {class:'panel', style:'margin-bottom:14px', 'aria-label':'要怎麼處理退回的商品'}, h('div', {class:'pad', style:'padding-bottom:0'}, h('b', {text:r.goodDone ? '不良品（' + rtSplit(r).bad.length + ' 項），要怎麼處理？' : '客戶退回來的商品，要怎麼處理？'})), ...[['supplier', '退回廠商', '寄回廠商維修、換新或請款（記錄廠商、寄出日、回覆）'], ['scrap', '報廢', '壞了不能用，記錄報廢和成本；已入庫的可以同時扣庫存'], ['restock', '重新入庫（良品）', '檢查過沒問題，可以再賣；還沒入庫的可以同時加回庫存']].map(([k, t, ex]) => h('button', {class:'row', style:'align-items:flex-start;text-align:left', 'aria-label':t, onclick:() => openReturnGoods(r, k)}, h('span', {style:'min-width:0'}, h('b', {text:t}), h('br'), h('small', {class:'hint', text:ex})), h('small', {class:'chev', text:'›'})))) : null,
       reviewNote('return', r),
       metas.length || canPh ? h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'照片' + (metas.length ? '（' + metas.length + '）' : '')})), h('div', {class:'panel pad', style:'margin-bottom:14px'}, metas.length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:8px'}, ...metas.map((m, k) => h('button', {'aria-label':'查看照片 ' + (k + 1), onclick:() => openPhotoViewer(r, k, {coll:'returns', key:'return'})}, h('img', {src:m.thumb, alt:m.name, style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'})))) : h('small', {class:'hint', text:'還沒有照片。'}), pk ? h('div', {style:'margin-top:10px'}, pk.el) : null)) : null,
       (r.log || []).length ? [h('div', {class:'sec-h'}, h('h2', {text:'處理紀錄'})), h('div', {class:'panel', style:'margin-bottom:14px'}, [...r.log].reverse().map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:RT_LOG[l.s] || l.s}), l.note ? [h('br'), h('small', {text:l.note})] : null), h('small', {text:l.d + (l.byName ? '　' + l.byName : '')}))))] : null);
@@ -9865,18 +9945,18 @@ function openReturnDetail(id){
     if (on && (r.status === 'processing' || r.status === 'ready')) foot.push(h('button', {class:'btn ghost', 'aria-label':'改成報廢', onclick:() => openReturnGoods(r, 'scrap')}, '改成報廢'));
     if (on && r.status === 'exchanging'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'建立換貨銷貨單', onclick:() => openOrder('sale', {fromRtn:r.id, partnerId:r.partnerId, note:'換貨 ' + r.no + '（免費換新）', lines:(r.items || []).filter(i => S.products[i.pid]).map(i => ({pid:i.pid, qty:i.qty, price:0}))})}, '建立換貨銷貨單')); foot.push(h('button', {class:'btn grow', 'aria-label':'已換貨', onclick:() => openReturnStep(r, 'exchanged')}, '已換貨給客戶')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成直接退款', onclick:() => openReturnStep(r, 'switch')}, '改成直接退款')); }
     if (on && r.status === 'supplier'){ foot.push(h('button', {class:'btn grow', 'aria-label':'廠商已回覆', onclick:() => openReturnGoods(r, 'supplierReply')}, '廠商已回覆')); foot.push(h('button', {class:'btn ghost', 'aria-label':'改成報廢', onclick:() => openReturnGoods(r, 'scrap')}, '改成報廢')); }
-    if (on && r.status === 'refunding'){ if (!r.returnOrderId) foot.push(h('button', {class:'btn ghost', 'aria-label':'建立銷貨退回單', onclick:() => openReturnSaleOrder(r)}, '建立銷貨退回單')); foot.push(h('button', {class:'btn grow', 'aria-label':'登記已退款', onclick:() => openReturnStep(r, 'refunded')}, '登記已退款')); }
+    if (on && r.status === 'refunding'){ foot.push(h('button', {class:'btn ghost', 'aria-label':'調整商品與退款金額', onclick:() => openReturnStep(r, 'plan')}, '調整商品與金額')); if (!r.returnOrderId) foot.push(h('button', {class:'btn ghost', 'aria-label':'建立銷貨退回單', onclick:() => openReturnSaleOrder(r)}, '建立銷貨退回單')); foot.push(h('button', {class:'btn grow', 'aria-label':'登記已退款', onclick:() => openReturnStep(r, 'refunded')}, '登記已退款')); }
     if (!locked && live && (r.status === 'received' || r.status === 'processing') && (can('sale') || can('stock') || S.isAdmin)) foot.push(h('button', {class:'btn ghost', 'aria-label':'編輯退貨登記', onclick:() => openReturnForm({edit:r})}, '編輯'));
     foot.push(...reviewBtns('return', r));
     if (!locked && live && r.status !== 'done' && (can('sale') || can('stock') || S.isAdmin)) foot.push(h('button', {class:'btn plain', 'aria-label':'作廢退貨處理', onclick:async () => { if (!await dialog({title:'作廢 ' + r.no + '？', msg:'作廢後無法復原。', ok:'作廢', danger:true})) return; if (await rtUpdate(r, {status:'cancelled'}, 'cancelled', '作廢')) toast('已作廢 ' + r.no); }}, '作廢'));
     return {body, foot};
   });
 }
-const RT_LOG = {received:'收到退貨', repair:'決定：排除故障後退還客戶', asis:'決定：原物退還客戶', refund:'決定：直接退款', exchange:'決定：換貨', exchanged:'已換貨給客戶', switch:'改為直接退款', diag:'檢測結果', fixed:'已修好', returned:'已退還客戶', refunded:'已退款', supplier:'退回廠商', supplierReply:'廠商回覆', scrap:'報廢', restock:'重新入庫', improve:'決定：改善後歸位（重新入庫）', cancelled:'作廢'};
+const RT_LOG = {received:'收到退貨', repair:'決定：排除故障後退還客戶', asis:'決定：原物退還客戶', refund:'決定：直接退款', refundPlan:'調整退款商品與金額', exchange:'決定：換貨', exchanged:'已換貨給客戶', switch:'改為直接退款', diag:'檢測結果', fixed:'已修好', returned:'已退還客戶', refunded:'已退款', supplier:'退回廠商', supplierReply:'廠商回覆', scrap:'報廢', restock:'重新入庫', improve:'決定：改善後歸位（重新入庫）', cancelled:'作廢'};
 function dsReturns(){
   const all = Object.values(S.returns).sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.at || 0) - (a.at || 0));
-  const cols = [XC('退貨單號', 'text', 16), XC('收到日期', 'text', 12), XC('客戶', 'text', 16), XC('商品', 'text', 30), XC('退貨原因', 'text', 20), XC('處理方式', 'text', 14), XC('退回商品的處理', 'text', 14), XC('狀態', 'text', 16), XC('已停留天數', 'int', 10), XC('退款金額', 'money', 12), XC('報廢成本', 'money', 12), XC('廠商', 'text', 14), XC('備註', 'text', 20), XC('最後去向', 'text', 16), XC('各商品故障情形', 'text', 30)];
-  return {title:'退貨處理清單', sub:(S.set.name || '') + '　共 ' + all.length + ' 筆（處理中 ' + all.filter(rtOpen).length + '）　' + today(), filename:'退貨處理清單', landscape:true, sections:[{name:'退貨處理', cols, rows:all.map(r => [r.no, r.date, partyName(r.partnerId), rtItemsTxt(r), r.reason || '', r.action ? RT_ACT_S[r.action] : '未決定', r.after ? RT_AFTER[r.after] : '', rtStTxt(r), rtOpen(r) ? rtAge(r) : 0, r.refundAmount || 0, r.scrapLoss || 0, r.supplierName || '', r.note || '', rtDest(r), rtReasons(r)])}]};
+  const cols = [XC('退貨單號', 'text', 16), XC('收到日期', 'text', 12), XC('客戶', 'text', 16), XC('商品', 'text', 30), XC('退貨原因', 'text', 20), XC('處理方式', 'text', 14), XC('退回商品的處理', 'text', 14), XC('狀態', 'text', 16), XC('已停留天數', 'int', 10), XC('退款金額', 'money', 12), XC('報廢成本', 'money', 12), XC('廠商', 'text', 14), XC('備註', 'text', 20), XC('最後去向', 'text', 16), XC('各商品故障情形', 'text', 30), XC('良品／不良品', 'text', 30)];
+  return {title:'退貨處理清單', sub:(S.set.name || '') + '　共 ' + all.length + ' 筆（處理中 ' + all.filter(rtOpen).length + '）　' + today(), filename:'退貨處理清單', landscape:true, sections:[{name:'退貨處理', cols, rows:all.map(r => [r.no, r.date, partyName(r.partnerId), rtItemsTxt(r), r.reason || '', r.action ? RT_ACT_S[r.action] : '未決定', r.after ? RT_AFTER[r.after] : '', rtStTxt(r), rtOpen(r) ? rtAge(r) : 0, r.refundAmount || 0, r.scrapLoss || 0, r.supplierName || '', r.note || '', rtDest(r), rtReasons(r), rtCondItems(r)])}]};
 }
 function rtHomeCard(){
   if (!can('sale') && !can('stock') && !S.isAdmin) return null;
@@ -9901,6 +9981,7 @@ function openReturnMgmt(){
     };
     const chips = (list, cur, set) => h('div', {class:'chips', style:'padding-top:0'}, list.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur() === k, 'aria-label':'篩選 ' + t, onclick:e => { set(k); [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); fill(); }}, t)));
     const body = h('div', null, h('p', {class:'note', text:'記錄退回來的商品怎麼處理：修好或原物退還客戶、退款、換貨、直接報廢、改善後歸位；退款或換貨後留在我們手上的商品，再決定退廠商、報廢或重新入庫。'}),
+      h('button', {class:'btn ghost', style:'width:100%;margin:0 0 12px', 'aria-label':'退貨明細', onclick:() => openReturnList()}, '退貨明細（客戶、商品、金額、處理方式）'),
       Object.keys(dn).length ? h('small', {class:'hint', 'aria-label':'已結案去向', style:'display:block;margin:-4px 0 10px', text:'已結案去向：' + Object.entries(dn).map(([k, n]) => k + ' ' + n + ' 筆').join('、')}) : null,
       h('div', {class:'pd-tiles'}, ...[['received', '待處理'], ['processing', '檢測／維修中'], ['ready', '待退還客戶'], ['refunding', '待退款'], ['exchanging', '待換貨'], ['goods', '待處理退回商品'], ['supplier', '退廠商中']].map(([k, t]) => h('div', {class:'pd-tile'}, h('b', {text:t}), h('small', {text:cnt(k) + ' 筆'})))),
       h('label', {class:'search'}, icon('search'), h('input', {type:'search', placeholder:'搜尋單號、客戶、商品', autocomplete:'off', 'aria-label':'搜尋退貨', oninput:e => { U.q = e.target.value; fill(); }})),
@@ -9908,6 +9989,73 @@ function openReturnMgmt(){
       chips([['', '全部方式'], ['repair', '修復退還'], ['return', '原物退還'], ['refund', '直接退款'], ['exchange', '換貨'], ['improve', '改善歸位'], ['scrap', '報廢'], ['none', '還沒決定']], () => U.act, k => { U.act = k; }), box);
     fill();
     return {body, foot:[canExport() ? h('button', {class:'btn ghost', 'aria-label':'匯出退貨清單', onclick:() => openExport(dsReturns())}, icon('down'), '匯出') : null, can('sale') || can('stock') || S.isAdmin ? h('button', {class:'btn grow', 'aria-label':'新增退貨登記', onclick:() => openReturnForm()}, icon('plus'), '新增退貨登記') : null].filter(Boolean)};
+  });
+}
+
+/* ================= 退貨明細（像「未交訂單查詢」）：每一筆退貨列出客戶、商品、數量、單價、退貨金額、處理方式、狀態 =================
+   退貨金額＝數量 × 單價（直接退款分類時填的退款單價；沒有就用對應銷貨單的單價，再沒有用商品定價）；
+   直接退款的退貨另外有「確認的退款金額」（可能和明細合計不同：打折、扣運費、抹零）。 */
+const rtCustName = id => { const p = S.partners[id]; return p ? (p.name || p.shortName || '') : ''; };
+function rtDetailData(U){
+  const rows = [];
+  for (const r of Object.values(S.returns)){
+    if (r.status === 'cancelled') continue;
+    if (U.f === 'open' ? !rtOpen(r) : (U.f === 'done' ? r.status !== 'done' : false)) continue;
+    if (U.cust && r.partnerId !== U.cust) continue;
+    if (U.act && (U.act === 'none' ? !!r.action : r.action !== U.act)) continue;
+    if (!inRange(String(r.date || ''), U)) continue;
+    const lines = (r.items || []).map(i => { const price = rtItemPrice(r, i); return {sku:i.sku || (S.products[i.pid] || {}).sku || '', name:i.name || '', unit:i.unit || '', qty:Number(i.qty) || 0, price, amt:amtOf(i.qty, price), cond:rtCondOf(i), reason:String(i.reason || '').trim()}; });
+    rows.push({r, lines, cust:rtCustName(r.partnerId), amt:r2(lines.reduce((a, l) => a + l.amt, 0)), refund:r.action === 'refund' && Number(r.refundAmount) > 0 ? Number(r.refundAmount) : 0});
+  }
+  rows.sort((a, b) => (U.sort === 'date' ? 0 : a.cust.localeCompare(b.cust, 'zh-Hant')) || String(a.r.date).localeCompare(String(b.r.date)) || String(a.r.no).localeCompare(String(b.r.no)));
+  const cnt = {}; for (const x of rows){ const k = x.r.action || 'none', b = cnt[k] || (cnt[k] = {n:0, amt:0}); b.n++; b.amt = r2(b.amt + x.amt); }
+  const by = {}; for (const k of ['none', ...Object.keys(RT_ACT_S)]) if (cnt[k]) by[k] = cnt[k];   // 小方塊固定順序：未決定、各種處理方式
+  return {rows, by, total:r2(rows.reduce((a, x) => a + x.amt, 0)), refund:r2(rows.reduce((a, x) => a + x.refund, 0))};
+}
+const rtDetailTitle = U => U.f === 'open' ? '退貨未結明細' : U.f === 'done' ? '退貨已結案明細' : '退貨明細';
+function dsReturnDetail(U){
+  const q = rtDetailData(U), rng = (U.from || '不限') + ' ~ ' + (U.to || '不限'), ttl = rtDetailTitle(U);
+  const cols = [XC('退貨單號', 'text', 18), XC('客戶', 'text', 22), XC('收到日期', 'text', 12), XC('處理方式', 'text', 12), XC('狀態', 'text', 16), XC('已停留天數', 'int', 10), XC('料號', 'text', 12), XC('品名', 'text', 26), XC('數量', 'qty', 9), XC('單價', 'money', 10), XC('退貨金額', 'money', 12), XC('良品／不良品', 'text', 12), XC('故障情形', 'text', 20), XC('退款金額（確認）', 'money', 14)];
+  const rows = [];
+  for (const x of q.rows) x.lines.forEach((l, n) => rows.push([x.r.no, x.cust, x.r.date, x.r.action ? RT_ACT_S[x.r.action] : '未決定', rtStTxt(x.r), rtOpen(x.r) ? rtAge(x.r) : 0, l.sku, l.name, l.qty, l.price, l.amt, l.cond ? RT_COND[l.cond] : '', l.reason, n === 0 && x.refund ? x.refund : null]));
+  return {title:ttl, sub:'收到日期 ' + rng + '　共 ' + q.rows.length + ' 筆　' + today(), filename:ttl, landscape:true, sections:[{name:ttl, cols, rows, foot:['合計', '', '', '', '', '', '', '', '', '', q.total, '', '', q.refund]}]};
+}
+function openReturnList(){
+  if (!fxGate('returns')) return;
+  if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
+  const U = {f:'open', sort:'cust', from:'', to:'', cust:'', act:''};
+  liveSheet({title:rtDetailTitle(U)}, ['returns', 'partners', 'orders', 'products'], sh => {
+    const redraw = () => render('returns'), q = rtDetailData(U);
+    const chips = (list, cur, set, pre) => h('div', {class:'chips', style:'padding-top:0'}, list.map(([k, t]) => h('button', {class:'chip', 'aria-pressed':cur() === k, 'aria-label':pre + '：' + t, onclick:() => { set(k); redraw(); }}, t)));
+    const ids = new Set(Object.values(S.returns).filter(r => r.status !== 'cancelled').map(r => r.partnerId));
+    const custSel = h('select', {class:'in', 'aria-label':'客戶', onchange:e => { U.cust = e.target.value; redraw(); }}, h('option', {value:'', text:'全部客戶'}), ...Object.values(S.partners).filter(p => p.type === 'customer' && ids.has(p.id)).sort(cmpName).map(p => h('option', {value:p.id, text:p.name || p.shortName})));
+    custSel.value = U.cust;
+    const actSel = h('select', {class:'in', 'aria-label':'處理方式', onchange:e => { U.act = e.target.value; redraw(); }}, h('option', {value:'', text:'全部處理方式'}), ...Object.entries(RT_ACT_S).map(([k, t]) => h('option', {value:k, text:t})), h('option', {value:'none', text:'還沒決定'}));
+    actSel.value = U.act;
+    /* 一小段一小段（不會在字中間斷行），段與段之間用全形空白隔開 */
+    const seg = (parts, lead) => parts.filter(Boolean).map((t, i, a) => h('span', {style:'display:inline-block', text:(lead ? '　' : '') + t + (!lead && i < a.length - 1 ? '　' : '')}));
+    const card = x => { const r = x.r, late = rtOpen(r) && rtAge(r) >= rtWarnDays();
+      return h('button', {class:'row', style:'align-items:flex-start', 'data-rt':r.id, onclick:() => openReturnDetail(r.id)},
+        h('span', {style:'min-width:0;text-align:left'}, h('b', {text:r.no + (U.sort === 'cust' ? '' : '　' + x.cust)}), h('br'),
+          h('small', {class:late ? 'overdue' : ''}, ...seg(['收到 ' + r.date, r.action ? RT_ACT_S[r.action] : '未決定', rtStTxt(r), rtOpen(r) && rtAge(r) >= 1 ? '已 ' + rtAge(r) + ' 天沒動' : ''])),
+          ...x.lines.map(l => [h('br'), h('small', null, h('span', {text:l.name + '　' + num(l.qty) + ' ' + l.unit + ' × ' + money(l.price) + ' ＝ ' + money(l.amt)}), ...seg([l.cond ? RT_COND[l.cond] : '', l.reason ? '故障：' + l.reason : ''], true))])),
+        h('span', {class:'right'}, h('b', {text:money(x.amt)}), x.refund ? [h('br'), h('small', {text:'退款 ' + money(x.refund)})] : null)); };
+    const list = [];
+    if (U.sort === 'cust'){
+      const g = new Map(); for (const x of q.rows){ if (!g.has(x.r.partnerId)) g.set(x.r.partnerId, []); g.get(x.r.partnerId).push(x); }
+      for (const [pid, xs] of g) list.push(h('div', {class:'row', 'aria-label':'客戶小計 ' + rtCustName(pid), style:'background:var(--bg)'}, h('b', {text:rtCustName(pid) || '（沒有客戶）'}), h('small', {text:xs.length + ' 筆　' + money(r2(xs.reduce((a, x) => a + x.amt, 0)))})), ...xs.map(card));
+    } else list.push(...q.rows.map(card));
+    const row = (k, v) => h('div', {class:'row'}, h('span', {text:k}), h('b', {text:v}));
+    const body = h('div', null,
+      h('p', {class:'note', style:'margin-top:0', text:'像「未交訂單查詢」：每一筆退貨列出客戶、商品、數量、單價、退貨金額（數量 × 單價，單價用銷貨單上的單價）和處理方式。點一筆可以開退貨處理。'}),
+      chips([['open', '處理中（未結案）'], ['done', '已結案'], ['all', '全部']], () => U.f, k => { U.f = k; }, '狀態'),
+      dateRangeBar(U, redraw),
+      h('div', {class:'f2'}, fld('客戶', custSel), fld('處理方式', actSel)),
+      chips([['cust', '依客戶'], ['date', '依收到日期']], () => U.sort, k => { U.sort = k; }, '排序'),
+      h('div', {class:'panel ledger', 'aria-label':'退貨明細合計'}, row('退貨', q.rows.length + ' 筆'), row('退貨金額', money(q.total)), q.refund ? row('確認的退款金額（直接退款）', money(q.refund)) : null),
+      Object.keys(q.by).length ? h('div', {class:'pd-tiles', 'aria-label':'依處理方式', style:'margin-top:12px'}, ...Object.entries(q.by).map(([k, v]) => h('div', {class:'pd-tile'}, h('b', {text:k === 'none' ? '未決定' : RT_ACT_S[k]}), h('small', {text:v.n + ' 筆'}), h('span', {text:money(v.amt)})))) : null,
+      q.rows.length ? h('div', {class:'panel', style:'margin-top:12px'}, list) : h('div', {class:'panel empty', style:'margin-top:12px', text:U.f === 'open' ? '這段期間沒有處理中的退貨' : '這段期間沒有符合的退貨'}));
+    return {body, foot:canExport() ? [h('button', {class:'btn grow', 'aria-label':'匯出退貨明細', onclick:() => openExport(dsReturnDetail(U))}, icon('down'), '匯出（PDF／Excel）')] : [], title:rtDetailTitle(U)};
   });
 }
 
@@ -13870,7 +14018,7 @@ function openAsmSource(pid, wid){
   paint();
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openAsmSource:(...x) => openAsmSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x), rtSplit, rtCondOf, rtCondTxt, rtCondItems, rtClassified, rtScope, rtItemPrice, rtRefundDefault:r => rtRefundDefault(r), openReturnRefundPlan:(...x) => openReturnRefundPlan(...x), openReturnList:() => openReturnList(), rtDetailData:x => rtDetailData(x), dsReturnDetail:x => dsReturnDetail(x)}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -14715,7 +14863,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ds';
+const APP_VERSION = '2026.10.11-du';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -14730,7 +14878,7 @@ const FN = {
   corder:{l:'國內訂單作業', kw:'訂單 客戶訂單 接單 未交 預購', need:['sale']},
   lineOrders:{l:'LINE 訂單審核', kw:'line 賴 線上訂單 審核', need:['sale']},
   docs:{l:'單據查詢', kw:'查單 單據 銷貨單 進貨單 補印 查詢 作廢', need:[]},
-  returns:{l:'退貨管理', kw:'退貨 維修 換貨 退款 故障 客訴', need:['sale', 'stock']},
+  returns:{l:'退貨管理', kw:'退貨 維修 換貨 退款 故障 客訴 明細 未結 良品 不良品', need:['sale', 'stock']},
   priceLevels:{l:'價格等級與折扣', kw:'價格 等級 折扣 特價 售價 促銷 價格表'},
   priceIO:{l:'價格策略匯入匯出', kw:'價格 匯入 匯出 組合 買送 促銷'},
   purchaseSug:{l:'採購建議作業', kw:'採購 建議 補貨 缺貨 叫貨', need:['purchase']},
