@@ -303,6 +303,30 @@ input.in:focus,select.in:focus,textarea.in:focus{border-color:var(--brand);outli
 .tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:92px;padding:12px 6px;border-radius:16px;background:var(--panel);border:1px solid var(--line);color:var(--ink);font-weight:700;font-size:15px}
 .tile svg{width:30px;height:30px;color:var(--brand)}
 .tile.pri{background:var(--brand);color:var(--brandi);border-color:var(--brand)}.tile.pri svg{color:var(--brandi)}
+.emo{display:inline-block;font-family:"Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji","Twemoji Mozilla",sans-serif;font-style:normal;font-weight:400;line-height:1}
+.fav-h{gap:12px}.fav-h h2{font-size:15px;letter-spacing:.08em}
+.fav-line{flex:1;height:1px;background:var(--line)}
+.fav-edit{flex:none}
+.fav-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.fav-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:112px;padding:14px 6px 12px;border-radius:16px;background:var(--panel);border:1px solid var(--line);color:var(--ink)}
+.fav-tile:active{background:var(--soft)}
+.fav-emo{font-size:42px}
+.fav-l{font-size:16px;font-weight:700;line-height:1.25;text-align:center;overflow-wrap:anywhere}
+.fav-l.long{font-size:14px}
+.fav-hint{margin:12px 2px 0}
+.fav-guide{margin-top:12px}
+.fav-row-l{display:flex;align-items:center;gap:10px;min-width:0;text-align:left}.fav-row-l .emo{font-size:24px;flex:none}
+.fav-row-b{display:flex;gap:4px}.fav-row-b .ic[disabled]{opacity:.35}
+.fav-add-g{margin-top:6px}.fav-add-g .sec-h{margin-bottom:2px;min-height:28px}
+.fav-add-g .row{grid-template-columns:minmax(0,1fr) auto}.fav-row-l>span:last-child{min-width:0;overflow-wrap:anywhere}.fav-row-l small{display:block}
+.nav .emo{font-size:25px;opacity:.8}
+.nav button[aria-current="page"] .emo{opacity:1}
+html[data-ui="tablet"] .fav-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+html[data-ui="tablet"] .nav .emo{font-size:26px}
+html[data-ui="laptop"] .fav-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+html[data-ui="laptop"] .fav-tile{min-height:100px}html[data-ui="laptop"] .fav-tile:hover{border-color:var(--brand)}
+html[data-ui="laptop"] .nav .emo{font-size:20px}
+html[data-ui="laptop"] #app[data-tab="home"] .page>.todo-sec{column-span:all}
 details.fold{border:1px solid var(--line);border-radius:14px;background:var(--panel);margin:10px 0}
 details.fold>summary{list-style:none;cursor:pointer;padding:13px 14px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
 details.fold>summary::-webkit-details-marker{display:none}
@@ -918,14 +942,14 @@ function drawNav(){
     const groups = menuGroups(), names = groups.map(g => g[0]), cur = S.tab === 'more' ? (S.ui.moreOpen || '') : (names.includes(NAV_TAB_CAT[S.tab]) ? NAV_TAB_CAT[S.tab] : '');
     const go = fn => () => { fn(); S.ui.moreQ = ''; window.scrollTo(0, 0); draw(); };
     nav.replaceChildren(
-      h('button', {'aria-label':'首頁', 'aria-current':S.tab === 'home' ? 'page' : null, onclick:go(() => { S.tab = 'home'; })}, icon('home'), h('span', {text:'首頁'})),
-      ...groups.map(([t]) => h('button', {'aria-label':'分類 ' + t, 'aria-current':cur === t ? 'page' : null, onclick:go(() => { S.tab = 'more'; S.ui.moreOpen = t; })}, icon(menuCatIcon(t)), h('span', {text:t}))),
-      h('button', {'aria-label':'全部功能', 'aria-current':S.tab === 'more' && !S.ui.moreOpen ? 'page' : null, onclick:go(() => { S.tab = 'more'; S.ui.moreOpen = ''; })}, icon('more'), h('span', {text:'全部功能'})));
+      h('button', {'aria-label':'首頁', 'aria-current':S.tab === 'home' ? 'page' : null, onclick:go(() => { S.tab = 'home'; })}, emoIcon('home'), h('span', {text:'首頁'})),
+      ...groups.map(([t]) => h('button', {'aria-label':'分類 ' + t, 'aria-current':cur === t ? 'page' : null, onclick:go(() => { S.tab = 'more'; S.ui.moreOpen = t; })}, emoIcon(menuCatIcon(t)), h('span', {text:t}))),
+      h('button', {'aria-label':'全部功能', 'aria-current':S.tab === 'more' && !S.ui.moreOpen ? 'page' : null, onclick:go(() => { S.tab = 'more'; S.ui.moreOpen = ''; })}, emoIcon('more'), h('span', {text:'全部功能'})));
     return;
   }
   const items = [['home','首頁','home'], ['inv','庫存','box'], ['buy','訂購','cart'], ['ord','單據','doc'], ['acc','帳款','wallet'], ['more','更多','more']].filter(([k]) => tabAllowed(k));
   nav.replaceChildren(...items.map(([k, t, ic]) =>
-    h('button', {'aria-current':(S.tab === k || (k === 'more' && (S.tab === 'veh' || S.tab === 'rep'))) ? 'page' : null, onclick:() => { S.tab = k; window.scrollTo(0, 0); draw(); }}, icon(ic), h('span', {text:t}))));
+    h('button', {'aria-current':(S.tab === k || (k === 'more' && (S.tab === 'veh' || S.tab === 'rep'))) ? 'page' : null, onclick:() => { S.tab = k; window.scrollTo(0, 0); draw(); }}, emoIcon(ic), h('span', {text:t}))));
 }
 function pageEl(){
   if (!tabAllowed(S.tab)) S.tab = 'home';
@@ -984,11 +1008,12 @@ function orderRow(o){
 
 function pHome(){
   const page = h('div', {class:'wrap page'});
-  page.append(homeTodo());   // 待辦事項放最上面：一登入就看得到
+  page.append(homeFavGrid());   // -dx：常用功能大圖示格放最上面
+  page.append(homeTodo());   // 待辦事項接著放：一登入就看得到
   { const qp = quickPunchCard(); if (qp) page.append(qp); }
   { const dc = driverHomeCard(); if (dc) page.append(dc); }
   { const sb = salesBoard(); if (sb) page.append(sb); }
-  page.append(homeTiles()); page.append(homeFavs());
+  /* -dx：原本的「今天要做什麼？」「我的常用」由最上面的常用功能格取代 */
   if (tabAllowed('acc') && (fxOn('ar') || fxOn('ap'))){
     const sumT = t => r2(Object.entries(S.d.bal).filter(([id]) => S.partners[id] && S.partners[id].type === t).reduce((a, [, b]) => a + b, 0));
     const ar = sumT('customer'), ap = sumT('supplier');
@@ -1778,7 +1803,7 @@ function openOrder(type, pre){
         onfocus:sel, oninput:e => { if (isAdj){ ln.counted = e.target.value; if (ref.cartonRefresh) ref.cartonRefresh(); } else { ln.qty = e.target.value; auto(ln); syncPrice(ref); famRefresh(ln); } calc(); }});
       const showDisc = type === 'sale', setPrice = () => { ln.manual = true; ln.orig = false; ln.rule = null; rule.textContent = '手動輸入單價'; };
       let listIn = null, discIn = null;
-      priceIn = isAdj ? null : h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.price, 'aria-label':'單價', readOnly:!can('price'), onfocus:sel, oninput:e => { ln.price = e.target.value; setPrice(); if (discIn){ ln.disc = discPct(ln.list, ln.price); discIn.value = zheIn(ln); } calc(); }});
+      priceIn = isAdj ? null : h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.price, 'aria-label':'單價', readOnly:!can('price'), onfocus:sel, oninput:e => { ln.price = e.target.value; setPrice(); if (discIn){ ln.disc = discPct(ln.list, ln.price); discIn.value = zheIn(ln); } calc(); }, onchange:e => { settleField(ref, type === 'sale'); calc(); }});
       ref.priceIn = priceIn; ref.qtyIn = qtyIn;
       if (isAdj && cartonOf(p)){
         const cb = cartonInputs(p, {compact:true, enter:'search',
@@ -1789,7 +1814,7 @@ function openOrder(type, pre){
       }
       if (showDisc){
         listIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.list || '', 'aria-label':'定價', readOnly:!can('price'), onfocus:sel, oninput:e => { ln.list = toNum(e.target.value); ln.price = r2(ln.list * (Number(ln.disc) || 100) / 100); priceIn.value = ln.price; setPrice(); calc(); }});
-        discIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:zheIn(ln), placeholder:'0.9', 'aria-label':'折數', onchange:e => { e.target.value = zheIn(ln); }, readOnly:!can('price'), onfocus:sel, oninput:e => { ln.disc = parseZhe(e.target.value) || 100; ln.price = r2((Number(ln.list) || 0) * ln.disc / 100); priceIn.value = ln.price; setPrice(); calc(); }});
+        discIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:zheIn(ln), placeholder:'0.9', 'aria-label':'折數', onchange:e => { settleField(ref, type === 'sale'); calc(); e.target.value = zheIn(ln); }, readOnly:!can('price'), onfocus:sel, oninput:e => { ln.disc = parseZhe(e.target.value) || 100; ln.price = r2((Number(ln.list) || 0) * ln.disc / 100); priceIn.value = ln.price; setPrice(); calc(); }});
         ref.listIn = listIn; ref.discIn = discIn;
       }
       rule.textContent = !isAdj && ln.rule ? ruleTxt(ln.rule) : (ln.manual && !isAdj ? (ln.orig ? '原單價（可修改）' : '手動輸入單價') : '');
@@ -1823,6 +1848,7 @@ function openOrder(type, pre){
         r.warn.textContent = '帳面庫存 ' + num(stock) + ' ' + (r.p.unit || '') + (cartonTxt(r.p, stock) ? '（' + cartonTxt(r.p, stock) + '）' : '');
         if (d) diffs++;
       } else {
+        settlePrice(r, type === 'sale');
         const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price);
         sum += amt; r.sub.textContent = money(amt);
         const qAll = Math.max(qBy[r.ln.pid] || 0, q), bad = T.sign < 0 && qAll > stock;
@@ -1939,7 +1965,7 @@ function openOrder(type, pre){
         const d = r3(c - stock); if (!d) continue;
         lines.push({...base, qty:d, counted:c, before:stock, price:0});
       } else {
-        const q = toNum(ln.qty), pr = toNum(ln.price);
+        const q = toNum(ln.qty), pr = (type === 'sale' && fixPrice(ln), toNum(ln.price));
         if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
         if (pr < 0) return toast('單價不可為負');
         needQ[p.id] = (needQ[p.id] || 0) + q;
@@ -3641,6 +3667,7 @@ function docProgress(kind, d){
 async function createDoc(kind, o){
   const D = DOCS[kind], date = o.date || today();
   lockGuardNew('orders', date);
+  if (kind === 'co') o = {...o, lines:(o.lines || []).map(l => l.gift ? l : {...l, price:priceInt(l.price)})};   /* -dw：客戶訂單的單價取整數 */
   const total = mInt(o.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
   const doc = {no:D.pref + date.slice(2).replace(/-/g, '') + '-' + rid(), partnerId:o.partnerId, date, expected:o.expected || addDays(date, 7),
     lines:o.lines, total, note:o.note || '', status:'open', ...stamp(), at:Date.now(), ...(o.extra || {})};
@@ -3978,10 +4005,10 @@ function openDocEditor(kind, pre){
       refs.push(ref);
       const sel = e => e.target.select();
       const showDisc = kind === 'co'; let listIn = null, discIn = null;
-      ref.priceIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.price, 'aria-label':'單價', onfocus:sel, oninput:e => { ln.price = e.target.value; ln.manual = true; if (discIn){ ln.disc = discPct(ln.list, ln.price); discIn.value = zheIn(ln); } calc(); }});
+      ref.priceIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.price, 'aria-label':'單價', onfocus:sel, oninput:e => { ln.price = e.target.value; ln.manual = true; if (discIn){ ln.disc = discPct(ln.list, ln.price); discIn.value = zheIn(ln); } calc(); }, onchange:e => { settleField(ref, kind === 'co'); calc(); }});
       if (showDisc){
         listIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.list || '', 'aria-label':'定價', onfocus:sel, oninput:e => { ln.list = toNum(e.target.value); ln.price = r2(ln.list * (Number(ln.disc) || 100) / 100); ref.priceIn.value = ln.price; ln.manual = true; calc(); }});
-        discIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:zheIn(ln), placeholder:'0.9', 'aria-label':'折數', onchange:e => { e.target.value = zheIn(ln); }, onfocus:sel, oninput:e => { ln.disc = parseZhe(e.target.value) || 100; ln.price = r2((Number(ln.list) || 0) * ln.disc / 100); ref.priceIn.value = ln.price; ln.manual = true; calc(); }});
+        discIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:zheIn(ln), placeholder:'0.9', 'aria-label':'折數', onchange:e => { settleField(ref, kind === 'co'); calc(); e.target.value = zheIn(ln); }, onfocus:sel, oninput:e => { ln.disc = parseZhe(e.target.value) || 100; ln.price = r2((Number(ln.list) || 0) * ln.disc / 100); ref.priceIn.value = ln.price; ln.manual = true; calc(); }});
         ref.listIn = listIn; ref.discIn = discIn;
       }
       return h('div', {class:'ln'},
@@ -3997,6 +4024,7 @@ function openDocEditor(kind, pre){
     applyPromosD();
     let total = 0;
     for (const r of refs){
+      settlePrice(r, kind === 'co');
       const q = toNum(r.ln.qty), amt = amtOf(q, r.ln.price); total += amt;
       r.sub.textContent = money(amt);
       const pid = r.ln.pid;
@@ -4026,7 +4054,7 @@ function openDocEditor(kind, pre){
     if (st.expected < st.date) return toast(D.dateLabel + '不可早於訂單日期');
     const lines = [];
     for (const ln of st.lines){
-      const p = S.products[ln.pid] || ln.fb, q = toNum(ln.qty), pr = toNum(ln.price), orig = ed ? (ed.lines || []).find(x => x.pid === ln.pid) : null;
+      const p = S.products[ln.pid] || ln.fb, q = toNum(ln.qty), pr = (kind === 'co' && fixPrice(ln), toNum(ln.price)), orig = ed ? (ed.lines || []).find(x => x.pid === ln.pid) : null;
       if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
       if (pr < 0) return toast('單價不可為負');
       lines.push({...(orig || {}), pid:p.id, name:orig ? orig.name : p.name, sku:p.sku, unit:p.unit || '', qty:q, price:pr, cost:orig ? (Number(orig.cost) || 0) : (p.cost || 0), ...(kind === 'co' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {})});
@@ -6843,7 +6871,7 @@ function openDriverRun(){
     body.append(h('div', {class:'panel pad', 'aria-label':'今天的配送', style:'margin-top:10px'}, h('b', {class:'big', text:name + ' 今天共 ' + countTxt(tot) + '配送單'}), h('div', {style:'margin-top:4px', text:'區域：' + tot.areaTxt}), h('small', {class:'hint', text:tot.items + ' 件貨，' + runs.length + ' 趟'})));
     for (const run of runs){ const info = runInfo([run]), started = !!run.out, finished = !!(run.out && run.back), v = S.vehicles[run.vid];
       const durMin = finished ? (run.outAt && run.backAt ? minsBetween(run.outAt, run.backAt) : (hmMin(run.back) - hmMin(run.out))) : null;
-      const stopsEl = h('div', {class:'panel', style:'margin:8px 0'}, run.stops.map((st, i) => { const o = ordOf(st.orderId); return h('div', {class:'row', style:'padding:8px 12px'}, h('span', {style:'min-width:0'}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）'), h('br'), h('small', {text:(o ? (areaOf(o) || '未填區域') + '　' + shipLine(o) : '')}))); }));
+      const stopsEl = h('div', {class:'panel', style:'margin:8px 0'}, run.stops.map((st, i) => { const o = ordOf(st.orderId); return h('div', {class:'row', style:'padding:8px 12px'}, h('span', {style:'min-width:0'}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）'), h('br'), h('small', {text:(o ? (areaOf(o) || '未填區域') + '　' + shipLine(o) : '')})), stopItemsEl(o)); }));
       const state = finished ? h('div', {class:'note', 'aria-label':'已完成', style:'background:var(--oks);color:var(--ok)', text:'已完成　出車 ' + run.out + '　回到公司 ' + run.back + '　共花 ' + hmTxt(durMin)}) : started ? h('div', {class:'note', 'aria-label':'配送中', style:'background:var(--lows);color:var(--low)', text:'配送中　' + run.out + ' 出車' + (run.outAt ? '，已經 ' + hmTxt(minsBetween(run.outAt, Date.now())) : '')}) : null;
       body.append(h('div', {class:'panel pad', style:'margin-top:12px', 'aria-label':'行程 ' + run.label}, h('b', {text:run.label + '行程　' + vehLabel(v)}), h('div', {style:'margin:4px 0', text:countTxt(info) + '　' + info.items + ' 件'}), h('small', {class:'hint', style:'display:block', text:'區域：' + info.areaTxt}), stopsEl, state,
         !started ? h('button', {class:'btn', style:'width:100%;min-height:58px;font-size:19px', 'aria-label':'出車 ' + run.label, onclick:() => confirmDepart(name, run, info)}, '出車') : null,
@@ -8754,11 +8782,12 @@ function lineFillFromLast(d, lo){
   const last = lastOrderOf(d.partnerId); if (!last) return 0;
   const mine = new Map(d.lines.filter(l => l.pid).map(l => [l.pid, l]));
   const rest = d.lines.filter(l => !l.pid && !LINE_REPEAT_RE.test(l.text || ''));
-  const fromLast = last.doc.lines.filter(l => S.products[l.pid] && S.products[l.pid].active !== false).map(l => { const o = mine.get(l.pid); mine.delete(l.pid); const q = o ? o.qty : Number(l.qty) || 1; return {text:o ? o.text : '（上次訂的）', key:o ? o.key || '' : '', mem:o ? o.mem || '' : '', memT:o ? o.memT || '' : '', picked:o ? !!o.picked : false, pid:l.pid, qty:q, unit:l.unit || (S.products[l.pid] || {}).unit || '', price:linePrice(l.pid, d.partnerId, q), fromLast:true, changed:!!o}; });
+  const fromLast = last.doc.lines.filter(l => S.products[l.pid] && S.products[l.pid].active !== false).map(l => { const o = mine.get(l.pid); mine.delete(l.pid); const q = o ? o.qty : Number(l.qty) || 1; return {text:o ? o.text : '（上次訂的）', key:o ? o.key || '' : '', mem:o ? o.mem || '' : '', memT:o ? o.memT || '' : '', picked:o ? !!o.picked : false, pid:l.pid, qty:q, unit:l.unit || (S.products[l.pid] || {}).unit || '', price:linePriceInt(l.pid, d.partnerId, q), fromLast:true, changed:!!o}; });
   d.lines = [...fromLast, ...[...mine.values()].map(l => ({...l, changed:true})), ...rest];
   d.last = {no:last.doc.no, date:last.doc.date, kind:last.kind, n:fromLast.length}; d.lastApplied = true; return fromLast.length;
 }
 const linePrice = (pid, partnerId, qty, fl) => { const p = S.products[pid]; if (!p) return 0; try { return resolvePrice({product:p, partner:S.partners[partnerId] || {}, side:'sale', qty:qty || 1, famQty:fl ? famQtyOf(fl, p, qty || 1) : null, date:today()}).price; } catch (_) { return p.price || 0; } };
+const linePriceInt = (...a) => priceInt(linePrice(...a));
 /* ===== LINE 訂單「記住對應」=====
    審核時改選過（或確認過「比對不確定」）的商品，記在客戶資料 lineMap：{key:{pid, t:客人寫的字, at, by}}；
    下次這位客戶寫一樣的字，直接對上同一個商品（雲端函式收到訊息時、和這裡審核時都會套用）。
@@ -8834,7 +8863,7 @@ function lineApplyMem(d){
     const w = mm ? {pid:mm.pid, conf:mm.how === 'exact' ? 1 : 0.65, ambiguous:false, mem:mm.how, memT:mm.t} : {pid:l.auto.pid, conf:l.auto.conf, ambiguous:l.auto.ambiguous, mem:'', memT:''};
     if (l.pid === w.pid && l.mem === w.mem && l.memT === w.memT && l.conf === w.conf) continue;
     const moved = l.pid !== w.pid; Object.assign(l, w); n++;
-    if (moved){ l.unit = l.tu || (S.products[l.pid] || {}).unit || ''; l.price = l.pid ? linePrice(l.pid, d.partnerId, l.qty) : 0; }
+    if (moved){ l.unit = l.tu || (S.products[l.pid] || {}).unit || ''; l.price = l.pid ? linePriceInt(l.pid, d.partnerId, l.qty) : 0; }
   }
   return n;
 }
@@ -8894,7 +8923,7 @@ function openLineMemAdd(id){
 /* LINE 訂單的審核草稿（選的客戶、品項、數量…）：清單和每一張的明細共用，關掉再打開還在 */
 const lineDraftStore = () => S.__lineDrafts || (S.__lineDrafts = {});
 const lineWantsLast = lo => !!lo.repeat || (!(lo.lines || []).length && LINE_REPEAT_RE.test(lo.text || ''));
-const lineDraft0 = lo => { const D = lineDraftStore(); return D[lo.id] = D[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; const d = {partnerId:pid, bind:true, remember:true, expected:today(), note:'', lines:(lo.lines || []).map(lineDraftLine)}; lineApplyMem(d); const fl = d.lines.filter(x => x.pid).map(x => ({pid:x.pid, qty:Number(x.qty) || 1})); d.lines.forEach(l => { l.price = l.pid ? linePrice(l.pid, pid, Number(l.qty) || 1, fl) : 0; }); return d; })(); };
+const lineDraft0 = lo => { const D = lineDraftStore(); return D[lo.id] = D[lo.id] || (() => { const pid = lo.partnerId || (Object.values(S.partners).find(x => x.type === 'customer' && x.lineUserId && x.lineUserId === lo.lineUserId) || {}).id || ''; const d = {partnerId:pid, bind:true, remember:true, expected:today(), note:'', lines:(lo.lines || []).map(lineDraftLine)}; lineApplyMem(d); const fl = d.lines.filter(x => x.pid).map(x => ({pid:x.pid, qty:Number(x.qty) || 1})); d.lines.forEach(l => { l.price = l.pid ? linePriceInt(l.pid, pid, Number(l.qty) || 1, fl) : 0; }); return d; })(); };
 const lineDraft = lo => { const d = lineDraft0(lo); lineApplyMem(d); if (!d.lastApplied && !d.lastDeclined && lineWantsLast(lo) && d.partnerId) lineFillFromLast(d, lo); return d; };
 const lineDraftTotal = d => mInt(d.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0));
 /* LINE 訂單審核：先是清單（一張一行），點了才打開那一張的完整內容 */
@@ -8940,9 +8969,9 @@ function openLineOrder(id){
           l.pid && !l.picked && l.mem === 'exact' ? h('small', {style:'display:block;color:var(--ok);font-weight:600', 'aria-label':'依上次對應 ' + (i + 1), text:'✓ 依上次的對應' + (l.memT && lkNorm(l.memT) !== lkNorm(l.text) ? '（上次寫「' + l.memT + '」）' : '')}) : null,
           l.pid && !l.picked && (l.ambiguous || (l.conf !== undefined && l.conf < 0.7)) ? h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, h('small', {class:'overdue', style:'flex:1 1 180px;min-width:0', 'aria-label':'比對不確定 ' + (i + 1), text:l.mem === 'near' ? '上次寫「' + l.memT + '」選的是這個商品，這次單位不一樣，請確認' : '比對不太確定，請確認是不是這個商品'}),
             l.text && !(l.fromLast && !l.changed) ? h('button', {class:'btn ghost sm', 'aria-label':'確認商品 ' + (i + 1), onclick:() => { l.picked = true; render('lineorders'); }}, '是這個商品') : null) : null,
-          h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:4px'}, h('button', {class:'btn ghost sm', style:'flex:1;justify-content:flex-start;overflow:hidden;min-width:0', title:p ? p.sku + ' ' + p.name : '', 'aria-label':'商品 ' + (i + 1), onclick:() => lineSearchSheet('選商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), id => { l.pid = id; l.picked = true; l.unit = (S.products[id] || {}).unit || ''; l.price = linePrice(id, d.partnerId, l.qty); render('lineorders'); })}, h('span', {style:'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0', text:p ? p.sku + ' ' + p.name : '選擇商品…'})),
+          h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:4px'}, h('button', {class:'btn ghost sm', style:'flex:1;justify-content:flex-start;overflow:hidden;min-width:0', title:p ? p.sku + ' ' + p.name : '', 'aria-label':'商品 ' + (i + 1), onclick:() => lineSearchSheet('選商品', () => Object.values(S.products).filter(x => x.active !== false).sort(cmpSku).map(x => ({id:x.id, label:x.sku + ' ' + x.name, sub:(x.unit || '') + '　' + money(x.price)})), id => { l.pid = id; l.picked = true; l.unit = (S.products[id] || {}).unit || ''; l.price = linePriceInt(id, d.partnerId, l.qty); render('lineorders'); })}, h('span', {style:'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0', text:p ? p.sku + ' ' + p.name : '選擇商品…'})),
             h('button', {class:'ic', 'aria-label':'刪除品項 ' + (i + 1), onclick:() => { d.lines.splice(i, 1); render('lineorders'); }}, icon('x'))),
-          h('div', {style:'display:flex;gap:8px;margin-top:6px;align-items:center'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.qty), 'aria-label':'數量 ' + (i + 1), style:'height:38px;width:84px', onchange:e => { l.qty = Math.max(toNum(e.target.value), 0); if (l.pid) l.price = linePrice(l.pid, d.partnerId, l.qty); render('lineorders'); }}), h('span', {text:l.unit || (p && p.unit) || ''}), h('span', {class:'hint', text:'× 單價'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.price), 'aria-label':'單價 ' + (i + 1), style:'height:38px;width:96px', onchange:e => { l.price = Math.max(toNum(e.target.value), 0); render('lineorders'); }}), h('b', {style:'margin-left:auto', text:money(amtOf(l.qty, l.price))}))); };
+          h('div', {style:'display:flex;gap:8px;margin-top:6px;align-items:center'}, h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.qty), 'aria-label':'數量 ' + (i + 1), style:'height:38px;width:84px', onchange:e => { l.qty = Math.max(toNum(e.target.value), 0); if (l.pid) l.price = linePriceInt(l.pid, d.partnerId, l.qty); render('lineorders'); }}), h('span', {text:l.unit || (p && p.unit) || ''}), h('span', {class:'hint', text:'× 單價'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:String(l.price), 'aria-label':'單價 ' + (i + 1), style:'height:38px;width:96px', onchange:e => { l.price = Math.max(toNum(e.target.value), 0); render('lineorders'); }}), h('b', {style:'margin-left:auto', text:money(amtOf(l.qty, l.price))}))); };
       const total = mInt(d.lines.reduce((a, l) => a + amtOf(l.qty, l.price), 0)), plan = pt ? lineMemPlan(d) : [];
       body.append(h('div', {class:'panel pad', style:'margin-top:0', 'aria-label':'LINE 訂單 ' + lo.id},
         h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline'}, h('b', {class:'big', text:pt ? (pt.shortName || pt.name) : '（還沒指定客戶）'}), h('small', {class:'hint', text:lineTimeTxt(lo.createdAt) + '，已等 ' + lineAgoTxt(lo.createdAt)})),
@@ -8952,7 +8981,7 @@ function openLineOrder(id){
         d.last ? h('div', {class:'note', 'aria-label':'老樣子帶入', style:'background:var(--lows);color:var(--low)', text:'已帶出他上次（' + d.last.date + '　' + d.last.no + '）的 ' + d.last.n + ' 項，請確認數量。' + (d.lines.some(l => l.changed) ? '客人這次另外寫的品項，數量以這次為準。' : '')}) : null,
         wantsLast(lo) && d.partnerId && !lastOrderOf(d.partnerId) ? h('div', {class:'note warn', 'aria-label':'沒有上次訂單', text:'找不到這位客戶的上一張訂單，請自己選品項。'}) : null,
         (lo.imageIds || []).length ? h('button', {class:'btn ghost sm', 'aria-label':'看圖片', onclick:() => lineShowImages(lo)}, '看客人傳的圖片（' + lo.imageIds.length + '）') : null,
-        h('div', {style:'margin-top:8px'}, h('button', {class:'btn ghost sm', 'aria-label':'指定客戶', onclick:() => lineSearchSheet('選客戶', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:x.lineUserId ? '已綁定 LINE' : ''})), id => { d.partnerId = id; lineApplyMem(d); d.lines.forEach(l => { if (l.pid) l.price = linePrice(l.pid, id, l.qty); }); if (wantsLast(lo) && !d.lastApplied) lineFillFromLast(d, lo); render('lineorders'); })}, pt ? '更換客戶' : '選擇客戶'), pt && lastOrderOf(pt.id) ? h('button', {class:'btn ghost sm', style:'margin-left:8px', 'aria-label':'帶入上次訂單', onclick:() => { lineFillFromLast(d, lo); render('lineorders'); }}, '帶入上次訂單') : null),
+        h('div', {style:'margin-top:8px'}, h('button', {class:'btn ghost sm', 'aria-label':'指定客戶', onclick:() => lineSearchSheet('選客戶', () => Object.values(S.partners).filter(x => x.type === 'customer').sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'zh-TW', {numeric:true})).map(x => ({id:x.id, label:(x.code ? x.code + ' ' : '') + x.name, sub:x.lineUserId ? '已綁定 LINE' : ''})), id => { d.partnerId = id; lineApplyMem(d); d.lines.forEach(l => { if (l.pid) l.price = linePriceInt(l.pid, id, l.qty); }); if (wantsLast(lo) && !d.lastApplied) lineFillFromLast(d, lo); render('lineorders'); })}, pt ? '更換客戶' : '選擇客戶'), pt && lastOrderOf(pt.id) ? h('button', {class:'btn ghost sm', style:'margin-left:8px', 'aria-label':'帶入上次訂單', onclick:() => { lineFillFromLast(d, lo); render('lineorders'); }}, '帶入上次訂單') : null),
         h('div', {style:'margin-top:6px'}, ...d.lines.map(lineRow), h('button', {class:'btn plain sm', 'aria-label':'加一項', onclick:() => { d.lines.push({text:'', pid:'', qty:1, unit:'', price:0}); render('lineorders'); }}, '＋ 加一項')),
         h('div', {class:'f2', style:'margin-top:8px'}, fld('交貨日', h('input', {class:'in', type:'date', value:d.expected, 'aria-label':'交貨日', onchange:e => { d.expected = e.target.value || today(); }})), fld('備註', h('input', {class:'in', type:'text', value:d.note, 'aria-label':'備註', onchange:e => { d.note = e.target.value; }}))),
         pt && pt.lineUserId !== lo.lineUserId ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:d.bind, 'aria-label':'綁定這位 LINE 用戶', onchange:e => { d.bind = e.target.checked; }}), '之後這位 LINE 用戶傳來的訂單，都算 ' + (pt.shortName || pt.name)) : null,
@@ -9228,13 +9257,29 @@ function unassignedOrders(day, back){
   return [...sales, ...cos].sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(stopDate(a)).localeCompare(String(stopDate(b))) || String(a.no).localeCompare(String(b.no)));
 }
 const stopCust = o => { const pt = S.partners[o.partnerId] || {}; return (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : ''); };
+/* -dv：配送管理每一站（客戶）要出的商品與數量。銷貨單＝單上的商品；客戶訂單＝還沒出的數量（已經出過的不算，畫面寫出訂幾、已出幾） */
+function stopLines(o){
+  if (!o) return {lines:[], note:''};
+  const nm = l => l.name || (S.products[l.pid] || {}).name || '', un = l => l.unit || (S.products[l.pid] || {}).unit || '';
+  if (isCo(o)){ const pr = docProgress('co', o); return {lines:pr.lines.filter(l => l.rem > 0.0004).map(l => ({name:nm(l), unit:un(l), qty:l.rem, ordered:Number(l.qty) || 0, got:l.got, gift:!!l.gift})), note:pr.done > 0.0004 ? '客戶訂單，只列還沒出的' : '客戶訂單'}; }
+  return {lines:(o.lines || []).filter(l => Number(l.qty) > 0).map(l => ({name:nm(l), unit:un(l), qty:Number(l.qty), ordered:0, got:0, gift:!!l.gift})), note:''};
+}
+function stopItemsEl(o){
+  if (!o) return null;
+  const x = stopLines(o);
+  return h('div', {class:'stop-items', 'aria-label':'出貨商品 ' + o.no, style:'grid-column:1 / -1;margin-top:4px;padding:2px 0 2px 10px;border-left:3px solid var(--line)'},
+    h('small', {class:'hint', style:'margin:0 0 2px;font-weight:600', text:'出貨商品　' + (x.lines.length ? x.lines.length + ' 項' + (x.note ? '（' + x.note + '）' : '') : (isCo(o) ? '（這張客戶訂單沒有還沒出的商品）' : '（這張單沒有商品）'))}),
+    ...x.lines.map(l => h('div', {style:'display:flex;justify-content:space-between;gap:10px;font-size:13.5px;line-height:1.55'},
+      h('span', {style:'min-width:0;overflow-wrap:anywhere', text:l.name + (l.gift ? '（贈品）' : '') + (l.got > 0.0004 ? '（訂 ' + num(l.ordered) + '，已出 ' + num(l.got) + '）' : '')}),
+      h('b', {style:'flex:none;white-space:nowrap', text:'× ' + num(l.qty) + (l.unit ? ' ' + l.unit : '')}))));
+}
 function pickOrdersForTrip(date, vid, slot){
   const sel = new Set(); let back = false;
   const sh = sheet({title:'加入單據　' + date + ' ' + SLOTS[slot] + ' ' + vehLabel(S.vehicles[vid])}), box = h('div');
   const goBtn = h('button', {class:'btn grow', disabled:true, onclick:async () => { const ids = [...sel]; if (!ids.length) return; const ok = await assignOrders(date, vid, slot, ids); if (ok){ toast('已加入 ' + ids.length + ' 張'); sh.forceClose(); } }}, '加入');
   const fill = () => { const list = unassignedOrders(date, back);
     setKids(box, list.length ? h('div', {class:'panel'}, list.map(o => h('label', {class:'row', style:'align-items:center;cursor:pointer'}, h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('input', {type:'checkbox', checked:sel.has(o.id), 'aria-label':'選取 ' + o.no, onchange:e => { if (e.target.checked) sel.add(o.id); else sel.delete(o.id); goBtn.disabled = !sel.size; goBtn.textContent = sel.size ? '加入 ' + sel.size + ' 張' : '加入'; }}),
-      h('span', {style:'min-width:0'}, h('b', null, isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:(isCo(o) ? '客戶訂單　交貨日 ' + (o.expected || '') + '　' : '') + (shipLine(o) || '（沒有送貨地址）') + (o.driver ? '　送貨員 ' + o.driver : '')}))), h('b', {text:money(o.total)})))) : h('div', {class:'panel empty', text:'沒有還沒排車的銷貨單或客戶訂單'})); };
+      h('span', {style:'min-width:0'}, h('b', null, isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:(isCo(o) ? '客戶訂單　交貨日 ' + (o.expected || '') + '　' : '') + (shipLine(o) || '（沒有送貨地址）') + (o.driver ? '　送貨員 ' + o.driver : '')}))), h('b', {text:money(o.total)}), stopItemsEl(o)))) : h('div', {class:'panel empty', text:'沒有還沒排車的銷貨單或客戶訂單'})); };
   put(sh.bodyEl, h('label', {class:'check'}, h('input', {type:'checkbox', 'aria-label':'包含前7天', onchange:e => { back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據（銷貨單和客戶訂單）'), box);
   sh.footEl.append(goBtn); fill();
 }
@@ -9242,7 +9287,7 @@ function openDispatch(pre){
   if (!fxGate('dispatch')) return;
   healTripStops();
   if (!can('sale') && !can('stock') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
-  const U = {day:(pre && pre.day) || today(), back:false};
+  const U = {day:(pre && pre.day) || today(), back:false, items:(() => { try { return localStorage.getItem('dispItems') !== '0'; } catch (_) { return true; } })()};
   liveSheet({title:'配送管理（出車排程）'}, ['trips', 'orders', 'partners', 'vehicles', 'products'], sh => {
     const vs = tripVehicles(), names = driverHistory(), box = h('div');
     const dIn = h('input', {class:'in', type:'date', value:U.day, 'aria-label':'出車日期', onchange:e => { U.day = e.target.value || U.day; render('trips'); }});
@@ -9255,7 +9300,7 @@ function openDispatch(pre){
         return h('div', {class:'row', style:'align-items:flex-start'}, h('span', {style:'min-width:0'}, h('button', {style:'text-align:left', onclick:() => openStopDoc(o)}, h('b', null, (i + 1) + '. ', isCo(o) ? h('span', {class:'tag out', style:'margin-right:6px', text:'訂'}) : null, o ? stopCust(o) : '（單據已刪除）', o && o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null), h('br'), h('small', {text:o ? (isCo(o) ? '客戶訂單 ' : '') + o.no + '　' + shipLine(o) + '　' + money(o.total) : st.orderId}))),
           h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, h('span', {style:'display:flex;gap:4px'}, h('button', {class:'ic sm', 'aria-label':'上移 ' + (i + 1), onclick:() => mv(-1)}, '↑'), h('button', {class:'ic sm', 'aria-label':'下移 ' + (i + 1), onclick:() => mv(1)}, '↓'), h('button', {class:'ic sm', 'aria-label':'移出 ' + (i + 1), onclick:() => updTrip(U.day, v.id, slot, {stops:t.stops.filter((_, j) => j !== i)})}, icon('x'))),
             o ? (() => { const opts = tripVehicles().flatMap(v2 => ['am', 'pm'].map(sl => [v2.id + '|' + sl, SLOTS[sl] + ' ' + vehLabel(v2)])).filter(([k]) => k !== v.id + '|' + slot), s4 = h('select', {class:'in', 'aria-label':'改排 ' + o.no, style:'height:34px;width:132px;font-size:13px', onchange:async e => { const [vid2, sl2] = e.target.value.split('|'); e.target.value = ''; if (!vid2) return; if (await dialog({title:'改排 ' + o.no + '？', msg:'這張單據已排在 ' + SLOTS[slot] + ' ' + vehLabel(v) + '，要改排到 ' + SLOTS[sl2] + ' ' + vehLabel(S.vehicles[vid2]) + '。（一張單據只能排在一趟）', ok:'改排'})) assignOrders(U.day, vid2, sl2, [o.id], {move:true}); }}, h('option', {value:'', text:'改排到…'}), ...opts.map(([k, t]) => h('option', {value:k, text:t}))); s4.value = ''; return s4; })() : null,
-            h('span', {style:'display:flex;gap:4px;align-items:center'}, h('small', {text:'送達'}), h('input', {class:'in', type:'time', value:st.doneTime || '', 'aria-label':'送達時間 ' + (o ? o.no : i + 1), style:'height:34px;width:104px', onchange:e => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = e.target.value; updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (e.target.value && o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}), h('button', {class:'btn ghost sm', 'aria-label':'送達現在 ' + (o ? o.no : i + 1), onclick:() => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = nowHM(); updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}, '現在')))); });
+            h('span', {style:'display:flex;gap:4px;align-items:center'}, h('small', {text:'送達'}), h('input', {class:'in', type:'time', value:st.doneTime || '', 'aria-label':'送達時間 ' + (o ? o.no : i + 1), style:'height:34px;width:104px', onchange:e => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = e.target.value; updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (e.target.value && o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}), h('button', {class:'btn ghost sm', 'aria-label':'送達現在 ' + (o ? o.no : i + 1), onclick:() => { const arr = t.stops.map(x => ({...x})); arr[i].doneTime = nowHM(); updTrip(U.day, v.id, slot, {stops:arr}).then(() => { if (o && codWaiting(o)) openCodConfirm(o.id, {date:U.day <= today() ? U.day : today()}); }); }}, '現在'))), U.items ? stopItemsEl(o) : null); });
       return h('div', {class:'panel pad', style:'margin-bottom:12px'}, h('b', {text:SLOTS[slot] + '　' + vehLabel(v)}),
         h('small', {style:'display:block;margin:2px 0 2px', text:orders.length + ' 張單據・' + facts.stores + ' 家店・' + money(facts.amt) + (t.outTime && t.backTime ? '・' + hmTxt(mins) : t.outTime ? '・出車中' : '') + (tripKmEff(t) !== null ? '・' + num(tripKmEff(t)) + ' km' : '')}),
         orders.length ? h('small', {class:'hint', style:'display:block;margin-bottom:8px', 'aria-label':'行程摘要 ' + SLOTS[slot] + vehLabel(v), text:'地區：' + (facts.regions.length ? facts.regions.join('、') : '未填') + '　材積 ' + num(facts.vol) + ' 才' + (cap ? '（占車斗 ' + pctTxt(pctT) + (pctT > 100 ? '　⚠ 超載' : '') + '）' : '') + (facts.noVol ? '（' + facts.noVol + ' 張有商品沒填材積）' : '')}) : h('div', {style:'height:6px'}),
@@ -9287,11 +9332,12 @@ function openDispatch(pre){
     const fill = () => { const un = unassignedOrders(U.day, U.back);
       setKids(box, un.length ? h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'還沒排車的銷貨單'}), h('small', {text:un.length + ' 張'})), h('div', {class:'panel'}, un.map(o => { const s2 = h('select', {class:'in', 'aria-label':'排車 ' + o.no, style:'height:38px;width:150px', onchange:async e => { const [vid, slot] = e.target.value.split('|'); if (vid) await assignOrders(U.day, vid, slot, [o.id]); }}, h('option', {value:'', text:'排入…'}), ...vs.flatMap(v => Object.entries(SLOTS).map(([k, t]) => h('option', {value:v.id + '|' + k, text:t + ' ' + vehLabel(v)})))); s2.value = '';
         const s3 = h('select', {class:'in', 'aria-label':'分配外務人員 ' + o.no, style:'height:38px;width:150px', onchange:e => assignDriver([o.id], e.target.value)}, h('option', {value:'', text:'（未指定外務人員）'}), ...[...new Set([...names, o.driver].filter(Boolean))].map(n => h('option', {value:n, text:n}))); s3.value = o.driver || '';
-        return h('div', {class:'row', style:'align-items:center'}, h('span', {style:'min-width:0'}, h('b', null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:deliveryOf(o) + '　' + (orderRegion(o) || '未填地區') + '　' + shipLine(o) + '　' + money(o.total) + '　' + num(orderVolume(o)) + ' 才'})), h('span', {style:'display:flex;flex-direction:column;gap:6px'}, s3, s2)); }))) : h('div', {class:'note', text:'這一天的銷貨單都排好車了（或還沒有銷貨單）。'})); };
+        return h('div', {class:'row', style:'align-items:center'}, h('span', {style:'min-width:0'}, h('b', null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + stopCust(o)), h('br'), h('small', {text:deliveryOf(o) + '　' + (orderRegion(o) || '未填地區') + '　' + shipLine(o) + '　' + money(o.total) + '　' + num(orderVolume(o)) + ' 才'})), h('span', {style:'display:flex;flex-direction:column;gap:6px'}, s3, s2), U.items ? stopItemsEl(o) : null); }))) : h('div', {class:'note', text:'這一天的銷貨單都排好車了（或還沒有銷貨單）。'})); };
     const body = h('div', null, h('p', {class:'note', text:'主管在這裡把銷貨單分配給外務人員、排進每台車的上午或下午。每台車會顯示配送店家數、區域和總材積，並請你確認上午下午是否合併（中午不回公司）。'}),
       h('div', {class:'chips', style:'padding-top:0'}, [['今天', 0], ['明天', 1], ['昨天', -1]].map(([t, n]) => h('button', {class:'chip', onclick:() => { U.day = addDays(today(), n); dIn.value = U.day; rerender(); }}, t))),
       dupStops().length ? h('div', {class:'note bad', 'aria-label':'重複指派警告'}, h('b', {text:'⚠ 有 ' + dupStops().length + ' 張單據被重複指派到不同車趟'}), h('br'), '一張單據只能排在一趟。', h('button', {class:'btn sm', style:'margin-left:8px', 'aria-label':'修正重複指派', onclick:() => fixDupStops()}, '自動修正（保留最早排的）')) : null,
-      fld('日期', dIn), h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.back, 'aria-label':'列出前7天未排車', onchange:e => { U.back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據（銷貨單和客戶訂單）'), box,
+      fld('日期', dIn), h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.back, 'aria-label':'列出前7天未排車', onchange:e => { U.back = e.target.checked; fill(); }}), '同時列出前 7 天還沒排車的單據（銷貨單和客戶訂單）'),
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.items, 'aria-label':'顯示每站出貨商品', onchange:e => { U.items = e.target.checked; try { localStorage.setItem('dispItems', U.items ? '1' : '0'); } catch (_) {} rerender(); }}), '每一站顯示要出的商品與數量'), box,
       vs.length ? vs.map(v => h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:vehLabel(v)})), vehHead(v), tripCard(v, 'am'), tripCard(v, 'pm'))) : h('div', {class:'note bad', text:'還沒有貨車。請先到「更多 → 車輛」新增車輛。'}));
     const rerender = () => render('trips');
     fill();
@@ -12676,9 +12722,63 @@ const UI_PIN = 'uiPins1', UI_REC = 'uiRecent1';
 const lsGet = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v || d; } catch (_) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} };
 const menuFlat = () => menuGroups().flatMap(([g, items]) => items.filter(i => i.ok !== false).map(i => ({...i, group:g})));
-const menuPins = () => lsGet(UI_PIN, []).map(l => FN_ALIAS[l] || l), menuRecents = () => lsGet(UI_REC, []).map(l => FN_ALIAS[l] || l);
+const menuRecents = () => lsGet(UI_REC, []).map(l => FN_ALIAS[l] || l);
+/* -dx：首頁的「常用功能」大圖示格＝釘選（全部功能裡的 ★）。每個登入帳號各存一份（存在這台裝置）；
+   還沒選過的人先給預設的（依他能用的功能挑最多 9 個）。以前釘選過的（沒分帳號的舊紀錄）直接沿用。 */
+const FAV_MAX = 12, FAV_DEF = 9, FAV_PREF = ['銷貨作業', '進貨作業', '國內訂單作業', '單據查詢', '應收沖帳作業', '庫存盤點作業', '揀貨輔助', '出車排程', '退貨管理', '出車作業', '送貨清單', '上下班打卡', '外務收款', '產品基本資料', '我的考勤', '營運報表'];
+const favKey = () => UI_PIN + ':' + (S.meId || '');
+const favStored = () => { const v = lsGet(favKey(), null); if (Array.isArray(v)) return v.map(l => FN_ALIAS[l] || l); const old = lsGet(UI_PIN, []); return Array.isArray(old) && old.length ? old.map(l => FN_ALIAS[l] || l) : null; };
+const favDefault = () => { const all = menuFlat().map(i => i.label), pick = FAV_PREF.filter(l => all.includes(l)).slice(0, FAV_DEF); return pick.length ? pick : all.slice(0, 6); };
+const favSet = list => lsSet(favKey(), [...new Set(list)].slice(0, FAV_MAX));
+const menuPins = () => favStored() || favDefault();
 const usedMenu = label => lsSet(UI_REC, [label, ...menuRecents().filter(x => x !== label)].slice(0, 8));
-const togglePin = label => { const p = menuPins(); lsSet(UI_PIN, p.includes(label) ? p.filter(x => x !== label) : [...p, label]); };
+const togglePin = label => { const p = menuPins(), on = p.includes(label); if (!on && p.length >= FAV_MAX){ toast('常用功能最多 ' + FAV_MAX + ' 個，請先移除一個'); return false; } favSet(on ? p.filter(x => x !== label) : [...p, label]); return true; };
+/* ================= -dx：首頁「常用功能」大圖示格、底部導覽的彩色圖示 ================= */
+const EMO_BY_LABEL = {'銷貨作業':'🧾', '銷貨退回作業':'↩️', '進貨作業':'📥', '進貨退回作業':'📤', '單據查詢':'🔎', '國內報價作業':'📝', '國內訂單作業':'📋', '採購建議作業':'💡', '國內採購單':'🛒', 'LINE 訂單審核':'💬', '庫存轉倉作業':'🔁', '庫存盤點作業':'🧮', '循環盤點':'🔄', '庫存調整作業':'⚖️', '庫存關帳作業':'🔒', '產品基本資料':'📦', '新增產品':'➕', '產品標籤列印':'🏷️', '標籤製造日期查詢':'📅', '產品組裝作業':'🔧', '產品拆解作業':'🔧', '客戶管理':'👥', '供應商管理':'🏭', '應收沖帳作業':'💵', '應收帳款作業':'💰', '批次沖帳':'🧮', '退貨管理':'↩️', '揀貨輔助':'🧺', '架位管理':'🗄️', '商品架位調整':'🗄️', '架位設定':'🗄️', '調庫補貨作業':'🚚', '送貨清單':'📋', '出車作業':'🚚', '出車排程':'🗓️', '出車績效':'📈', '車輛管理':'🚛', '加油儲值卡':'⛽', '配送錯誤與考核':'⚠️', '獎金與薪資':'💴', '人員管理':'👤', '上下班打卡':'⏰', '我的考勤':'🗓️', '考勤管理':'🕒', '保管管理':'🔐', '外務收款':'🤝', '待沖帳收款':'⏳', '單據覆核':'✅', '期間封存':'🔒', '收款結算':'🧮', '支票代收作業':'🎫', '票據管理':'🎫', '應付帳款作業':'💳', '其他收支作業':'📒', '現金票據簽收':'✍️', '月結稅金':'🧾', '價格等級與折扣':'💲', '價格策略匯入匯出':'💲', '進貨成本設定':'💲', '營運報表':'📊', '事業部營業績效':'📈', '系統設定':'⚙️', '事業部設定':'⚙️', '使用者權限管理':'🛡️', '登入帳號管理':'🔑', '裝置管理':'📱', 'LINE 通知設定':'💬', 'LINE 設定檢查':'💬', '資料庫備份':'💾', '程式備份':'💾', '列印設定':'🖨️', '列印診斷':'🖨️', '登出':'🚪', '登出系統':'🚪', '整批修改作業':'📝', '資料匯入匯出':'📤', '客戶資料匯入':'📥', '產品基本資料匯出與匯入':'📤'};
+const EMO_RX = [[/應收/, '💰'], [/應付/, '💳'], [/票據|支票/, '🎫'], [/報表|績效/, '📊'], [/盤點/, '🧮'], [/匯入|匯出/, '📤'], [/設定/, '⚙️'], [/備份/, '💾'], [/列印|標籤/, '🖨️'], [/出車|配送|送貨/, '🚚'], [/車/, '🚛'], [/考勤|打卡/, '⏰'], [/薪資|獎金/, '💴'], [/客戶/, '👥'], [/供應商/, '🏭'], [/架位|倉/, '🗄️'], [/庫存|商品|產品/, '📦'], [/採購|進貨/, '🛒'], [/銷貨|訂單|報價|單據/, '🧾']];
+const EMO_GROUP = {'銷售與訂單':'🧾', '採購與進貨':'🛒', '庫存與倉儲':'📦', '商品與組裝':'🏷️', '配送與車輛':'🚚', '收款與帳款':'💰', '票據與現金':'💵', '客戶與供應商':'👥', '人事與考勤':'⏰', '報表與稽核':'📊', '系統與設定':'⚙️'};
+const menuEmoji = (label, group) => EMO_BY_LABEL[label] || (EMO_RX.find(([r]) => r.test(label)) || [])[1] || EMO_GROUP[group] || '📌';
+const emo = (ch, cls) => h('span', {class:'emo' + (cls ? ' ' + cls : ''), 'aria-hidden':'true', text:ch});
+const ICON_EMO = {home:'🏠', box:'📦', cart:'🛒', doc:'🧾', wallet:'💰', more:'🗂️', tag:'🏷️', truck:'🚚', lock:'💵', users:'👥', clock:'⏰', chart:'📊', sliders:'⚙️'};
+const emoIcon = n => ICON_EMO[n] ? emo(ICON_EMO[n]) : icon(n);
+const navWhere = () => ['tablet', 'laptop'].includes(document.documentElement.dataset.ui) ? '點左邊的分類或「全部功能」' : '點下方「更多」';
+function foldGuide(){
+  const det = h('details', {class:'fold fav-guide', 'aria-label':'功能說明'}, h('summary', {text:'📖 功能說明：每個分類有什麼'}),
+    h('div', {class:'fold-b'}, ...menuGroups().map(([g, items]) => h('p', {style:'margin:10px 0 0'}, h('b', {text:g}), h('br'), h('small', {class:'hint', style:'margin:0', text:items.filter(i => i.ok !== false).map(i => i.label).join('、')}))),
+      h('p', {class:'hint', style:'margin-top:10px', text:'每項功能的用途說明，' + navWhere() + '展開分類就看得到。'})));
+  if (S.ui.favGuide) det.open = true;
+  det.addEventListener('toggle', () => { S.ui.favGuide = det.open; });
+  return det;
+}
+function homeFavGrid(){
+  const all = menuFlat(), by = l => all.find(i => i.label === l), items = menuPins().map(by).filter(Boolean).slice(0, FAV_MAX);
+  return h('section', {class:'sec fav-sec', 'aria-label':'常用功能'},
+    h('div', {class:'sec-h fav-h'}, h('h2', {text:'常用功能'}), h('span', {class:'fav-line', 'aria-hidden':'true'}), h('button', {class:'btn ghost sm fav-edit', 'aria-label':'編輯常用功能', onclick:openFavEdit}, '✎ 編輯')),
+    items.length ? h('div', {class:'fav-grid'}, items.map(i => h('button', {class:'fav-tile', 'aria-label':'常用 ' + i.label, onclick:() => runMenu(i)}, emo(menuEmoji(i.label, i.group), 'fav-emo'), h('span', {class:'fav-l' + (i.label.length > 7 ? ' long' : ''), text:i.label}))))
+      : h('div', {class:'panel empty', text:'還沒有常用功能。按右上角「編輯」加入，或到「更多」的功能旁按 ☆。'}),
+    h('p', {class:'hint fav-hint', text:'要找其他功能：' + navWhere() + '看全部分類，或點最上面的放大鏡搜尋；按「編輯」可以換成你常用的。'}),
+    foldGuide());
+}
+function openFavEdit(){
+  const U = {q:''}, sh = sheet({title:'編輯常用功能', onclose:() => draw()}), curBox = h('div'), addBox = h('div');
+  const paint = () => {
+    const all = menuFlat(), by = l => all.find(i => i.label === l), pins = menuPins().filter(by), q = U.q.trim();
+    const mv = (i, d) => { const a = pins.slice(), j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; favSet(a); paint(); };
+    setKids(curBox,
+      h('div', {class:'sec-h'}, h('h2', {text:'目前的常用功能'}), h('small', {'aria-label':'常用功能數量', text:pins.length + ' / ' + FAV_MAX})),
+      h('div', {class:'panel', 'aria-label':'目前的常用功能'}, pins.length ? pins.map((l, i) => h('div', {class:'row fav-row', 'aria-label':'常用項目 ' + l},
+        h('span', {class:'fav-row-l'}, emo(menuEmoji(l, by(l).group)), h('b', {text:l})),
+        h('span', {class:'fav-row-b'}, h('button', {class:'ic sm', 'aria-label':'上移 ' + l, disabled:i === 0, onclick:() => mv(i, -1)}, '↑'), h('button', {class:'ic sm', 'aria-label':'下移 ' + l, disabled:i === pins.length - 1, onclick:() => mv(i, 1)}, '↓'), h('button', {class:'ic sm', 'aria-label':'移除 ' + l, onclick:() => { favSet(pins.filter(x => x !== l)); paint(); }}, icon('x'))))) : h('div', {class:'empty', text:'還沒有常用功能，從下面加入。'})));
+    const full = pins.length >= FAV_MAX, groups = menuGroups().map(([g, items]) => [g, items.filter(i => i.ok !== false && !pins.includes(i.label) && (!q || menuHit(i, g, q)))]).filter(([, l]) => l.length);
+    setKids(addBox, h('div', {class:'sec-h'}, h('h2', {text:'加入功能'}), full ? h('small', {text:'已經 ' + FAV_MAX + ' 個，先移除一個才能再加'}) : null),
+      ...(groups.length ? groups.map(([g, list]) => h('section', {class:'fav-add-g'}, h('div', {class:'sec-h'}, h('small', {text:g})), h('div', {class:'panel'}, list.map(i => h('button', {class:'row', 'aria-label':'加入 ' + i.label, disabled:full, onclick:() => { favSet([...pins, i.label]); paint(); }}, h('span', {class:'fav-row-l'}, emo(menuEmoji(i.label, g)), h('span', null, h('b', {text:i.label}), i.desc ? [h('br'), h('small', {class:'mdesc', text:i.desc})] : null)), h('small', {text:'＋ 加入'})))))) : [h('div', {class:'panel empty', text:q ? '找不到「' + q + '」' : '全部功能都已經加進常用了'})]));
+  };
+  const inp = h('input', {type:'search', placeholder:'搜尋要加入的功能…', autocomplete:'off', 'aria-label':'搜尋要加入的功能', oninput:e => { U.q = e.target.value; paint(); }});
+  put(sh.bodyEl, h('p', {class:'hint', style:'margin:0 2px 4px', text:'上面的順序就是首頁的順序（最多 ' + FAV_MAX + ' 個）。改了只存在這台裝置、這個登入帳號，不影響別人。'}), curBox, h('div', {style:'height:10px'}), h('label', {class:'search'}, icon('search'), inp), addBox);
+  sh.footEl.append(h('button', {class:'btn ghost', 'aria-label':'還原預設常用功能', onclick:() => { favSet(favDefault()); paint(); }}, '還原預設'), h('button', {class:'btn grow', 'aria-label':'完成編輯', onclick:() => sh.forceClose()}, '完成'));
+  paint();
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {favForTest:{menuPins, favSet, favKey, favDefault, menuEmoji, homeFavGrid, openFavEdit, togglePin, FAV_MAX}}); } catch (_) {}
 const runMenu = i => { usedMenu(i.label); i.fn(); };
 function openPalette(){
   if (gateActive()) return;
@@ -14019,6 +14119,7 @@ function openAsmSource(pid, wid){
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openAsmSource:(...x) => openAsmSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x), rtSplit, rtCondOf, rtCondTxt, rtCondItems, rtClassified, rtScope, rtItemPrice, rtRefundDefault:r => rtRefundDefault(r), openReturnRefundPlan:(...x) => openReturnRefundPlan(...x), openReturnList:() => openReturnList(), rtDetailData:x => rtDetailData(x), dsReturnDetail:x => dsReturnDetail(x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dvForTest:{stopLines, stopItemsEl, pickOrdersForTrip:(...x) => pickOrdersForTrip(...x), openDispatch:x => openDispatch(x), openDriverRun:() => openDriverRun()}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
 function docPdfPages(kind, d){
@@ -14863,7 +14964,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-du';
+const APP_VERSION = '2026.10.11-dx';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -15415,6 +15516,32 @@ const TAXT = {taxable:'應稅', zero:'零稅率', exempt:'免稅'};
 const intAmt = () => S.set.intAmt !== false;
 const mInt = v => intAmt() ? Math.round(v + (v < 0 ? -1e-9 : 1e-9)) : r2(v);
 const amtOf = (q, p) => mInt(toNum(q) * toNum(p));
+/* -dw：銷貨單、客戶訂單的未稅單價四捨五入取整數。低於 1 元的不動（免得變成 0 元）；贈品（0 元）不動；
+   修改舊單據時，沒動過單價的品項（單價還是存檔時的 price0）照原樣，不回頭改舊單據。 */
+const priceInt = v => { const n = toNum(v); return n >= 1 ? Math.round(n + 1e-9) : n; };
+function fixPrice(ln){
+  if (!ln || ln.gift) return false;
+  if (ln.orig && Number(ln.price0) === toNum(ln.price)) return false;
+  const n = toNum(ln.price), v = priceInt(n);
+  if (v === n) return false;
+  ln.price = v; return true;
+}
+/* 算金額前呼叫：單價取整數後，同步畫面上的單價和折數（正在輸入的那一格不動，離開那格再整理） */
+function settlePrice(r, on){
+  if (!on || !fixPrice(r.ln)) return;
+  const ln = r.ln, ae = document.activeElement;
+  if (r.priceIn && ae !== r.priceIn) r.priceIn.value = ln.price;
+  if (Number(ln.list) > 0 && (!r.discIn || ae !== r.discIn)){ ln.disc = discPct(ln.list, ln.price); if (r.discIn) r.discIn.value = zheIn(ln); }
+}
+/* 單價、折數那一格輸入完（離開欄位）：單價取整數，折數照整數單價重算，畫面都顯示整理後的數字 */
+function settleField(r, on){
+  if (!on) return;
+  fixPrice(r.ln);
+  if (Number(r.ln.list) > 0 && !r.ln.gift) r.ln.disc = discPct(r.ln.list, r.ln.price);
+  if (r.priceIn) r.priceIn.value = r.ln.price;
+  if (r.discIn) r.discIn.value = zheIn(r.ln);
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dwForTest:{priceInt, fixPrice, linePriceInt}}); } catch (_) {}
 const taxRate = () => { const n = Number(S.set.taxRate); return isFinite(n) && n >= 0 ? n : 5; };
 const netOf = o => o.net !== undefined ? o.net : (o.total || 0);
 function taxSplit(sum, taxType, mode){
