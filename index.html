@@ -327,6 +327,7 @@ html[data-ui="laptop"] .fav-grid{grid-template-columns:repeat(6,minmax(0,1fr));g
 html[data-ui="laptop"] .fav-tile{min-height:100px}html[data-ui="laptop"] .fav-tile:hover{border-color:var(--brand)}
 html[data-ui="laptop"] .nav .emo{font-size:20px}
 html[data-ui="laptop"] #app[data-tab="home"] .page>.todo-sec{column-span:all}
+.kcmd{display:block;margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--soft);font:13px/1.5 ui-monospace,Consolas,monospace;word-break:break-all;user-select:all;-webkit-user-select:all}
 details.fold{border:1px solid var(--line);border-radius:14px;background:var(--panel);margin:10px 0}
 details.fold>summary{list-style:none;cursor:pointer;padding:13px 14px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
 details.fold>summary::-webkit-details-marker{display:none}
@@ -12507,7 +12508,7 @@ function printNow(html, fname, standaloneFn, meta){
   if (!isPhoneLike() || localPrintOk()) return printLocal(html, fname, standaloneFn);
   return phonePrint(html, fname, standaloneFn, meta);
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {printForTest:{printNow:(...x) => printNow(...x), openPrintSettings:() => openPrintSettings(), stationOnline:x => stationOnline(x), isPhoneLike:() => isPhoneLike(), openPrintStation:() => openPrintStation()}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {printForTest:{kioskGuide:() => kioskGuide(), printNow:(...x) => printNow(...x), openPrintSettings:() => openPrintSettings(), stationOnline:x => stationOnline(x), isPhoneLike:() => isPhoneLike(), openPrintStation:() => openPrintStation()}}); } catch (_) {}
 /* 套印單據送到列印站：印表機的位置補正以列印站那台電腦為準（換掉送出那台裝置的位移） */
 function stationOffset(html, form){
   if (form === 'arstmt'){ const o = arStmtOffLocal(); return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;\/\*arb:(-?[\d.]+),(-?[\d.]+),(\w+)\*\//, (m0, l, t, k) => '.in{position:absolute;left:' + r2(Number(l) + (k === 'cont' ? o.ox : 0)) + 'mm;top:' + r2(Number(t) + (k === 'cont' ? o.oy : 0)) + 'mm;/*arb:' + l + ',' + t + ',' + k + '*/'); }
@@ -12538,11 +12539,31 @@ function watchPrintJob(id, station, title, wasOnline){
   if (wasOnline) t1 = setTimeout(() => { if (seen === 'queued') toast('列印站「' + station + '」還沒收到單據：電腦可能睡著了或斷線，單據會先排著'); }, warn);
   t2 = setTimeout(stop, 180000);
 }
+/* -dy：列印站那台電腦一直停在 Chrome 的「列印」預覽視窗。那個視窗是瀏覽器自己的，網頁沒辦法替人按「列印」；
+   Chrome 加上 --kiosk-printing 開啟，按列印就不跳視窗、直接送到 Windows 的預設印表機。這裡把步驟和指令（含這個網站的網址）寫清楚，可一鍵複製。 */
+function kioskGuide(){
+  const url = String(location.href || '').split('#')[0], cmd = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --kiosk-printing --user-data-dir="C:\\PrintStation" ' + url;
+  const copyBtn = (t, what) => h('button', {class:'btn ghost sm', 'aria-label':'複製' + what, onclick:async () => { try { await navigator.clipboard.writeText(t); toast('已複製' + what); } catch (_) { toast('無法複製，請手動選取文字'); } }}, '複製');
+  const li = (...k) => h('li', {style:'margin:0 0 8px'}, ...k);
+  return h('details', {class:'fold', 'aria-label':'設定成自動列印', open:true},
+    h('summary', {text:'🖨️ 電腦一直停在「列印」視窗？設定成自動列印（只做一次）'}),
+    h('div', {class:'fold-b'},
+      h('p', {style:'margin:6px 0', text:'那個視窗是 Chrome 自己的，網頁沒辦法替你按「列印」。Chrome 有一個開關 --kiosk-printing：用它開啟的 Chrome，按列印時不跳視窗，直接送到 Windows 的預設印表機。'}),
+      h('ol', {style:'margin:8px 0 0;padding-left:20px'},
+        li('在這台電腦的桌面按右鍵 →「新增 → 捷徑」，位置貼上下面這一行，名稱取「列印站」。（Chrome 裝在別的地方，就把最前面的路徑換成你的 chrome.exe；用 Edge 的話換成 msedge.exe。）',
+          h('code', {class:'kcmd', 'aria-label':'自動列印指令', text:cmd}), h('div', {style:'margin-top:6px'}, copyBtn(cmd, '指令'))),
+        li('到 Windows「設定 → 藍牙與裝置 → 印表機與掃描器」，把要印單據的印表機（例如 EPSON LQ-690C）設為「預設印表機」（要先關掉「讓 Windows 管理我的預設印表機」）。'),
+        li('用這個「列印站」捷徑打開 Chrome（它是獨立的視窗，第一次要重新登入系統）→「更多 → 列印設定 → 把這台電腦設為列印站 → 啟動列印站」，頁面保持開著。'),
+        li('到「列印設定」按「測試列印」：沒有跳出視窗、印表機直接印出來，就成功了。')),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'一定要用「列印站」捷徑開出來的視窗當列印站；平常用的 Chrome 視窗還是會跳列印視窗。指令裡的 --user-data-dir 讓它自成一個獨立的 Chrome，所以平常的 Chrome 開著也沒關係。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'想沿用平常的 Chrome（不另外登入）：把指令裡的 --user-data-dir="C:\\PrintStation" 拿掉，並先把所有 Chrome 視窗都關掉（右下角隱藏的圖示也要結束），再用捷徑開；Chrome 已經開著時，新加的開關會被忽略。'}),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'自動列印不會再跳出視窗讓人調整，所以第一次請用「測試列印」和一張真的銷貨單，確認紙張和套印位置都對（紙張、位置設定見「銷貨單套印對位與紙張設定」）。'})));
+}
 function openPrintStation(){
   let name = ''; try { name = localStorage.getItem(PS_NAME) || ''; } catch (_) {}
   const sh = sheet({title:'列印站'}), box = h('div'), log = [], busy = new Set(); let unsub = null, hb = null, chain = Promise.resolve(), running = false;
   const nameIn = h('input', {class:'in', value:name, placeholder:'例：辦公室A4雷射', 'aria-label':'列印站名稱', autocomplete:'off'});
-  const paint = () => setKids(box, h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('b', {text:running ? '● 列印站執行中：「' + name + '」' : '列印站還沒啟動'}), h('small', {class:'hint', style:'display:block;margin-top:4px', text:running ? '請保持這個頁面開著。手機或平板送來的單據，會自動用這台電腦的預設印表機列印。' : '這台電腦要接印表機。啟動後，其他裝置可以把單據送到這裡列印。'})),
+  const paint = () => setKids(box, h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('b', {text:running ? '● 列印站執行中：「' + name + '」' : '列印站還沒啟動'}), h('small', {class:'hint', style:'display:block;margin-top:4px', text:running ? '請保持這個頁面開著。手機或平板送來的單據，會自動用這台電腦的預設印表機列印。如果這台電腦跳出「列印」視窗，要有人按「列印」才會印；照上面「設定成自動列印」改一次，之後就不會再跳。' : '這台電腦要接印表機。啟動後，其他裝置可以把單據送到這裡列印。'})),
     log.length ? h('div', {class:'panel'}, log.slice(0, 15).map(l => h('div', {class:'row'}, h('span', {style:'min-width:0'}, h('b', {text:l.title}), h('br'), h('small', {text:l.by + '　' + hmOf(l.t)})), h('span', {class:'pd-m ' + (l.st === 'done' ? 'cash' : l.st === 'error' ? 'note' : 'transfer'), text:l.st === 'done' ? '已列印' : l.st === 'error' ? '失敗' : '列印中'})))) : null);
   const beat = () => S.db.doc('printstations/' + stationId(name)).set({name, lastSeen:Date.now(), byName:myName()}).catch(() => null);
   const gap = () => (typeof window.__stationGap === 'number' ? window.__stationGap : 6000);
@@ -12554,7 +12575,7 @@ function openPrintStation(){
   const start = () => { name = nameIn.value.trim(); if (!name) return toast('請輸入列印站名稱'); try { localStorage.setItem(PS_NAME, name); } catch (_) {} running = true; beat(); hb = setInterval(beat, 30000);
     unsub = S.db.collection('printjobs').onSnapshot(snap => { snap.docs.forEach(d => { const j = {...d.data(), id:d.id}; if (j.station === name && j.status === 'queued' && !busy.has(j.id) && Date.now() - (j.at || 0) < 24 * 3600e3){ busy.add(j.id); handle(j); } if ((j.status === 'done' || j.status === 'error') && Date.now() - (j.at || 0) > 2 * 24 * 3600e3) S.db.doc('printjobs/' + j.id).delete().catch(() => null); }); }, () => null); paint(); };
   const stop = () => { running = false; clearInterval(hb); if (typeof unsub === 'function') unsub(); unsub = null; S.db.doc('printstations/' + stationId(name)).delete().catch(() => null); paint(); };
-  put(sh.bodyEl, h('div', {class:'note', text:'在要接印表機的 Windows 電腦上打開這個頁面。要完全不跳出列印視窗，請用「Chrome 加上 --kiosk-printing」的方式開啟網站，並在 Windows 把要用的印表機設為預設。'}), fld('列印站名稱', nameIn), h('div', {class:'btns'}, h('button', {class:'btn', 'aria-label':'啟動列印站', onclick:start}, '啟動列印站'), h('button', {class:'btn ghost', 'aria-label':'停止列印站', onclick:stop}, '停止')), h('div', {style:'height:10px'}), box);
+  put(sh.bodyEl, h('div', {class:'note', text:'在要接印表機的 Windows 電腦上打開這個頁面。要完全不跳出列印視窗，請用「Chrome 加上 --kiosk-printing」的方式開啟網站，並在 Windows 把要用的印表機設為預設（做法在下面）。'}), kioskGuide(), fld('列印站名稱', nameIn), h('div', {class:'btns'}, h('button', {class:'btn', 'aria-label':'啟動列印站', onclick:start}, '啟動列印站'), h('button', {class:'btn ghost', 'aria-label':'停止列印站', onclick:stop}, '停止')), h('div', {style:'height:10px'}), box);
   paint(); const old = sh.forceClose; sh.forceClose = () => { if (running) stop(); old(); };
 }
 function openPrintSettings(){
@@ -14964,7 +14985,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dx';
+const APP_VERSION = '2026.10.11-dy';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
