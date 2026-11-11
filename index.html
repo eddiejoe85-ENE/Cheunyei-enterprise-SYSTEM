@@ -504,7 +504,7 @@ const S = {
   set:{name:'', cur:'NT$', allowNeg:false, cutoffDay:25, defBilling:'cycle', intAmt:true, taxMode:'excl', taxRate:5, priceRound:'round', priceMode:'first', levels:['一般', '批發', '經銷', 'VIP'], warehouses:[{id:'main', name:'主倉庫', active:true}], discountRates:[3, 5], payTol:1, freightRate:15, costMethod:'manual', costFreight:false, closeDate:'', leadMin:4, leadMax:7, useVelocity:true, velDays:60, reviewOn:true, reviewSelf:false, reviewFrom:''}, setRaw:{}, bk:{}, roles:{}, members:{}, vehicles:{}, fuellogs:{}, maint:{}, cashbook:{}, devices:{}, quotes:{}, closings:{}, collects:{}, fuelcards:{}, locks:{}, trips:{}, gpslogs:{}, returns:{}, expdocs:{}, moves:{}, employees:{}, attdays:{}, leaves:{}, derrors:{}, payroll:{}, displans:{}, lineorders:{}, alerts:{}, handovers:{},
   loaded:{products:false, partners:false, orders:false, payments:false, notes:false, counts:false, countlines:false, corders:false, porders:false, prules:false, promos:false, shelves:false, members:false, roles:false, vehicles:false, fuellogs:false, maint:false, cashbook:false, quotes:false, closings:false, collects:false, fuelcards:false, locks:false, trips:false, gpslogs:false, returns:false, expdocs:false, moves:false, employees:false, attdays:false, leaves:false, derrors:false, payroll:false, displans:false, lineorders:false, alerts:false, handovers:false, settings:false},
   d:{stock:{}, stockW:{}, vehOdo:{}, bal:{}, alloc:{}, fill:{}, commit:{}, incoming:{}, lastSup:{}, usedP:new Set(), usedPt:new Set(), cats:[]},
-  names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{},
+  names:{}, avatars:{}, asked:new Set(), invCfg:{}, invBg:null, slipCfg:{}, slipCfgS:{}, slipShare:{},
   err:null, fatal:null,
   tab:'home',
   ui:{showBuy:false, showArch:false, invQ:'', invLvl:'', invCat:'', ordType:'', ordQ:'', ordN:60, ordRange:'all', ordFrom:'', ordTo:'', invWh:'', invWhInit:false, invAllItems:false, cashU:{from:'', to:'', cat:'', fund:''}, cm:{q:'', level:'', sales:'', region:''}, sm:{q:'', level:'', sales:'', region:''}, col:{seg:'todo', flt:'all', sel:{}}, qtQ:'', qtSt:'open', costQ:'', ptType:'customer', ptQ:'', rep:'month', accSeg:'ar', noteQ:'', noteFrom:'', noteTo:'', noteBasis:'due', noteSt:'open', noteDir:'', buySeg:'co', coSt:'open', poSt:'open', coQ:'', poQ:'', sug:{off:{}, qty:{}, sup:{}, arrive:'', vel:null, mode:null, wh:null}}
@@ -4553,8 +4553,37 @@ function driftTestHTML(id, local, standalone){
   };
   return env.shell(page(1) + page(2) + page(3));
 }
-function slipFormLocal(id){ const k = layoutTp(id).localKey; try { return {ox:0, oy:0, ...JSON.parse(localStorage.getItem(k) || '{}')}; } catch (_) { return {ox:0, oy:0}; } }
-function saveSlipFormLocal(v, id){ try { localStorage.setItem(layoutTp(id).localKey, JSON.stringify(v)); } catch (_) {} }
+/* -dz：銷貨單套印的「列印位置補正」「字體大小」「戳章位置」等原本只存在每台電腦自己的瀏覽器，各台電腦印出來位置就不一樣。
+   現在管理員可以把「印得對的那台」（例如列印站）的設定發佈到雲端（settings/slipshare），其他電腦預設跟著用；
+   某台電腦想自己調，可選「只用這台電腦自己的」（記在這台瀏覽器 slipMode1）。只管北區／中南區銷貨單，發票、對帳單的補正不在內。 */
+const SLIP_MODE = 'slipMode1';
+let slipRefresh = null;   // 列印視窗開著時，設定被改回去（例如不是管理員）→ 重新畫出來
+const slipModeOwn = () => { try { return localStorage.getItem(SLIP_MODE) === 'own'; } catch (_) { return false; } };
+const setSlipModeOwn = v => { try { if (v) localStorage.setItem(SLIP_MODE, 'own'); else localStorage.removeItem(SLIP_MODE); } catch (_) {} };
+const slipSharedOf = id => { const k = (SLIPFORMS[id || 'north'] || {}).id, v = k && S.slipShare && S.slipShare[k]; return v && typeof v === 'object' ? v : null; };
+const slipUsesShared = id => !!slipSharedOf(id) && !slipModeOwn();
+function slipOwnLocal(id){ const k = layoutTp(id).localKey; try { return {ox:0, oy:0, ...JSON.parse(localStorage.getItem(k) || '{}')}; } catch (_) { return {ox:0, oy:0}; } }
+function slipFormLocal(id){ return slipUsesShared(id) ? {ox:0, oy:0, ...slipSharedOf(id)} : slipOwnLocal(id); }
+async function publishSlipShared(id, v){
+  const k = (SLIPFORMS[id || 'north'] || {}).id; if (!k) return false;
+  const prev = S.slipShare || {}, next = {...prev, [k]:JSON.parse(JSON.stringify(v || {})), at:Date.now(), by:myName()};
+  S.slipShare = next;   // 先換成新的（畫面和列印立刻用得到），寫進雲端失敗再還原
+  const ok = await run(async () => { await S.db.doc('settings/slipshare').set(next); return true; });
+  if (!ok){ if (S.slipShare === next) S.slipShare = prev; return false; }
+  return true;
+}
+function saveSlipFormLocal(v, id){
+  if (slipUsesShared(id)){
+    if (S.isAdmin){ publishSlipShared(id, v).then(ok => { if (!ok && slipRefresh) slipRefresh(); }); return; }
+    const cur = slipSharedOf(id) || {};
+    for (const k of Object.keys(v)) delete v[k];
+    Object.assign(v, {ox:0, oy:0}, cur);
+    toast('這台電腦目前跟著「所有電腦共用」的設定，只有管理員能改；想自己調，請在「列印位置補正」選「只用這台電腦自己的」');
+    if (slipRefresh) setTimeout(slipRefresh, 0);
+    return;
+  }
+  try { localStorage.setItem(layoutTp(id).localKey, JSON.stringify(v)); } catch (_) {}
+}
 
 function fitFs(text, wmm, fs){
   let em = 0; for (const ch of String(text == null ? '' : text)) em += ch.charCodeAt(0) > 255 ? 1 : 0.65;
@@ -4955,6 +4984,7 @@ function openPrint(ref){
   if (!SLIPFORMS[P.form]) P.form = 'north';
   let tp = SLIPFORMS[P.form], F = tp.fromOrder(o), local = slipFormLocal(tp.id);
   const sh = sheet({title:'列印' + T.label});
+  slipRefresh = () => { if (!sh.bodyEl.isConnected) return; local = slipFormLocal(tp.id); buildForm(); paint(); };
   const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'}), pvNote = h('small', {class:'hint', 'aria-label':'預覽說明', style:'display:block;margin-top:6px'});
   const offTxt = (ox, oy) => [ox ? (ox < 0 ? '往左 ' : '往右 ') + num(Math.abs(ox)) + ' mm' : '', oy ? (oy < 0 ? '往上 ' : '往下 ') + num(Math.abs(oy)) + ' mm' : ''].filter(Boolean).join('、') || '沒有補正';
   let fr = null;
@@ -4970,7 +5000,7 @@ function openPrint(ref){
     });
     pvBox.style.height = Math.ceil((on ? SL.h * 3.7795 : 400) * sc) + 'px';
     fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, P) : slipHTML(o, P, false)));
-    { const ox = toNum(local.ox), oy = toNum(local.oy); pvNote.textContent = on && (ox || oy) ? '預覽顯示對準套表的位置；列印時會再' + offTxt(ox, oy) + '（這台電腦的列印位置補正）。' : ''; }
+    { const ox = toNum(local.ox), oy = toNum(local.oy); pvNote.textContent = on && (ox || oy) ? '預覽顯示對準套表的位置；列印時會再' + offTxt(ox, oy) + (slipUsesShared(tp.id) ? '（所有電腦共用的列印位置補正）。' : '（這台電腦的列印位置補正）。') : ''; }
     setKids(pvBox, fr);
   };
   const soon = () => { clearTimeout(soon.t); soon.t = setTimeout(paint, 250); };
@@ -5006,7 +5036,7 @@ function openPrint(ref){
   const adminBtn = h('button', {class:'btn ghost', onclick:() => openSlipFormLayout(tp.id)}, '版面校準');
   /* 套表版面被移動過（和標準位置差 3mm 以上）：列出來，管理員可以一鍵還原 */
   const restoreStd = async () => {
-    if (!await dialog({title:'還原標準位置？', msg:'「' + tp.name + '」所有欄位回到依你們的套表量好的標準位置。這台電腦的整體位移、字體大小不受影響。', ok:'還原'})) return;
+    if (!await dialog({title:'還原標準位置？', msg:'「' + tp.name + '」所有欄位回到依你們的套表量好的標準位置。' + (slipUsesShared(tp.id) ? '共用的' : '這台電腦的') + '整體位移、字體大小不受影響。', ok:'還原'})) return;
     const ok = await run(async () => { await S.db.doc(tp.doc).set({layout:{}}); return true; });
     if (ok){ S[tp.cfg] = {...(S[tp.cfg] || {}), layout:{}}; toast('已還原標準位置'); buildForm(); paint(); }
   };
@@ -5018,6 +5048,25 @@ function openPrint(ref){
   /* 列印位置補正（只影響這台電腦）：印出來整張偏了，往反方向補（例：往右偏 10mm → 往左 10） */
   const offPanel = () => {
     const box = h('div', {class:'panel pad', 'aria-label':'列印位置補正', style:'margin:8px 0'}), st0 = stationPref(), dirs = {};   // dirs：數字還是 0 時，先記住選的方向
+    /* -dz：這台電腦跟著「所有電腦共用」的補正，還是只用自己的；管理員可以把這台的設定發佈成共用 */
+    const shareRow = () => {
+      const pub = slipSharedOf(tp.id), usesShared = slipUsesShared(tp.id), at = S.slipShare && S.slipShare.at ? new Date(S.slipShare.at) : null;
+      const swap = own => { setSlipModeOwn(own); local = slipFormLocal(tp.id); buildForm(); paint(); };
+      const publish = async () => {
+        const ox = Math.round(toNum(local.ox) * 10) / 10, oy = Math.round(toNum(local.oy) * 10) / 10, fu = fsUpOf(local);
+        if (!await dialog({title:'發佈成所有電腦共用？', msg:'把這台電腦的「' + tp.name + '」列印設定發佈出去：位置補正「' + offTxt(ox, oy) + '」、字體' + (fu ? '大 ' + fu + ' 級' : '標準') + '，加上戳章、QR Code 等其他列印設定。之後所有電腦印這種單據，預設都用這一組（手機送到列印站的也一樣）；某台電腦不想用，可以在這裡選「只用這台電腦自己的」。', ok:'發佈'})) return;
+        if (await publishSlipShared(tp.id, local)){ setSlipModeOwn(false); toast('已發佈成所有電腦共用'); local = slipFormLocal(tp.id); buildForm(); paint(); }
+      };
+      const who = pub && S.slipShare && S.slipShare.by ? S.slipShare.by + (at ? ' 於 ' + (at.getMonth() + 1) + '/' + at.getDate() : '') + ' 發佈' : '';
+      const hint = pub ? (usesShared ? '所有電腦印「' + tp.name + '」都用同一組設定' + (who ? '（' + who + '）' : '') + '。' + (S.isAdmin ? '在這裡改，會直接改到所有電腦。' : '只有管理員能改；想自己調，選「只用這台電腦自己的」。') : '這台電腦只用自己的設定，不跟著共用設定。')
+        : (S.isAdmin ? '目前每台電腦各用各的補正。要所有電腦印出來一樣：在「印得對的那台電腦」（例如列印站）按下面的按鈕，把它的設定發佈成共用。' : '');
+      return h('div', {style:'margin:8px 0', 'aria-label':'共用補正'},
+        pub ? h('div', {class:'chips', style:'padding-top:0'},
+          h('button', {class:'chip', 'aria-pressed':usesShared, 'aria-label':'使用所有電腦共用的補正', onclick:() => swap(false)}, '跟著所有電腦共用的'),
+          h('button', {class:'chip', 'aria-pressed':!usesShared, 'aria-label':'只用這台電腦自己的補正', onclick:() => swap(true)}, '只用這台電腦自己的')) : null,
+        hint ? h('small', {class:'hint', 'aria-label':'共用補正說明', style:'display:block;margin-top:4px', text:hint}) : null,
+        S.isAdmin && !usesShared ? h('button', {class:'btn ghost sm', 'aria-label':'發佈成所有電腦共用', style:'margin-top:8px', onclick:publish}, pub ? '用這台的設定覆蓋共用設定' : '把這台電腦的設定發佈成所有電腦共用') : null);
+    };
     const draw2 = () => {
       const ox = Math.round(toNum(local.ox) * 10) / 10, oy = Math.round(toNum(local.oy) * 10) / 10;
       const setV = (k, v) => { local[k] = Math.round((Number(v) || 0) * 10) / 10 || 0; saveSlipFormLocal(local, tp.id); draw2(); paint(); };
@@ -5027,12 +5076,13 @@ function openPrint(ref){
         const inp = h('input', {class:'in', type:'text', inputmode:'decimal', value:v ? String(Math.abs(v)) : '', placeholder:'0', 'aria-label':lab + ' mm', style:'height:40px', onchange:e => setV(k, (sel.value === 'neg' ? -1 : 1) * Math.abs(toNum(e.target.value)))});
         return h('div', {style:'display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:8px'}, h('span', {style:'font-size:14px;color:var(--ink2)', text:lab}), sel, inp, h('span', {style:'font-size:14px;color:var(--ink3)', text:'mm'}));
       };
-      setKids(box, h('div', {style:'display:flex;justify-content:space-between;gap:4px 8px;align-items:baseline;flex-wrap:wrap'}, h('b', {text:'列印位置補正（這台電腦）'}), h('small', {'aria-label':'目前的補正', style:'color:var(--ink2)', text:'目前：' + offTxt(ox, oy)})),
+      setKids(box, h('div', {style:'display:flex;justify-content:space-between;gap:4px 8px;align-items:baseline;flex-wrap:wrap'}, h('b', {text:'列印位置補正（' + (slipUsesShared(tp.id) ? '所有電腦共用' : '這台電腦') + '）'}), h('small', {'aria-label':'目前的補正', style:'color:var(--ink2)', text:'目前：' + offTxt(ox, oy)})),
+        shareRow(),
         row('ox', '左右', '往左', '往右'), row('oy', '上下', '往上', '往下'),
         h('div', {class:'btns', style:'margin-top:8px;flex-wrap:wrap'}, [['←', 'ox', -0.5], ['→', 'ox', 0.5], ['↑', 'oy', -0.5], ['↓', 'oy', 0.5]].map(([t, k, dv]) => h('button', {class:'btn ghost sm', 'aria-label':'補正 ' + t + ' 0.5mm', onclick:() => setV(k, (k === 'ox' ? ox : oy) + dv)}, t + ' 0.5')),
           ox || oy ? h('button', {class:'btn ghost sm', 'aria-label':'補正歸零', onclick:() => { local.ox = 0; local.oy = 0; saveSlipFormLocal(local, tp.id); draw2(); paint(); }}, '歸零') : null),
         h('small', {class:'hint', style:'display:block;margin-top:6px', text:'印出來整張往右偏 10 mm，就選「往左」填 10；往下偏 2 mm，就選「往上」填 2。每張偏得一樣才用這裡；一張比一張偏，請看「印出來一張比一張往下偏？」。'}),
-        st0 ? h('small', {class:'hint', 'aria-label':'列印站補正說明', style:'display:block;margin-top:6px;color:var(--low)', text:'這台裝置的列印會送到列印站「' + st0 + '」：送過去的套印單據，以列印站那台電腦的補正為準，請在那台電腦設定。'}) : null);
+        st0 ? h('small', {class:'hint', 'aria-label':'列印站補正說明', style:'display:block;margin-top:6px;color:var(--low)', text:'這台裝置的列印會送到列印站「' + st0 + '」：送過去的套印單據，以列印站那台電腦的補正為準' + (slipUsesShared(tp.id) ? '；列印站那台若也是「跟著所有電腦共用的」，就和這裡的補正一樣。' : '，請在那台電腦設定。')}) : null);
     };
     draw2(); return box;
   };
@@ -5051,7 +5101,7 @@ function openPrint(ref){
     setKids(formCtl,
       h('div', {class:'f'}, h('label', {text:'套表版型'}), fchips(Object.values(SLIPFORMS).map(x => [x.id, x.name]), () => tp.id, k => {
         tp = SLIPFORMS[k]; P.form = k; F = tp.fromOrder(o); local = slipFormLocal(k); buildForm(); syncVis(); })),
-      h('div', {class:'f'}, h('label', {text:'字體大小（這台電腦；每一級加大 1 pt，太長的欄位會自動縮小）'}), fchips([['0', '標準'], ['1', '大 1 級'], ['2', '大 2 級'], ['3', '大 3 級']], () => String(fsUpOf(local)), k => { local.fsUp = Number(k); saveSlipFormLocal(local, tp.id); })),
+      h('div', {class:'f'}, h('label', {text:'字體大小（' + (slipUsesShared(tp.id) ? '所有電腦共用' : '這台電腦') + '；每一級加大 1 pt，太長的欄位會自動縮小）'}), fchips([['0', '標準'], ['1', '大 1 級'], ['2', '大 2 級'], ['3', '大 3 級']], () => String(fsUpOf(local)), k => { local.fsUp = Number(k); saveSlipFormLocal(local, tp.id); })),
       h('p', {class:'note', text:'只印資料，套在你手上的「' + tp.full + '」預印套表上（複寫給後面幾聯）。紙張規格：' + tp.paper + '（' + tp.paperMm + '）。'}),
       layoutWarn(), offPanel(), driftHelp(),
       tp.fields.map(row => row.length === 1 ? ftxt(row[0][0], row[0][1]) : h('div', {class:'f2'}, row.map(([k, l]) => ftxt(k, l)))),
@@ -5061,7 +5111,7 @@ function openPrint(ref){
         fchips([['excl', '單據金額是未稅價'], ['incl', '單據金額是含稅價']], () => F.mode, k => { F.mode = k; })),
       ftxt('note', '備註'),
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:F.bg !== false, onchange:e => { F.bg = e.target.checked; paint(); }}), '預覽顯示套表底圖（只用於預覽，不會印出）'),
-      h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'其他列印設定（這台電腦）：戳章、QR Code 位置與紙張設定'}),
+      h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'其他列印設定（' + (slipUsesShared(tp.id) ? '所有電腦共用' : '這台電腦') + '）：戳章、QR Code 位置與紙張設定'}),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['sx', '郵戳 X（mm）'], ['sy', '郵戳 Y（mm）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + (k === 'sx' ? slipFormLayout(tp.id).stamp.x : slipFormLayout(tp.id).stamp.y), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['ux', '早一點郵戳 X（mm，左邊緣，在日期右邊）'], ['uy', '早一點郵戳 Y（mm，垂直中心）']].map(([k, t]) => { const f2 = slipFormLayout(tp.id).f || {}, dflt = f2.year && f2.day ? (k === 'ux' ? Math.round((f2.day.xr + ((slipFormLayout(tp.id).w || 241) < 200 ? 4.6 : 5.8)) * 100) / 100 : Math.round((f2.day.y + 0.5) * 100) / 100) : ''; return h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設（日期正下方）' + (dflt !== '' ? ' ' + dflt : ''), 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})); })),
         h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px'}, ...[['cdx', '順收貨款郵戳 再往右（mm，可填負數）'], ['cdy', '順收貨款郵戳 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0（早一點正上方）', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))),
@@ -12509,6 +12559,7 @@ function printNow(html, fname, standaloneFn, meta){
   return phonePrint(html, fname, standaloneFn, meta);
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {printForTest:{kioskGuide:() => kioskGuide(), printNow:(...x) => printNow(...x), openPrintSettings:() => openPrintSettings(), stationOnline:x => stationOnline(x), isPhoneLike:() => isPhoneLike(), openPrintStation:() => openPrintStation()}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipShareForTest:{slipFormLocal:x => slipFormLocal(x), saveSlipFormLocal:(...x) => saveSlipFormLocal(...x), slipUsesShared:x => slipUsesShared(x), publishSlipShared:(...x) => publishSlipShared(...x), setSlipModeOwn:x => setSlipModeOwn(x), slipSharedOf:x => slipSharedOf(x), slipModeOwn:() => slipModeOwn(), openPrint:x => openPrint(x)}}); } catch (_) {}
 /* 套印單據送到列印站：印表機的位置補正以列印站那台電腦為準（換掉送出那台裝置的位移） */
 function stationOffset(html, form){
   if (form === 'arstmt'){ const o = arStmtOffLocal(); return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;\/\*arb:(-?[\d.]+),(-?[\d.]+),(\w+)\*\//, (m0, l, t, k) => '.in{position:absolute;left:' + r2(Number(l) + (k === 'cont' ? o.ox : 0)) + 'mm;top:' + r2(Number(t) + (k === 'cont' ? o.oy : 0)) + 'mm;/*arb:' + l + ',' + t + ',' + k + '*/'); }
@@ -14985,7 +15036,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dy';
+const APP_VERSION = '2026.10.11-dz';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -17824,6 +17875,7 @@ async function init(){
   db.doc('settings/backup').onSnapshot(snap => { S.bk = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/slipform_south').onSnapshot(snap => { S.slipCfgS = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/slipform').onSnapshot(snap => { S.slipCfg = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
+  db.doc('settings/slipshare').onSnapshot(snap => { S.slipShare = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/invoice').onSnapshot(snap => { S.invCfg = snap.exists ? snap.data() : {}; render('settings'); }, () => {});
   db.doc('settings/main').onSnapshot(snap => {
     S.setRaw = snap.exists ? snap.data() : {}; S.set = {...SET_DEFAULT, ...S.setRaw};
