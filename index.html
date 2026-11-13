@@ -1060,9 +1060,9 @@ function pHome(){
   if (dueNotes.length) page.append(h('section', {class:'sec'},
     h('div', {class:'sec-h'}, h('h2', {text:'近期到期票據'}), tabAllowed('acc') && fxOn('notes') ? h('button', {class:'btn ghost sm', onclick:() => { S.tab = 'acc'; S.ui.accSeg = 'note'; draw(); }}, '票據管理') : null),
     h('div', {class:'panel'}, dueNotes.map(noteRow))));
-  const m = summarize(...rangeOf('month'));
+  const mRg = cutoff() >= 2 ? rangeOf('cycle') : rangeOf('month'), m = summarize(...mRg);   /* -eb：本月＝帳期（和營業額看板一樣） */
   page.append(h('section', {class:'sec'},
-    h('div', {class:'sec-h'}, h('h2', {text:'本月概況'})),
+    h('div', {class:'sec-h'}, h('h2', {text:'本月概況' + (cutoff() >= 2 ? '（帳期 ' + boardRange(mRg[0], mRg[1]) + '）' : '')})),
     h('div', {class:'panel ledger'},
       h('div', {class:'row'}, h('span', {text:'銷貨淨額'}), h('span', {text:money(m.sale)})),
       h('div', {class:'row'}, h('span', {text:'進貨淨額'}), h('span', {text:money(m.purchase)})),
@@ -1598,12 +1598,23 @@ function openOrder(type, pre){
   const rtBox = type === 'sale' && !editO ? h('div', {'aria-label':'待歸還退貨提醒'}) : null, rtWarned = new Set();
   function paintRt(prompt){
     if (!rtBox) return;
-    const list = rtReadyOf(st.partnerId);
-    if (!list.length) return setKids(rtBox);
-    setKids(rtBox, h('div', {class:'note warn', style:'margin:8px 0'}, h('b', {text:'⚠ 這位客戶有 ' + list.length + ' 筆退貨商品待歸還'}),
-      ...list.map(r => h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px'}, h('span', {style:'min-width:0'}, h('b', {text:r.no}), '　' + rtItemsTxt(r) + (r.fixedDate ? '（' + r.fixedDate + ' 修好）' : '')), h('button', {class:'btn ghost sm', type:'button', 'aria-label':'查看退貨 ' + r.no, onclick:() => openReturnDetail(r.id)}, '查看'))),
-      h('small', {class:'hint', style:'display:block;margin-top:6px', text:'送貨時記得一併歸還，還完到「退貨管理」按「已退還客戶」。'})));
-    if (prompt && !rtWarned.has(st.partnerId)){ rtWarned.add(st.partnerId); dialog({title:'有退貨商品待歸還', msg:partyName(st.partnerId) + ' 有 ' + list.length + ' 筆退貨商品待歸還：' + list.map(r => r.no + ' ' + rtItemsTxt(r)).join('、') + '。送貨時請一併歸還。', ok:'知道了', single:true}); }
+    const list = rtReadyOf(st.partnerId), wip = rtWipOf(st.partnerId);
+    if (!list.length && !wip.length) return setKids(rtBox);
+    const row = (r, extra) => h('div', {style:'display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px'}, h('span', {style:'min-width:0'}, h('b', {text:r.no}), '　' + rtItemsTxt(r) + extra), h('button', {class:'btn ghost sm', type:'button', 'aria-label':'查看退貨 ' + r.no, onclick:() => openReturnDetail(r.id)}, '查看'));
+    setKids(rtBox,
+      list.length ? h('div', {class:'note warn', style:'margin:8px 0', 'aria-label':'待歸還退貨'}, h('b', {text:'⚠ 這位客戶有 ' + list.length + ' 筆退貨商品待歸還'}),
+        ...list.map(r => row(r, r.fixedDate ? '（' + r.fixedDate + ' 修好）' : '')),
+        h('small', {class:'hint', style:'display:block;margin-top:6px', text:'送貨時記得一併歸還，還完到「退貨管理」按「已退還客戶」。'})) : null,
+      wip.length ? h('div', {class:'note', style:'margin:8px 0', 'aria-label':'處理中的退貨'}, h('b', {text:(list.length ? '另外還有 ' : '這位客戶有 ') + wip.length + ' 筆退貨還在處理中'}),
+        ...wip.map(r => row(r, '（' + rtWipTxt(r) + '）')),
+        h('small', {class:'hint', style:'display:block;margin-top:6px', text:'修好或決定退還客戶後會變成「待歸還」；送貨時別忘了這些商品還在公司。'})) : null);
+    if (prompt && !rtWarned.has(st.partnerId)){
+      rtWarned.add(st.partnerId);
+      const nm = partyName(st.partnerId), parts = [];
+      if (list.length) parts.push(nm + ' 有 ' + list.length + ' 筆退貨商品待歸還：' + list.map(r => r.no + ' ' + rtItemsTxt(r)).join('、') + '。送貨時請一併歸還。');
+      if (wip.length) parts.push((list.length ? '另外還有 ' : nm + ' 有 ') + wip.length + ' 筆退貨還在處理中：' + wip.map(r => r.no + ' ' + rtItemsTxt(r) + '（' + rtWipTxt(r) + '）').join('、') + '。');
+      dialog({title:list.length ? '有退貨商品待歸還' : '有退貨商品還在處理中', msg:parts.join(' '), ok:'知道了', single:true});
+    }
   }
   let noteIn = null;
   const coActive = () => Object.values(S.corders || {}).filter(d => docProgress('co', d).active);
@@ -7145,7 +7156,8 @@ const emOf = t => { let em = 0; for (const ch of String(t == null ? '' : t)) { c
 const linesIn = (t, wmm, pt) => Math.max(1, Math.ceil(emOf(t) * pt * 0.3528 * 1.06 / Math.max(wmm, 5)));
 /* 報表抬頭（rptHeadHTML）的高度 mm：標誌 14、公司名稱 19pt、第二個名稱 14pt、地址電話 9pt、標題 17pt */
 const rptHeadH = () => { const logo = /^data:image\//.test(String(S.set.logo || '')), co2 = !!String(S.set.co2 || '').trim(); return r2(Math.max(logo ? 14 : 0, 7.71 + (co2 ? 6.67 : 0)) + (S.set.addr || S.set.tel || S.set.fax ? 4.79 : 0) + 11.6 + 0.8); };
-const AR_STMT_H = {th:7.6, st:7.4, ptot:9, sec:8.4, pay:6.2, box:18, cont:8.6, meta:7, env:44};   /* -cr：字體加大（明細 11pt）後的高度 mm */
+const AR_LAB_DX = 35, AR_LAB_DY = 45;   /* -ec：郵寄標籤（開窗信封收件人）往右 35 mm、往下 45 mm（以 -eb 的位置為準）；「收件人往右」的數字是另外再加 */
+const AR_STMT_H = {th:7.6, st:7.4, ptot:9, sec:8.4, pay:6.2, box:18, cont:8.6, meta:7, env:44 + AR_LAB_DY};   /* -cr：字體加大（明細 11pt）後的高度 mm */
 function arStmtCss(P, key, off){
   const cw = r2(P.w - P.ml - P.mr);
   return '@page{size:' + P.w + 'mm ' + P.h + 'mm;margin:0}' + RPT_CSS +
@@ -7214,7 +7226,7 @@ function arStmtHTML(M, opt, standalone){
     }).join('');
   };
   const css = arStmtCss(P, key, off) +
-    '.env{position:relative;height:44mm}.env .to{position:absolute;top:10mm;font-size:14pt;line-height:1.55}.hdb{overflow:hidden}.meta{line-height:5mm;font-size:10.5pt}' +
+    '.env{position:relative;height:' + AR_STMT_H.env + 'mm}.env .to{position:absolute;top:' + (10 + AR_LAB_DY) + 'mm;margin-left:' + AR_LAB_DX + 'mm;font-size:14pt;line-height:1.55}.hdb{overflow:hidden}.meta{line-height:5mm;font-size:10.5pt}' +
     '.cust{display:flex;justify-content:space-between;gap:6mm;margin:1.5mm 0 2mm;font-size:11.5pt;line-height:5.4mm;overflow:hidden}.cl{flex:1;min-width:0;word-break:break-all;overflow-wrap:anywhere}.cust .ind{padding-left:18mm}.cust .k{letter-spacing:0}.cr{flex:none;white-space:nowrap}' +
     '.conth{display:flex;justify-content:space-between;gap:4mm;font-size:10.5pt;line-height:5mm;padding-bottom:1mm;margin-bottom:2mm;border-bottom:.2mm solid #000;white-space:nowrap;overflow:hidden}.conth span:first-child{overflow:hidden;text-overflow:ellipsis}' +
     '.lst{table-layout:fixed}.lst th{border-top:.35mm solid #000;border-bottom:.35mm solid #000;font-weight:400;font-size:11pt;padding:.8mm 1mm;line-height:5.2mm;text-align:left;white-space:nowrap;overflow:hidden}.lst th.r{text-align:right}' +
@@ -8635,9 +8647,13 @@ const boardMode = () => (S.set.board && S.set.board.show) || 'all';
 function salesStats(t){
   t = t || today();
   const [Y, M, D] = t.split('-').map(Number), dow = (new Date(Y, M - 1, D).getDay() + 6) % 7, dim = (y, m) => new Date(y, m, 0).getDate();
-  const wk0 = addDays(t, -dow), pw0 = addDays(wk0, -7), pwT = addDays(t, -7), ym = Y + '-' + pad(M), pm = prevMonth(ym), [PY, PM] = pm.split('-').map(Number);
-  const R = {wk:[wk0, t], pw:[pw0, pwT], mo:[ym + '-01', t], pm:[pm + '-01', pm + '-' + pad(Math.min(D, dim(PY, PM)))], pmFull:[pm + '-01', pm + '-' + pad(dim(PY, PM))], ly:[(Y - 1) + '-' + pad(M) + '-01', (Y - 1) + '-' + pad(M) + '-' + pad(Math.min(D, dim(Y - 1, M)))]};
-  const lyEnd = (Y - 1) + '-' + pad(M) + '-' + pad(dim(Y - 1, M)), out = {}; for (const k in R) out[k] = {from:R[k][0], to:R[k][1], net:0, n:0};
+  /* -eb：「本月」是帳期（結帳日 25 號＝上月 25 日～本月 24 日；結帳日設 0 或 1 就是日曆月）。今天在哪個帳期就看哪一期 */
+  const wk0 = addDays(t, -dow), pw0 = addDays(wk0, -7), pwT = addDays(t, -7);
+  const cd = cutoff(), bm = billMonth(t, cd), pbm = prevMonth(bm), lbm = (Number(bm.slice(0, 4)) - 1) + bm.slice(4);
+  const cur = cycleRange(bm, cd), prv = cycleRange(pbm, cd), lst = cycleRange(lbm, cd), el = daysBetween(cur[0], t);   // el＝今天是這期的第幾天（第一天＝0）
+  const sameTo = rg => { const e = addDays(rg[0], el); return e < rg[1] ? e : rg[1]; };   // 上一期、去年那一期，同樣經過幾天（該期比較短就到期末）
+  const R = {wk:[wk0, t], pw:[pw0, pwT], mo:[cur[0], t], pm:[prv[0], sameTo(prv)], pmFull:[prv[0], prv[1]], ly:[lst[0], sameTo(lst)]};
+  const lyEnd = lst[1], out = {}; for (const k in R) out[k] = {from:R[k][0], to:R[k][1], net:0, n:0};
   const wkDays = {}, pwDays = {}; for (let i = 0; i < 7; i++){ wkDays[addDays(wk0, i)] = 0; pwDays[addDays(pw0, i)] = 0; }
   let todayNet = 0, lyHas = false;
   for (const o of Object.values(S.orders)){
@@ -8649,7 +8665,7 @@ function salesStats(t){
     if (ds >= R.ly[0] && ds <= lyEnd) lyHas = true;
   }
   for (const k in out) out[k].net = r2(out[k].net);
-  return {t, dow, ranges:out, todayNet:r2(todayNet), wkDays:Object.entries(wkDays).map(([d, v]) => ({d, v:r2(v)})), pwDays:Object.entries(pwDays).map(([d, v]) => ({d, v:r2(v)})), lyHas};
+  return {t, dow, cycle:cd >= 2, bm, period:{from:cur[0], to:cur[1]}, ranges:out, todayNet:r2(todayNet), wkDays:Object.entries(wkDays).map(([d, v]) => ({d, v:r2(v)})), pwDays:Object.entries(pwDays).map(([d, v]) => ({d, v:r2(v)})), lyHas};
 }
 const boardMd = ds => Number(ds.slice(5, 7)) + '/' + Number(ds.slice(8));
 const boardRange = (a, b, withYear) => (withYear ? a.slice(0, 4) + '/' : '') + (a === b ? boardMd(a) : boardMd(a) + '–' + boardMd(b));
@@ -8703,11 +8719,11 @@ function boardPanels(st){
   const mo = h('div', {class:'panel pad', 'aria-label':'本月營業額', style:'margin-bottom:10px'},
     h('div', {style:'display:flex;justify-content:space-between;align-items:baseline;gap:8px'}, h('b', {text:'本月營業額'}), h('small', {class:'hint', text:boardRange(R.mo.from, R.mo.to)})),
     h('div', {style:'font-size:26px;font-weight:800;margin:2px 0', 'aria-label':'本月合計', text:money(R.mo.net)}),
-    h('small', {class:'hint', text:'本月銷貨 ' + R.mo.n + ' 張'}),
+    h('small', {class:'hint', text:'本月銷貨 ' + R.mo.n + ' 張' + (st.cycle ? '（帳期 ' + boardRange(st.period.from, st.period.to) + '）' : '')}),
     line('上月同期', null, R.mo.net, R.pm, '上月同期'),
     st.lyHas ? line('去年同期', null, R.mo.net, R.ly, '去年同期', true) : null,
-    pctFull != null ? h('div', {style:'margin-top:10px', 'aria-label':'本月進度'}, h('small', {class:'hint', text:'上月全月 ' + money(full) + '，本月已達 ' + pctFull + '%'}), h('span', {class:'bar'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'}))) : null);
-  return [wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。'})];
+    pctFull != null ? h('div', {style:'margin-top:10px', 'aria-label':'本月進度'}, h('small', {class:'hint', text:'上月全月（' + boardRange(R.pmFull.from, R.pmFull.to) + '）' + money(full) + '，本月已達 ' + pctFull + '%'}), h('span', {class:'bar'}, h('i', {style:'width:' + Math.min(pctFull, 100) + '%'}))) : null);
+  return [wk, mo, h('small', {class:'hint', style:'display:block;margin:-2px 2px 12px', text:'營業額是未稅金額，銷貨退回已扣除；同期是指同樣經過幾天的比較（例如本週到週三，就比上週一到週三）。' + (st.cycle ? '本月是依結帳日算的帳期（每月 ' + cutoff() + ' 日到下個月 ' + (cutoff() - 1) + ' 日，依單據日期），上月就是上一個帳期。' : '')})];
 }
 function openBoardSettings(){
   if (!S.isAdmin) return toast('只有管理員可以設定');
@@ -9827,6 +9843,9 @@ const rtDest = r => r.status !== 'done' ? '' : r.after === 'scrap' ? '報廢' : 
 const rtReasons = r => (r.items || []).filter(i => i.reason).map(i => i.name + '：' + i.reason).join('；');
 const rtReadyOf = pid => pid && fxOn('returns') ? Object.values(S.returns).filter(r => r.partnerId === pid && r.status === 'ready').sort((a, b) => String(a.date).localeCompare(String(b.date))) : [];
 const rtItemsTxt = r => (r.items || []).map(i => i.name + '×' + num(i.qty)).join('、');
+/* -ea：還沒到「待退還客戶」、但可能要退還客戶的退貨：已收到還沒決定、檢測／維修中（改善後歸位的不算） */
+const rtWipOf = pid => pid && fxOn('returns') ? Object.values(S.returns).filter(r => r.partnerId === pid && (r.status === 'received' || (r.status === 'processing' && r.action !== 'improve'))).sort((a, b) => String(a.date).localeCompare(String(b.date))) : [];
+const rtWipTxt = r => r.status === 'received' ? '已收到，還沒決定怎麼處理' : '檢測／維修中';
 const rtOpen = r => r.status !== 'done' && r.status !== 'cancelled';
 const rtLog = (r, s, note) => [...(r.log || []), {s, d:today(), t:Date.now(), by:S.meId || null, byName:myName(), note:note || ''}];
 async function rtUpdate(r, patch, logS, logNote){
@@ -14190,7 +14209,7 @@ function openAsmSource(pid, wid){
   paint();
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {shortForTest:{shortagePlan, shortWays, shortRow, openShortage, incIndex, openDisSource:(...x) => openDisSource(...x), openAsmSource:(...x) => openAsmSource(...x), openBomOp:(...x) => openBomOp(...x), openTransfer:(...x) => openTransfer(...x)}}); } catch (_) {}
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x), rtSplit, rtCondOf, rtCondTxt, rtCondItems, rtClassified, rtScope, rtItemPrice, rtRefundDefault:r => rtRefundDefault(r), openReturnRefundPlan:(...x) => openReturnRefundPlan(...x), openReturnList:() => openReturnList(), rtDetailData:x => rtDetailData(x), dsReturnDetail:x => dsReturnDetail(x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {returnForTest:{openReturnMgmt:() => openReturnMgmt(), openReturnDetail:id => openReturnDetail(id), openReturnGoods:(...x) => openReturnGoods(...x), openReturnStep:(...x) => openReturnStep(...x), rtDest:r => rtDest(r), rtReadyOf:x => rtReadyOf(x), rtWipOf:x => rtWipOf(x), rtSplit, rtCondOf, rtCondTxt, rtCondItems, rtClassified, rtScope, rtItemPrice, rtRefundDefault:r => rtRefundDefault(r), openReturnRefundPlan:(...x) => openReturnRefundPlan(...x), openReturnList:() => openReturnList(), rtDetailData:x => rtDetailData(x), dsReturnDetail:x => dsReturnDetail(x)}}); } catch (_) {}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dvForTest:{stopLines, stopItemsEl, pickOrdersForTrip:(...x) => pickOrdersForTrip(...x), openDispatch:x => openDispatch(x), openDriverRun:() => openDriverRun()}}); } catch (_) {}
 
 /* ================= 採購單／客戶訂單 PDF ================= */
@@ -15036,7 +15055,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-dz';
+const APP_VERSION = '2026.10.11-ec';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
