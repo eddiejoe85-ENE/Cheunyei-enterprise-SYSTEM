@@ -5514,7 +5514,7 @@ const INV_ATT_PAPER_LS = 'invAttPaper1';
 const invAttPaperLocal = () => { try { return arStmtPaperKey(localStorage.getItem(INV_ATT_PAPER_LS) || arStmtPaperLocal()); } catch (_) { return 'a4'; } };
 function invAttachHTML(c, meta, standalone){
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[ch])), n2 = x => (Number(x) || 0).toLocaleString('zh-TW', {maximumFractionDigits:2});
-  const key = arStmtPaperKey(meta.paper), P = ARSTMT_PAPERS[key], off = key === 'cont' ? {ox:offClamp(meta.ox), oy:offClamp(meta.oy)} : {ox:0, oy:0};
+  const key = arStmtPaperKey(meta.paper), P = ARSTMT_PAPERS[key], off = arStmtCont(key) ? {ox:offClamp(meta.ox), oy:offClamp(meta.oy)} : {ox:0, oy:0};
   const cw = r2(P.w - P.ml - P.mr), AV = r2(P.h - P.mt - P.mb - 3), nameW = r2(cw - 92 - 2.4), co = S.set.co || S.set.name || '';
   const HEAD = 38 + (meta.note ? 6 : 0), TH = 7.6, TOT = 22, room = AV - HEAD - TH, rh = r => r2(1.7 + 5.2 * linesIn(r.name, nameW, 10.5));   /* 量過：一行 6.86 mm（行高 5.2＋上下留白 1.4＋格線） */
   const rows = c.rows || [], pages = []; let cur = [], used = 0;
@@ -5533,7 +5533,7 @@ function invAttachHTML(c, meta, standalone){
     '.ia{display:grid;grid-template-columns:1fr 1fr;gap:.6mm 6mm;font-size:10.5pt;line-height:5mm;margin-bottom:2mm}.ia .w{grid-column:1 / -1}' +
     '.it{table-layout:fixed}.it th,.it td{padding:.7mm 1.2mm;font-size:10.5pt;line-height:5.2mm;vertical-align:top}.it thead th{border-top:.35mm solid #000;border-bottom:.35mm solid #000;font-weight:700;white-space:nowrap}.it tbody td{border-bottom:.15mm solid #bbb}.wr{white-space:normal;word-break:break-all;overflow-wrap:anywhere}' +
     '.tt{width:72mm;margin:2mm 0 0 auto}.tt td{padding:.6mm 1.2mm;font-size:11pt;line-height:5.2mm}.tt .g td{border-top:.35mm solid #000;font-weight:700}.more{text-align:right;font-size:9.5pt;margin-top:1mm}';
-  const bar = key === 'cont' ? '　紙張選「整張 9.5x11」（9.5×11 吋連續報表紙）、邊界「無」、縮放 100%。' : '　紙張選 A4 直式、邊界「無」、縮放 100%。';
+  const bar = key === 'letter' ? '　紙張大小選「Letter」（8.5×11 吋連續報表紙）、邊界「無」、縮放 100%。' : key === 'cont' ? '　紙張選「整張 9.5x11」（9.5×11 吋連續報表紙）、邊界「無」、縮放 100%。' : '　紙張選 A4 直式、邊界「無」、縮放 100%。';
   return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>銷貨品項彙整明細</title><style>' + css + '</style></head><body>' + (standalone ? '<div class="bar"><button onclick="window.print()">列印</button><span>' + bar + '</span></div>' : '') + body + '</body></html>';
 }
 
@@ -7142,12 +7142,14 @@ function dsArSummary(M){
    連續報表紙的寬度含兩邊有孔的撕邊（各 12.7 mm）。-cw：左右各留 16 mm（撕邊內再留約 3 mm），內容寬 209.3 mm（原本各留 24.6 mm、寬 192 mm）。
    分頁在列印前就算好：每一行的高度固定，產品名稱太長會換行（用字數估算，估大一點、每頁再留 3 mm）。 */
 const ARSTMT_PAPERS = {
+  letter:{label:'連續報表紙 Letter 8.5×11 吋', short:'連續報表紙 Letter', w:215.9, h:279.4, mt:8, mb:8, ml:6, mr:6},   /* -ed：Windows 紙張大小選 Letter；左右各留 6 mm */
   cont:{label:'連續報表紙 9.5×11 吋', short:'連續報表紙', w:241.3, h:279.4, mt:8, mb:8, ml:16, mr:16},
   a4:{label:'A4 單張', short:'A4', w:210, h:297, mt:9, mb:10, ml:9, mr:9}
 };
 const ARSTMT_PAPER_LS = 'arStmtPaper1', ARSTMT_OFF_LS = 'arStmtOff1';
-const arStmtPaperKey = k => ARSTMT_PAPERS[k] ? k : 'cont';
-const arStmtPaperLocal = () => { try { return arStmtPaperKey(localStorage.getItem(ARSTMT_PAPER_LS) || 'cont'); } catch (_) { return 'cont'; } };
+const arStmtPaperKey = k => ARSTMT_PAPERS[k] ? k : 'letter';
+const arStmtPaperLocal = () => { try { return arStmtPaperKey(localStorage.getItem(ARSTMT_PAPER_LS) || 'letter'); } catch (_) { return 'letter'; } };
+const arStmtCont = k => k === 'cont' || k === 'letter';   /* 連續報表紙（點陣式）：套用列印位置補正 */
 const offClamp = v => Math.min(Math.max(toNum(v) || 0, -30), 30);
 function arStmtOffLocal(){ try { const o = JSON.parse(localStorage.getItem(ARSTMT_OFF_LS) || '{}') || {}; return {ox:offClamp(o.ox), oy:offClamp(o.oy)}; } catch (_) { return {ox:0, oy:0}; } }
 function saveArStmtOff(o){ try { localStorage.setItem(ARSTMT_OFF_LS, JSON.stringify({ox:offClamp(o.ox), oy:offClamp(o.oy)})); } catch (_) {} }
@@ -7165,10 +7167,10 @@ function arStmtCss(P, key, off){
     '.in{position:absolute;left:' + r2(P.ml + off.ox) + 'mm;top:' + r2(P.mt + off.oy) + 'mm;/*arb:' + P.ml + ',' + P.mt + ',' + key + '*/width:' + cw + 'mm;height:' + r2(P.h - P.mt - P.mb) + 'mm;overflow:hidden}' +
     '@media screen{body{background:#dfe3e8;padding:12px}.sheet{background:#fff;margin:0 auto 12px;box-shadow:0 1px 6px rgba(0,0,0,.25)}.sheet.cont:before,.sheet.cont:after{content:"";position:absolute;top:0;bottom:0;border-left:1px dashed #c3ccd5}.sheet.cont:before{left:12.7mm}.sheet.cont:after{right:12.7mm}.bar{max-width:' + P.w + 'mm;margin:0 auto 10px;font:14px sans-serif}.bar button{font:inherit;padding:6px 16px}}@media print{.bar{display:none!important}body{padding:0}}';
 }
-const arStmtBar = key => key === 'cont' ? '　印表機選點陣式印表機（EPSON LQ-690C），紙張選「整張 9.5x11」（9.5×11 吋連續報表紙）、邊界「無」、縮放 100%；每位客戶從新的一張開始。' : '　紙張選 A4 直式、邊界「無」、縮放 100%；每位客戶從新的一頁開始。';
+const arStmtBar = key => key === 'letter' ? '　印表機選點陣式印表機（EPSON LQ-690C），紙張大小選「Letter」（8.5×11 吋連續報表紙）、邊界「無」、縮放 100%；每位客戶從新的一張開始。' : key === 'cont' ? '　印表機選點陣式印表機（EPSON LQ-690C），紙張選「整張 9.5x11」（9.5×11 吋連續報表紙）、邊界「無」、縮放 100%；每位客戶從新的一張開始。' : '　紙張選 A4 直式、邊界「無」、縮放 100%；每位客戶從新的一頁開始。';
 function arStmtHTML(M, opt, standalone){
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
-  const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = key === 'cont' ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0}, H = AR_STMT_H;
+  const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = arStmtCont(key) ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0}, H = AR_STMT_H;
   const cw = r2(P.w - P.ml - P.mr), AV = r2(P.h - P.mt - P.mb - 3), nameW = r2(cw - 112), headH = rptHeadH(), months = arBookMonthTxt(M.U), rowH = n => r2(1 + 5.2 * n);
   /* -cp：拿掉單別、幣別（單號後面的 NT$）、已沖帳款、未沖帳款 */
   const COLS = '<colgroup><col style="width:21mm"><col style="width:33mm"><col><col style="width:19mm"><col style="width:18mm"><col style="width:21mm"></colgroup>';
@@ -7238,9 +7240,9 @@ function arStmtHTML(M, opt, standalone){
 }
 /* 連續 3 張測試頁：粗線在 3 張的同一個位置＝紙張長度對；外框是內容範圍 */
 function arStmtTestHTML(opt, standalone){
-  const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = key === 'cont' ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0};
+  const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = arStmtCont(key) ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0};
   const sheet = i => '<div class="sheet' + (key === 'cont' ? ' cont' : '') + '"><div class="in"><div class="fr"></div><div class="t1">應收帳款對帳單　測試頁　第 ' + i + ' 張（共 3 張）</div><div class="ln"></div>' +
-    '<div class="t2">這條粗線在 3 張的同一個位置就對了。一張比一張往下（或往上）偏＝印表機的紙張長度不是 ' + (key === 'cont' ? '11 吋' : 'A4') + '。</div><div class="t3">紙張：' + P.label + '（寬 ' + r2(P.w / 10) + ' 公分、高 ' + r2(P.h / 10) + ' 公分）；虛線外框是內容範圍（左右各留 ' + P.ml + ' mm）。3 張一樣、只是整張一起偏：用「列印位置補正」。</div>' +
+    '<div class="t2">這條粗線在 3 張的同一個位置就對了。一張比一張往下（或往上）偏＝印表機的紙張長度不是 ' + (arStmtCont(key) ? '11 吋' : 'A4') + '。</div><div class="t3">紙張：' + P.label + '（寬 ' + r2(P.w / 10) + ' 公分、高 ' + r2(P.h / 10) + ' 公分）；虛線外框是內容範圍（左右各留 ' + P.ml + ' mm）。3 張一樣、只是整張一起偏：用「列印位置補正」。</div>' +
     (off.ox || off.oy ? '<div class="t3">這台電腦的列印位置補正：往右 ' + off.ox + ' mm、往下 ' + off.oy + ' mm</div>' : '') + '<div class="t5">最下面一行</div></div></div>';
   const css = arStmtCss(P, key, off) + '.fr{position:absolute;inset:0;border:.3mm dashed #000}.t1{position:absolute;left:3mm;top:4mm;font-size:12pt;font-weight:700}.ln{position:absolute;left:0;right:0;top:20mm;border-top:.6mm solid #000}' +
     '.t2,.t3{position:relative;margin:0 3mm;font-size:10pt;line-height:1.5}.t2{top:24mm}.t3{top:26mm}.t5{position:absolute;left:3mm;bottom:2mm;font-size:10pt}';
@@ -7366,12 +7368,16 @@ function openArStatement(pre){
       '瀏覽器的列印視窗：印表機選 EPSON LQ-690C；「更多設定」→ 紙張大小選「整張 9.5x11」、邊界「無」、縮放「預設」（100%），取消「頁首及頁尾」。',
       '先按「印連續 3 張測試頁」：3 張的粗線都在同一個位置就對了。一張比一張往下（或往上）偏，是紙張高度不是 11 吋（回到第 1 步）；3 張一樣、只是整張一起偏，用上面的「整體往右移／往下移」補正。',
       '這台印表機也印銷貨單（中一刀 9.5×5.5 吋套表）：印完對帳單換回套表，列印視窗的紙張大小改回「中一刀」。常常兩種都要印，可以在 Windows 再新增一台同樣的印表機（例如「LQ-690C 報表紙」），預設紙張設成「整張 9.5x11」，印對帳單就選那一台。'];
+    const STEPS_L = ['印表機換上空白的連續報表紙（從後方拖曳進紙），撕紙線對齊。',
+      '瀏覽器的列印視窗：印表機選 EPSON LQ-690C；「更多設定」→ 紙張大小選「Letter」（8.5×11 吋）、邊界「無」、縮放「預設」（100%），取消「頁首及頁尾」。Windows 內建 Letter，不用另外建立格式。',
+      '先按「印連續 3 張測試頁」：3 張的粗線都在同一個位置就對了。一張比一張往下（或往上）偏，是紙張高度不是 11 吋；3 張一樣、只是整張一起偏（含左右不對稱），用上面的「整體往右移／往下移」補正。',
+      '這台印表機也印銷貨單（中一刀 9.5×5.5 吋套表）：印完對帳單換回套表，列印視窗的紙張大小改回「中一刀」。常常兩種都要印，可以在 Windows 再新增一台同樣的印表機（例如「LQ-690C 報表紙」），預設紙張設成「Letter」，印對帳單就選那一台。'];
     const paperBox = h('div', {class:'panel pad', style:'margin-top:10px', 'aria-label':'對帳單紙張'}, h('b', {text:'紙張'}),
       h('div', {class:'chips', style:'padding-top:6px;flex-wrap:wrap'}, Object.entries(ARSTMT_PAPERS).map(([k, p]) => h('button', {class:'chip', 'aria-pressed':key === k, 'aria-label':'紙張 ' + p.label, onclick:() => { U.paper = k; try { localStorage.setItem(ARSTMT_PAPER_LS, k); } catch (_) {} rer(); }}, p.label))),
-      key === 'cont' ? [h('small', {class:'hint', style:'display:block', text:'點陣式印表機（EPSON LQ-690C）用寬 9.5 吋、高 11 吋的空白連續報表紙。每位客戶從新的一張開始，一張印不下會自動接到下一張（續頁印客戶、表頭和頁次）。紙張和位置補正存在這台電腦。'}),
+      arStmtCont(key) ? [h('small', {class:'hint', style:'display:block', text:(key === 'letter' ? '點陣式印表機（EPSON LQ-690C）用連續報表紙，列印視窗的紙張大小選「Letter」（8.5×11 吋，寬 21.59 公分、高 27.94 公分），Windows 內建，不用另外建立格式。' : '點陣式印表機（EPSON LQ-690C）用寬 9.5 吋、高 11 吋的空白連續報表紙。') + '每位客戶從新的一張開始，一張印不下會自動接到下一張（續頁印客戶、表頭和頁次）。紙張和位置補正存在這台電腦。'}),
         h('div', {class:'f2', style:'margin-top:6px'}, offIn('ox', '整體往右移 mm（負數＝往左）', '對帳單往右移'), offIn('oy', '整體往下移 mm（負數＝往上）', '對帳單往下移')),
         h('button', {class:'btn ghost sm', 'aria-label':'印對帳單測試頁', onclick:() => printNow(arStmtTestHTML(U, false), '對帳單測試頁.html', () => arStmtTestHTML(U, true), {form:'arstmt'})}, '印連續 3 張測試頁'),
-        h('details', {class:'fold', style:'margin-top:8px', 'aria-label':'連續報表紙設定說明'}, h('summary', {text:'第一次用連續報表紙（每台電腦設定一次）'}), h('div', {class:'fold-b'}, h('ol', {style:'margin:0;padding-left:20px;font-size:14px;color:var(--ink2)'}, STEPS.map(t => h('li', {text:t, style:'margin-bottom:4px'})))))]
+        h('details', {class:'fold', style:'margin-top:8px', 'aria-label':'連續報表紙設定說明'}, h('summary', {text:'第一次用連續報表紙（每台電腦設定一次）'}), h('div', {class:'fold-b'}, h('ol', {style:'margin:0;padding-left:20px;font-size:14px;color:var(--ink2)'}, (key === 'letter' ? STEPS_L : STEPS).map(t => h('li', {text:t, style:'margin-bottom:4px'})))))]
         : h('small', {class:'hint', style:'display:block', text:'一般印表機（雷射、噴墨）用 A4 紙；每位客戶從新的一頁開始，一頁印不下會自動接到下一頁。'}));
     const listRows = U.only ? null : M.list.map(r => h('label', {class:'row', style:'align-items:center;cursor:pointer', 'data-name':r.pt.name}, h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('input', {type:'checkbox', checked:!U.skip.has(r.pt.id), 'aria-label':'納入對帳單 ' + r.pt.name, onchange:e => { if (e.target.checked) U.skip.delete(r.pt.id); else U.skip.add(r.pt.id); rer(); }}), h('span', {style:'min-width:0'}, h('b', {text:(r.pt.code ? r.pt.code + '　' : '') + (r.pt.shortName || r.pt.name)}), h('br'), h('small', {text:r.docs.length + ' 張單據　本期應收 ' + money(r.recv) + '　未沖 ' + money(r.left)}))), h('span')));
     const body = h('div', null, ...arBookControls(U, rer), retFixNote(), paperBox,
@@ -12581,7 +12587,7 @@ try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {p
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {slipShareForTest:{slipFormLocal:x => slipFormLocal(x), saveSlipFormLocal:(...x) => saveSlipFormLocal(...x), slipUsesShared:x => slipUsesShared(x), publishSlipShared:(...x) => publishSlipShared(...x), setSlipModeOwn:x => setSlipModeOwn(x), slipSharedOf:x => slipSharedOf(x), slipModeOwn:() => slipModeOwn(), openPrint:x => openPrint(x)}}); } catch (_) {}
 /* 套印單據送到列印站：印表機的位置補正以列印站那台電腦為準（換掉送出那台裝置的位移） */
 function stationOffset(html, form){
-  if (form === 'arstmt'){ const o = arStmtOffLocal(); return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;\/\*arb:(-?[\d.]+),(-?[\d.]+),(\w+)\*\//, (m0, l, t, k) => '.in{position:absolute;left:' + r2(Number(l) + (k === 'cont' ? o.ox : 0)) + 'mm;top:' + r2(Number(t) + (k === 'cont' ? o.oy : 0)) + 'mm;/*arb:' + l + ',' + t + ',' + k + '*/'); }
+  if (form === 'arstmt'){ const o = arStmtOffLocal(); return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;\/\*arb:(-?[\d.]+),(-?[\d.]+),(\w+)\*\//, (m0, l, t, k) => '.in{position:absolute;left:' + r2(Number(l) + (arStmtCont(k) ? o.ox : 0)) + 'mm;top:' + r2(Number(t) + (arStmtCont(k) ? o.oy : 0)) + 'mm;/*arb:' + l + ',' + t + ',' + k + '*/'); }
   const lo = slipFormLocal(form);
   return String(html).replace(/\.in\{position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;/, '.in{position:absolute;left:' + (toNum(lo.ox) || 0) + 'mm;top:' + (toNum(lo.oy) || 0) + 'mm;');
 }
@@ -15055,7 +15061,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ec';
+const APP_VERSION = '2026.10.11-ed';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
