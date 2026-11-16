@@ -9801,12 +9801,14 @@ async function openPhotoViewer(o, idx, opt){
     const m = metas[i]; setKids(box, h('img', {src:m.thumb, alt:m.name, style:'width:100%;border-radius:12px;filter:blur(1px)'}), h('p', {class:'hint', text:'讀取原圖中…'}));
     let data = null; try { const snap = await S.db.doc('photos/' + m.id).get(); if (snap.exists) data = (snap.data() || {}).data; } catch (_) {}
     const canDel = can('sale') && !reviewLock(opt.key, o) && o.status !== 'void' && o.status !== 'cancelled';
-    setKids(box, h('img', {src:data || m.thumb, alt:m.name, 'aria-label':'照片 ' + (i + 1), style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:(i + 1) + ' / ' + metas.length + '　' + m.name + '　' + fmtDT(m.at) + (data ? '' : '　（找不到原圖，只顯示縮圖）')}),
+    setKids(box, h('img', {src:data || m.thumb, alt:m.name, 'aria-label':'照片 ' + (i + 1), style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:(i + 1) + ' / ' + metas.length + (metas.length > 1 && touchUi() ? '　左右撥動可換圖' : '') + '　' + m.name + '　' + fmtDT(m.at) + (data ? '' : '　（找不到原圖，只顯示縮圖）')}),
       h('div', {class:'btns'}, metas.length > 1 ? h('button', {class:'btn ghost', 'aria-label':'上一張', onclick:() => { i = (i + metas.length - 1) % metas.length; show(); }}, '‹ 上一張') : null, metas.length > 1 ? h('button', {class:'btn ghost', 'aria-label':'下一張', onclick:() => { i = (i + 1) % metas.length; show(); }}, '下一張 ›') : null,
         data ? h('button', {class:'btn ghost', 'aria-label':'下載照片', onclick:() => saveFile(o.no + '_' + (i + 1) + '.jpg', dataToU8(data))}, '下載') : null,
         canDel ? h('button', {class:'btn plain', 'aria-label':'刪除照片', onclick:async () => { if (!await dialog({title:'刪除這張照片？', msg:'刪除後無法復原。', ok:'刪除', danger:true})) return; const ok = await run(async () => { await S.db.doc(opt.coll + '/' + o.id).update({photos:metas.filter((_, k) => k !== i).map(x => ({...x}))}); await deletePhotoDocs([m.id]); return true; }); if (ok){ toast('已刪除照片'); sh.forceClose(); } }}, '刪除') : null));
   };
-  put(sh.bodyEl, box); show();
+  put(sh.bodyEl, box);
+  if (metas.length > 1) swipeNav(box, {prev:() => { i = (i + metas.length - 1) % metas.length; show(); }, next:() => { i = (i + 1) % metas.length; show(); }, mover:() => box.querySelector('img')});
+  show();
 }
 function photoSection(o){
   const metas = o.photos || [], canAdd = o.type === 'sale_return' && can('sale') && o.status !== 'void' && !reviewLock('order', o) && metas.length < PH_MAX;
@@ -10201,6 +10203,39 @@ const shelfMore = (p, wid) => shelfAll(p, wid).slice(1);
 const shelfListTxt = l => !l || !l.length ? '' : l[0] + (l.length > 1 ? '（另有 ' + l.slice(1).join('、') + '）' : '');
 const shelfCmp = (a, b) => { if (!a && !b) return 0; if (!a) return 1; if (!b) return -1; return String(a).localeCompare(String(b), 'zh-TW', {numeric:true, sensitivity:'base'}); };
 const shelfText = p => { const parts = [], main = shelfOwn(p, WH_MAIN); if (main.length) parts.push((multiWh() ? whName(WH_MAIN) + '：' : '') + shelfListTxt(main)); for (const w of whList()){ if (w.id === WH_MAIN) continue; const l = shelfOwn(p, w.id); if (l.length) parts.push(w.name + '：' + shelfListTxt(l)); } return parts.join('　'); };
+/* -ef：手機、平板左右撥動換圖。opt：{prev(), next(), mover:() => 要跟著手指移動的元素（可省略）, min:撥多少 px 才算（預設 45）}
+   縱向捲動、雙指縮放照常（touch-action: pan-y pinch-zoom）；兩指、斜著撥、太短都不算；撥動之後那一下不會再被當成「點一下」。 */
+const touchUi = () => { try { return !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches); } catch (_) { return false; } };
+function swipeNav(el, opt){
+  const min = opt.min || 45; let st = null, swiped = false;
+  const back = m => { if (m){ m.style.transition = 'transform .18s ease, opacity .18s ease'; m.style.transform = ''; m.style.opacity = ''; } };
+  try { el.style.touchAction = 'pan-y pinch-zoom'; } catch (_) {}
+  el.addEventListener('touchstart', e => {
+    if (!e.touches || e.touches.length !== 1){ if (st) back(st.m); st = null; return; }
+    const t = e.touches[0]; st = {x:t.clientX, y:t.clientY, t:Date.now(), h:false, m:opt.mover ? opt.mover() : null};
+    if (st.m) st.m.style.transition = 'none';
+  }, {passive:true});
+  el.addEventListener('touchmove', e => {
+    if (!st) return;
+    if (!e.touches || e.touches.length !== 1){ back(st.m); st = null; return; }
+    const t = e.touches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+    if (!st.h && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) st.h = true;
+    if (st.h && st.m){ st.m.style.transform = 'translateX(' + Math.round(dx * 0.6) + 'px)'; st.m.style.opacity = String(Math.max(0.4, 1 - Math.abs(dx) / 400)); }
+  }, {passive:true});
+  el.addEventListener('touchend', e => {
+    if (!st) return;
+    const s0 = st, t = e.changedTouches && e.changedTouches[0]; st = null; back(s0.m);
+    if (!t) return;
+    const dx = t.clientX - s0.x, dy = t.clientY - s0.y;
+    if (Math.abs(dx) >= min && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - s0.t < 1500){
+      swiped = true; setTimeout(() => { swiped = false; }, 400);
+      if (dx < 0) opt.next(); else opt.prev();
+    }
+  }, {passive:true});
+  el.addEventListener('touchcancel', () => { if (st){ back(st.m); st = null; } }, {passive:true});
+  el.addEventListener('click', e => { if (swiped){ swiped = false; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } }, true);
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {photoSwipeForTest:{swipeNav, touchUi:() => touchUi(), openProductPhoto:(...x) => openProductPhoto(...x), openPhotoViewer:(...x) => openPhotoViewer(...x), pickPhotos:(...x) => pickPhotos(...x)}}); } catch (_) {}
 function productGallery(p){
   const g = [['photo', '產品', prodPics(p)], ['pack', '包裝', prodPacks(p)]].filter(x => x[2].length); if (!g.length) return null;
   return h('div', {style:'display:flex;flex-direction:column;gap:8px;margin-bottom:6px'}, ...g.map(([k, t, list]) => h('div', {style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap'}, h('small', {class:'hint', style:'width:34px;flex:none', text:t}), ...list.map((m, i) => h('button', {type:'button', 'aria-label':'查看' + (k === 'pack' ? '包裝' : '商品') + '照片' + (list.length > 1 ? ' ' + (i + 1) : ''), onclick:() => openProductPhoto(p, k, i)}, h('img', {src:m.thumb, alt:p.name + t + (i + 1), style:'width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block'}))))));
@@ -10209,10 +10244,11 @@ async function openProductPhoto(p, kind, idx){
   const pack = kind === 'pack', list = p ? (pack ? prodPacks(p) : prodPics(p)) : []; if (!list.length) return;
   let i = Math.min(Math.max(idx || 0, 0), list.length - 1); const both = prodPics(p).length && prodPacks(p).length;
   const sh = sheet({title:p.name + (both ? (pack ? '（包裝）' : '（產品）') : '')}), box = h('div'); put(sh.bodyEl, box);
+  if (list.length > 1) swipeNav(box, {prev:() => { i = (i + list.length - 1) % list.length; show(); }, next:() => { i = (i + 1) % list.length; show(); }, mover:() => box.querySelector('img')});
   const show = async () => {
     const m = list[i]; setKids(box, h('img', {src:m.thumb, alt:p.name, style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:'讀取原圖中…'}));
     let data = null; try { if (m.id){ const sn = await S.db.doc('photos/' + m.id).get(); if (sn.exists) data = (sn.data() || {}).data; } } catch (_) {}
-    setKids(box, h('img', {src:data || m.thumb, alt:p.name, 'aria-label':pack ? '包裝照片' : '商品照片', style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:p.sku + '　' + (pack ? '包裝' : '產品') + '照片 ' + (i + 1) + ' / ' + list.length + (data ? '' : '　（只顯示縮圖）')}),
+    setKids(box, h('img', {src:data || m.thumb, alt:p.name, 'aria-label':pack ? '包裝照片' : '商品照片', style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:p.sku + '　' + (pack ? '包裝' : '產品') + '照片 ' + (i + 1) + ' / ' + list.length + (list.length > 1 && touchUi() ? '　左右撥動可換圖' : '') + (data ? '' : '　（只顯示縮圖）')}),
       list.length > 1 ? h('div', {class:'btns'}, h('button', {class:'btn ghost', 'aria-label':'上一張', onclick:() => { i = (i + list.length - 1) % list.length; show(); }}, '‹ 上一張'), h('button', {class:'btn ghost', 'aria-label':'下一張', onclick:() => { i = (i + 1) % list.length; show(); }}, '下一張 ›')) : null);
   };
   show();
@@ -11447,7 +11483,9 @@ function pickPhotos(it, repaint){
     const main = list.length ? h('button', {type:'button', 'aria-label':'放大' + lab + '照片 ' + it.sku, style:'display:block;width:100%', onclick:() => openProductPhoto(S.products[it.pid], kind, i)}, h('img', {src:list[i], alt:it.name + cap, style:'width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'}))
       : h('div', {style:'width:100%;aspect-ratio:1/1;display:grid;place-items:center;background:var(--soft);border-radius:12px;color:var(--ink3);font-size:12px', text:pack ? '沒有包裝照片' : '沒有照片'});
     const thumbs = list.length > 1 ? h('div', {style:'display:flex;gap:4px;justify-content:center;margin-top:4px;flex-wrap:wrap'}, ...list.map((th, j) => h('button', {type:'button', 'aria-label':'切換' + lab + '照片 ' + it.sku + ' ' + (j + 1), 'aria-pressed':String(j === i), style:'padding:0;border-radius:6px;overflow:hidden;line-height:0;border:2px solid ' + (j === i ? 'var(--brand)' : 'transparent'), onclick:() => { PICK_IDX[key] = j; if (repaint) repaint(); }}, h('img', {src:th, alt:'', style:'width:34px;height:34px;object-fit:cover;display:block'})))) : null;
-    return h('div', {style:'flex:1;min-width:0;max-width:200px;text-align:center'}, main, thumbs, h('small', {style:'display:block;margin-top:2px;font-weight:700', text:cap + (list.length > 1 ? ' ' + (i + 1) + '/' + list.length : '')}));
+    const colEl = h('div', {style:'flex:1;min-width:0;max-width:200px;text-align:center'}, main, thumbs, h('small', {style:'display:block;margin-top:2px;font-weight:700', text:cap + (list.length > 1 ? ' ' + (i + 1) + '/' + list.length : '')}));
+    if (list.length > 1) swipeNav(colEl, {prev:() => { PICK_IDX[key] = (i + list.length - 1) % list.length; if (repaint) repaint(); }, next:() => { PICK_IDX[key] = (i + 1) % list.length; if (repaint) repaint(); }, mover:() => main.querySelector('img')});
+    return colEl;
   };
   return h('div', {'aria-label':'揀貨照片', style:'display:flex;gap:10px;margin-bottom:10px'}, col('pack', '包裝'), col('photo', '產品'));
 }
@@ -15062,7 +15100,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ee';
+const APP_VERSION = '2026.10.11-ef';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
