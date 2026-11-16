@@ -4398,7 +4398,7 @@ function slipNoteOf(o){
   return t.replace(/[\s　,，、;；:：]*\u0001[\s　,，、;；:：]*/g, '　').replace(/^[\s　]+|[\s　]+$/g, '');
 }
 function refSlipHTML(o, standalone, P){
-  const pt = S.partners[o.partnerId] || {}, os = orderShip(o), isRet = o.type === 'sale_return';
+  const pt = S.partners[o.partnerId] || {}, os = orderShip(o), isRet = o.type === 'sale_return', np = !!(P && P.noPrice);
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
   const n0 = x => (Number(x) || 0).toLocaleString('zh-TW', {maximumFractionDigits:2});
   const lines = o.lines || [], pages = Math.max(1, Math.ceil((lines.length + 1) / REF_ROWS)), total = o.total || 0, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : r2(total - tax);
@@ -4408,7 +4408,7 @@ function refSlipHTML(o, standalone, P){
   const qrOn = (o.type === 'sale' || o.type === 'sale_return') && !(P && P.qr === false), qrBox = qrOn ? '<div class="oqr" style="position:absolute;right:2mm;top:5mm;width:13mm;height:13mm">' + qrSvg(String(o.no || ''), 13, 'M') + '</div>' : '';
   const pageHtml = pg => {
     const part = lines.slice(pg * REF_ROWS, (pg + 1) * REF_ROWS), last = pg === pages - 1, rows = [];
-    part.forEach(l => rows.push('<tr><td>' + e(l.sku) + '</td><td>' + e(l.name) + e(spec(l)) + '</td><td class="r">' + n0(l.qty) + (l.unit ? ' ' + e(l.unit) : '') + '</td><td class="r">' + n0(l.price) + '</td><td class="r">' + n0(amtOf(l.qty, l.price)) + '</td></tr>'));
+    part.forEach(l => rows.push('<tr><td>' + e(l.sku) + '</td><td>' + e(l.name) + e(spec(l)) + '</td><td class="r">' + n0(l.qty) + (l.unit ? ' ' + e(l.unit) : '') + '</td><td class="r">' + (np ? '' : n0(l.price)) + '</td><td class="r">' + (np ? '' : n0(amtOf(l.qty, l.price))) + '</td></tr>'));
     if (last) rows.push('<tr><td></td><td>(以下空白,共 ' + pages + ' 頁)</td><td></td><td></td><td></td></tr>');
     while (rows.length < REF_ROWS) rows.push('<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>');
     return '<section class="pg">' + qrBox + '<div class="ttl">' + (isRet ? '銷貨退回單' : '銷貨單') + '</div>' +
@@ -4420,7 +4420,7 @@ function refSlipHTML(o, standalone, P){
         '<div>送貨地址: ' + e(os.addr || '') + (os.special ? '　<b class="stp2">指送</b>' : '') + '</div><div class="r2">業務姓名: ' + e(salesName) + '</div>' +
         '<div class="two"><span>電話傳真: ' + e(os.phone || pt.phone || '') + '</span><span>聯絡人: ' + e(os.contact || '') + '</span></div><div class="r2">倉 庫 別: ' + e(wh) + '</div></div>' +
       '<table class="it"><thead><tr><th style="width:19%">產品編號</th><th>品 名 規 格</th><th style="width:15%">數 量/單位</th><th style="width:15%">單價</th><th style="width:17%">金 額</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' +
-      '<div class="ft"><div class="note"><span class="lab">備<br>註</span><span>' + e(ship) + '</span></div><div class="sum"><div><span>小　計</span><b>' + (last ? n0(net) : '') + '</b></div><div><span>營業稅</span><b>' + (last ? n0(tax) : '') + '</b></div><div><span>合　計</span><b>' + (last ? n0(total) : '') + '</b></div></div></div>' +
+      '<div class="ft"><div class="note"><span class="lab">備<br>註</span><span>' + e(ship) + '</span></div><div class="sum"><div><span>小　計</span><b>' + (last && !np ? n0(net) : '') + '</b></div><div><span>營業稅</span><b>' + (last && !np ? n0(tax) : '') + '</b></div><div><span>合　計</span><b>' + (last && !np ? n0(total) : '') + '</b></div></div></div>' +
       '<div class="sg"><div class="c">主<br>管</div><div class="v"></div><div class="c">會<br>計</div><div class="v"></div><div class="c">倉<br>管</div><div class="v"></div><div class="c">送<br>貨</div><div class="v drv">' + (isRet ? '' : e(o.driver || '')) + '</div><div class="c">製<br>單</div><div class="v">' + e(madeBy) + '</div><div class="c">客<br>戶</div><div class="v"></div></div></div></section>';
   };
   const css = '@page{size:A4 landscape;margin:10mm 8mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000}body{font:11pt/1.35 "細明體","MingLiU","PMingLiU","Noto Serif CJK TC","Noto Serif TC",serif}' +
@@ -4685,6 +4685,7 @@ function slipFormHTML(o, F, L, local, opt){
   const fs = Math.min(Math.max(toNum(L.fs) || 10, 7), 16), hfs = Math.min(Math.max(toNum(L.hfs) || 9, 7), 14);
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
   const {c, pages} = slipRows(o, F, Math.max(Math.round(L.item.rows), 1));
+  const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
   const html = pages.map((pr, pi) => {
@@ -4709,14 +4710,13 @@ function slipFormHTML(o, F, L, local, opt){
       if (r.sku) h += T(cl.sku.x, y, r.sku, {w:cl.sku.w});
       h += T(cl.name.x, y, r.name, {w:cl.name.w});
       h += T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
-      h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w});
-      h += T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
+      if (!np) h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w}) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
     });
     const note = (pages.length > 1 ? '第 ' + (pi + 1) + '/' + pages.length + ' 頁' + (last ? '' : '，續下頁') + (last && F.note ? '　' : '') : '') + (last ? (F.note || '') : '');
     if (note) h += '<div class="f nt" style="left:' + f.note.x + 'mm;top:' + f.note.y + 'mm;width:' + L.noteW + 'mm;height:' + (L.noteLines * L.notePitch) + 'mm;line-height:' + L.notePitch + 'mm;font-size:' + env.upFs(hfs) + 'pt">' + e(note) + '</div>';
     const pageSum = pr.reduce((a, r) => a + r.amt, 0);
-    h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
-    if (last){ h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y}); }
+    if (!np) h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
+    if (last){ h += (np ? '' : T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w})) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y}); }
     if (F.driver && f.driver) h += T(f.driver.x, f.driver.y, F.driver, {w:28, fs:hfs});
     if (F.maker) h += T(f.maker.x, f.maker.y, F.maker, {w:34, fs:hfs});
     if (opt.grid) h += env.gridHtml();
@@ -4732,6 +4732,7 @@ function slipSouthHTML(o, F, L, local, opt){
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
   const per = Math.max(Math.round(L.item.rows), 1);
   const {c, pages} = slipRows(o, F, per);
+  const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
   const html = pages.map((pr, pi) => {
@@ -4750,8 +4751,7 @@ function slipSouthHTML(o, F, L, local, opt){
       if (F.brandSku && r.sku) h += T(cl.brand.x, y, r.sku, {w:cl.brand.w, fs:fs - 1.5});
       h += T(cl.name.x, y, r.name, {w:cl.name.w});
       h += T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
-      h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w});
-      h += T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
+      if (!np) h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w}) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
     });
     if (F.ship) h += T(f.ship.x, f.ship.y, F.ship, {w:64, fs:hfs}) + env.spStamp(o, {x:f.ship.x, y:f.ship.y, w:64, fs:hfs});
     if (F.maker) h += T(f.maker.x, f.maker.y, F.maker, {w:17, fs:hfs});
@@ -4760,8 +4760,8 @@ function slipSouthHTML(o, F, L, local, opt){
     const note = (pages.length > 1 ? (pi + 1) + '/' + pages.length + '頁 ' : '') + (last ? (F.note || '') : '續下頁');
     if (note.trim()) h += T(f.note.x, f.note.y, note, {w:28.5, fs:hfs});
     const pageSum = pr.reduce((a, r) => a + r.amt, 0);
-    h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
-    if (last) h += T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w}) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y});
+    if (!np) h += T(f.sub.xr, f.sub.y, n2(last ? c.sales : pageSum), {r:1, w:cl.amt.w});
+    if (last) h += (np ? '' : T(f.vat.xr, f.vat.y, F.mtax && F.taxType !== 'taxable' ? '月結另計' : n2(c.tax), {r:1, w:cl.amt.w}) + T(f.tot.xr, f.tot.y, n2(c.total), {r:1, w:cl.amt.w})) + env.rcStamp(o, {xr:f.tot.xr, y:f.tot.y});
     if (opt.grid) h += env.gridHtml();
     return '<div class="form"><div class="in">' + h + '</div></div>';
   }).join('');
@@ -4998,7 +4998,7 @@ function openPrint(ref){
   slipRefresh = () => { if (!sh.bodyEl.isConnected) return; local = slipFormLocal(tp.id); buildForm(); paint(); };
   const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'}), pvNote = h('small', {class:'hint', 'aria-label':'預覽說明', style:'display:block;margin-top:6px'});
   const offTxt = (ox, oy) => [ox ? (ox < 0 ? '往左 ' : '往右 ') + num(Math.abs(ox)) + ' mm' : '', oy ? (oy < 0 ? '往上 ' : '往下 ') + num(Math.abs(oy)) + ' mm' : ''].filter(Boolean).join('、') || '沒有補正';
-  let fr = null;
+  let fr = null, noPrice = false;   /* -ee：這一次列印是否「出貨單（不印價格）」；不存起來，下次開視窗恢復印價格 */
   const formOn = () => isSale && P.mode !== 'full' && P.mode !== 'ref';
   const paint = () => {
     savePrint(P);
@@ -5010,12 +5010,12 @@ function openPrint(ref){
       try { const hgt = fr.contentDocument.documentElement.scrollHeight; fr.style.height = hgt + 'px'; pvBox.style.height = Math.ceil(hgt * sc) + 'px'; } catch (_) {}
     });
     pvBox.style.height = Math.ceil((on ? SL.h * 3.7795 : 400) * sc) + 'px';
-    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, P) : slipHTML(o, P, false)));
+    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true, noPrice}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, noPrice ? {...P, noPrice:true} : P) : slipHTML(o, P, false)));
     { const ox = toNum(local.ox), oy = toNum(local.oy); pvNote.textContent = on && (ox || oy) ? '預覽顯示對準套表的位置；列印時會再' + offTxt(ox, oy) + (slipUsesShared(tp.id) ? '（所有電腦共用的列印位置補正）。' : '（這台電腦的列印位置補正）。') : ''; }
     setKids(pvBox, fr);
   };
   const soon = () => { clearTimeout(soon.t); soon.t = setTimeout(paint, 250); };
-  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, standalone, P) : slipHTML(o, P, standalone));
+  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone, noPrice}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, standalone, noPrice ? {...P, noPrice:true} : P) : slipHTML(o, P, standalone));
 
   /* ---- 完整列印（自行畫表格）控制項 ---- */
   const inputs = {};
@@ -5106,7 +5106,8 @@ function openPrint(ref){
         h('li', {text:'瀏覽器的列印視窗 →「更多設定」→ 紙張大小也選這個格式；邊界「無」、縮放「預設」（100%）。'}),
         h('li', {text:'按下面的「連續 3 張測試頁」，放空白報表紙或套表印出來：3 張的線都在同一個位置就對了（3 張一樣、只是整張一起偏，再用「列印位置補正」）。'})),
       h('button', {class:'btn ghost sm', 'aria-label':'印連續 3 張測試頁', onclick:() => printNow(driftTestHTML(tp.id, local), '連續列印測試頁.html', () => driftTestHTML(tp.id, local, true), {form:tp.id})}, '連續 3 張測試頁'))); };
-  const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; };
+  const priceRow = isSale ? h('label', {class:'check', style:'margin:8px 0'}, h('input', {type:'checkbox', checked:true, 'aria-label':'列印單價、金額與合計', onchange:e => { noPrice = !e.target.checked; paint(); }}), '列印單價、金額與合計（取消＝出貨單，不含價格；只影響這一次列印）') : null;
+  const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; if (priceRow) priceRow.style.display = isSale && P.mode !== 'full' ? '' : 'none'; };
   function buildForm(){
     const ftxt = (key, label) => fld(label, h('input', {class:'in', value:F[key] || '', 'aria-label':label, autocomplete:'off', oninput:e => { F[key] = e.target.value; soon(); }}));
     setKids(formCtl,
@@ -5146,7 +5147,7 @@ function openPrint(ref){
       P.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); syncVis(); paint(); }}, t))) : null;
   syncVis();
   put(sh.bodyEl,
-    modeRow, fullCtl, formCtl,
+    modeRow, priceRow, fullCtl, formCtl,
     h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'第一次使用 EPSON LQ-690C 的設定'}),
       h('ol', {style:'margin:8px 0 0 18px;font-size:14px;color:var(--ink2)'},
         h('li', {text:'Windows「設定 → 藍牙與裝置 → 印表機與掃描器」，點 EPSON LQ-690C → 設為預設。若沒有這個選項，先關閉「讓 Windows 管理我的預設印表機」。'}),
@@ -15061,7 +15062,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ed';
+const APP_VERSION = '2026.10.11-ee';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
