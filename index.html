@@ -3290,16 +3290,38 @@ function findByCodeRaw(code){
   }
   return p || null;
 }
-let audioCtx;
-function beep(good){
+/* -eh：掃描音效（所有掃描畫面共用：架位調整、揀貨、盤點、組裝…）。成功＝高音兩聲短嗶、失敗＝低音長嗶（手機另外震動）。
+   手機（尤其 iPhone）只准「手指點一下」的當下開啟聲音，相機掃描時偵測到條碼不是點一下，所以第一次碰畫面（點、按鍵）就先把聲音打開；
+   聲音被系統暫停（切到別的 App 再回來）時，下一次碰畫面再打開。可以在「商品架位調整」按「音效」開關、試聽。 */
+const SND_KEY = 'scanSound';
+const soundOn = () => { try { return localStorage.getItem(SND_KEY) !== 'off'; } catch (_) { return true; } };
+const setSound = on => { try { localStorage.setItem(SND_KEY, on ? 'on' : 'off'); } catch (_) {} };
+let audioCtx = null;
+function audioReady(){
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const t = audioCtx.currentTime;
-    const tone = (f, st, d) => { const o = audioCtx.createOscillator(), g = audioCtx.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.value = 0.05; o.connect(g); g.connect(audioCtx.destination); o.start(t + st); o.stop(t + st + d); };
-    if (good) tone(1200, 0, 0.07); else { tone(300, 0, 0.12); tone(220, 0.16, 0.18); }
-    if (navigator.vibrate) navigator.vibrate(good ? 20 : [60, 40, 60]);
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+    audioCtx = audioCtx || new AC();
+    if (audioCtx.state !== 'running' && audioCtx.resume){ const r = audioCtx.resume(); if (r && r.catch) r.catch(() => {}); }
+    return audioCtx;
+  } catch (_) { return null; }
+}
+function unlockAudio(){
+  const was = audioCtx && audioCtx.state === 'running', c = audioReady();
+  if (!c || was) return;
+  try { const b = c.createBuffer(1, 1, 22050), src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start(0); } catch (_) {}
+}
+try { for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(ev, unlockAudio, {capture:true, passive:true}); } catch (_) {}
+function beep(ok){
+  try { if (navigator.vibrate) navigator.vibrate(ok ? 30 : [90, 50, 90]); } catch (_) {}
+  if (!soundOn()) return;
+  const c = audioReady(); if (!c) return;
+  try {
+    const t = c.currentTime + 0.02;
+    const tone = (f, st, d, v) => { const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t + st); g.gain.exponentialRampToValueAtTime(v, t + st + 0.01); g.gain.setValueAtTime(v, t + st + d - 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + st + d); o.connect(g); g.connect(c.destination); o.start(t + st); o.stop(t + st + d + 0.02); };
+    if (ok){ tone(1500, 0, 0.08, 0.2); tone(2000, 0.1, 0.1, 0.2); } else { tone(330, 0, 0.2, 0.26); tone(220, 0.26, 0.32, 0.26); }
   } catch (_) {}
 }
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {beepForTest:{beep, soundOn, setSound, unlockAudio, ctx:() => audioCtx}}); } catch (_) {}
 const scopeOf = sess => sess.pids ? sess.pids.map(id => S.products[id]).filter(p => p && p.active !== false) : activeProducts().filter(p => !sess.cat || p.category === sess.cat);
 function countTotals(sid, myDocId, myItems){
   const tot = {}, by = {};
@@ -4609,7 +4631,8 @@ function slipEnv(L, local, opt, fs, title){
   const T = (x, y, txt, p) => {
     p = p || {}; const base = p.fs || fs, f0 = (base >= 9 && p.cls !== 'ck') ? upFs(base) : base, rd = v => Math.round(v * 100) / 100;
     let st = 'top:' + rd(y) + 'mm;';
-    if (p.r) st += 'left:' + rd(x - p.w) + 'mm;width:' + p.w + 'mm;text-align:right;';
+    if (p.c) st += 'left:' + rd(x - p.w / 2) + 'mm;width:' + p.w + 'mm;text-align:center;';   /* -ei：x＝格子中心 */
+    else if (p.r) st += 'left:' + rd(x - p.w) + 'mm;width:' + p.w + 'mm;text-align:right;';
     else st += 'left:' + rd(x) + 'mm;' + (p.w ? 'width:' + p.w + 'mm;overflow:hidden;' : '');
     st += 'font-size:' + (p.w && (!p.r || p.fit) ? fitFs(txt, p.w, f0) : f0) + 'pt;';
     return '<div class="f' + (p.cls ? ' ' + p.cls : '') + '" style="' + st + '">' + e(txt) + '</div>';
@@ -4686,6 +4709,7 @@ function slipFormHTML(o, F, L, local, opt){
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
   const {c, pages} = slipRows(o, F, Math.max(Math.round(L.item.rows), 1));
   const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
+  const ctr = !!(local && local.ctr === true);   /* -ej：數量、單價預設靠右；列印設定勾選「印在格子正中間」（local.ctr === true）才置中（-ei 曾經預設置中） */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
   const html = pages.map((pr, pi) => {
@@ -4709,8 +4733,9 @@ function slipFormHTML(o, F, L, local, opt){
       const y = L.item.y + i * L.item.pitch;
       if (r.sku) h += T(cl.sku.x, y, r.sku, {w:cl.sku.w});
       h += T(cl.name.x, y, r.name, {w:cl.name.w});
-      h += T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
-      if (!np) h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w}) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
+      /* -ei／-ej：數量、單價預設靠右；列印設定勾選才印在格子正中間；金額一律靠右對齊 */
+      h += ctr ? T(cl.qty.xr - cl.qty.w / 2, y, n2(r.qty) + (r.unit || ''), {c:1, w:cl.qty.w}) : T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
+      if (!np) h += (ctr ? T(cl.price.xr - cl.price.w / 2, y, n2(r.price), {c:1, w:cl.price.w}) : T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w})) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
     });
     const note = (pages.length > 1 ? '第 ' + (pi + 1) + '/' + pages.length + ' 頁' + (last ? '' : '，續下頁') + (last && F.note ? '　' : '') : '') + (last ? (F.note || '') : '');
     if (note) h += '<div class="f nt" style="left:' + f.note.x + 'mm;top:' + f.note.y + 'mm;width:' + L.noteW + 'mm;height:' + (L.noteLines * L.notePitch) + 'mm;line-height:' + L.notePitch + 'mm;font-size:' + env.upFs(hfs) + 'pt">' + e(note) + '</div>';
@@ -5131,6 +5156,7 @@ function openPrint(ref){
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（送貨地址本身一定改印特別地址）'),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ss !== false, 'aria-label':'套表印分店戳章', onchange:e => { if (e.target.checked) delete local.ss; else local.ss = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單據選了叫貨店面時，把「○○店 叫貨」戳章蓋在客戶編號上方（例如「八德店 叫貨」；中南區表單會稍微靠右，避開預印的單據類別）'),
         local.ss !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['ssx', '分店戳章 再往右（mm，可填負數）'], ['ssy', '分店戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
+        tp.id === 'north' ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ctr === true, 'aria-label':'套表數量單價置中', onchange:e => { if (e.target.checked) local.ctr = true; else delete local.ctr; saveSlipFormLocal(local, tp.id); paint(); }}), '數量、單價改印在格子正中間（沒勾＝靠右對齊，預設；金額一律靠右）') : null,
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.rc !== false, 'aria-label':'套表印銷貨收款戳章', onchange:e => { if (e.target.checked) delete local.rc; else local.rc = false; saveSlipFormLocal(local, tp.id); paint(); }}), '銷貨收現的單據，在合計金額下方蓋「銷貨收款」戳章（右邊對齊合計數字）'),
     local.rc !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['rcx', '銷貨收款戳章 再往右（mm，可填負數）'], ['rcy', '銷貨收款戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
     local.qr !== false ? h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px'}, ...[['qs', 'QR 大小（mm）', (slipFormLayout(tp.id).w || 241) < 200 ? '11' : '12'], ['qdx', 'QR 再往右（mm，可填負數）', '0'], ['qdy', 'QR 再往下（mm，可填負數）', '0']].map(([k, t, d0]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 ' + d0, 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
@@ -11330,6 +11356,9 @@ function openShelfAdjust(opt){
       catch (err) { console.error(err); beep(false); say('沒有讀到條碼，請靠近一點、對準並確保光線充足', 'bad'); }
     }});
   photoIn.setAttribute('capture', 'environment');
+  const sndBtn = h('button', {class:'btn ghost sm', type:'button', 'aria-label':'掃描音效', onclick:() => { setSound(!soundOn()); paintSnd(); if (soundOn()) beep(true); }});
+  const paintSnd = () => { sndBtn.textContent = soundOn() ? '🔊 音效：開' : '🔇 音效：關'; sndBtn.setAttribute('aria-pressed', String(soundOn())); };
+  paintSnd();
 
   const shelfCard = (s, readOnly) => {
     const list = shelfProducts(s.wh, s.code), wid = s.wh || WH_MAIN;
@@ -11399,8 +11428,9 @@ function openShelfAdjust(opt){
     h('div', {class:'scanbox'}, icon('search'), scanIn), statusEl, pickBox,
     h('div', {style:'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap'},
       h('button', {class:'btn ghost sm', 'aria-label':'相機掃描', onclick:() => openCamera(handle)}, '相機掃描'),
-      h('button', {class:'btn ghost sm', 'aria-label':'拍照掃描', onclick:() => photoIn.click()}, '拍照掃描'), photoIn,
+      h('button', {class:'btn ghost sm', 'aria-label':'拍照掃描', onclick:() => photoIn.click()}, '拍照掃描'), photoIn, sndBtn,
       h('span', {style:'flex:1'}), (S.isAdmin || can('stock')) && fxOn('shelfMgmt') ? h('button', {class:'btn plain sm', 'aria-label':'開啟架位管理', onclick:() => openShelfMgmt({wh:st.wh})}, '架位管理') : null),
+    h('small', {class:'hint', style:'display:block;margin-top:6px', 'aria-label':'音效說明', text:'掃描成功會「嗶嗶」（高音），失敗是低音長嗶。沒聲音時按「音效」試聽，並確認手機音量有開、iPhone 側邊靜音鈕沒打開。'}),
     hintEl, mainBox, recentBox);
   sh.footEl.append(h('button', {class:'btn grow', 'aria-label':'完成', onclick:() => sh.forceClose()}, '完成'));
   paint();
@@ -13017,7 +13047,6 @@ function homeFavs(){
 
 /* ================= 揀貨：每項商品掃 QR Code 確認、可略過；庫存不足時提示拆解補貨 ================= */
 const scanReqOn = () => S.set.pickScan !== false;
-function beep(ok){ try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = beep.ctx = beep.ctx || new AC(), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = ok ? 1100 : 240; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (ok ? 0.09 : 0.35)); } catch (_) {} }
 const prodByCodeRaw = code => { const c = String(code || '').trim().toLowerCase(); return c ? Object.values(S.products).find(p => String(p.sku).toLowerCase() === c || (p.barcode && String(p.barcode).toLowerCase() === c)) || null : null; };
 const prodByCode = code => { const p = prodByCodeRaw(code); if (p) return p; const L = labelDecode(code); return L ? prodByCodeRaw(L.code) : null; };
 function disOptions(pid, need, wid){
@@ -15263,7 +15292,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-eg';
+const APP_VERSION = '2026.10.11-ej';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
