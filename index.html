@@ -11477,6 +11477,75 @@ const pickHandled = (pk, pid) => !!(pk.items && pk.items[pid]);
 async function readPick(id){ try { const sn = await S.db.doc('picks/' + id).get(); return sn.exists ? {...emptyPick(), ...(sn.data() || {})} : emptyPick(); } catch (_) { return emptyPick(); } }
 const writePick = (id, pk) => run(async () => { await S.db.doc('picks/' + id).set({...pk, updatedAt:Date.now(), updatedBy:S.meId || null, updatedByName:myName()}); return true; });
 const PICK_IDX = {};
+
+/* -eg：合併揀貨。勾選好幾張銷貨單（同一個倉庫），選要揀哪幾區，同一個商品合併成一筆，依架位編號順序走一條路線。
+   揀好的結果拆回每一張單據自己的揀貨紀錄（picks/單據id），所以單張揀貨、別人揀別的區都看得到進度。 */
+const batchOrders = ids => ids.map(id => S.orders[id]).filter(o => o && o.type === 'sale' && o.status !== 'void').sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
+function mergePickItems(orders, zones){
+  const m = new Map();
+  for (const o of orders) for (const it of pickItems(o)){
+    const c = m.get(it.pid) || {...it, qty:0, qtyAll:0, parts:[]};
+    c.parts.push({oid:o.id, no:o.no, qty:it.qty}); c.qtyAll = r3(c.qtyAll + it.qty); c.qty = c.qtyAll; m.set(it.pid, c);
+  }
+  return [...m.values()].filter(i => !zones || zones.includes(navZone(navShelf(i)))).sort((a, b) => shelfCmp(a.shelf, b.shelf) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
+}
+/* 揀到的數量分給各張單據：照順序（早一點的、單號小的先），先把前面的補滿；不夠的由最後面的單據吸收，超過的也算在最後一張 */
+function allocParts(parts, qty){
+  let rest = Math.max(r3(qty), 0);
+  return parts.map((p, i) => { const take = i === parts.length - 1 ? rest : Math.min(p.qty, rest); rest = r3(rest - take); return {oid:p.oid, q:r3(take), short:r3(take) < p.qty - 0.0004}; });
+}
+/* 每一區：幾項、幾項已處理、涉及幾張單據 */
+function batchZones(items, prog){
+  const z = new Map();
+  for (const it of items){
+    const k = navZone(navShelf(it)), c = z.get(k) || {zone:k, label:k ? k + ' 區' : '沒有架位', n:0, done:0, oids:new Set(), names:[]};
+    c.n++; if (it.parts.every(p => pickHandled((prog && prog[p.oid]) || emptyPick(), it.pid))) c.done++;
+    it.parts.forEach(p => c.oids.add(p.oid)); c.names.push(it.name); z.set(k, c);
+  }
+  return [...z.values()];
+}
+const pickKeyOk = pid => /^[^.\/~*\[\]`]+$/.test(String(pid));
+const dotSet = (obj, key, val) => { const ks = String(key).split('.'); let o = obj; for (let i = 0; i < ks.length - 1; i++){ if (typeof o[ks[i]] !== 'object' || !o[ks[i]]) o[ks[i]] = {}; o = o[ks[i]]; } o[ks[ks.length - 1]] = val; };
+/* 只改這張單據揀貨紀錄裡指定的欄位（點記法，例：items.商品id），不會蓋掉別人同時揀的其他商品；紀錄還不存在才整份寫入 */
+const PICK_Q = {};
+function patchPick(oid, patch){
+  const meta = {updatedAt:Date.now(), updatedBy:S.meId || null, updatedByName:myName()}, d = {...patch, ...meta};
+  /* 同一張單據的寫入排隊一個一個來（連續掃描時，前一筆還沒寫進去，後一筆不會變成「紀錄不存在」又蓋掉前一筆） */
+  const job = (PICK_Q[oid] || Promise.resolve()).then(() => run(async () => {
+    const ref = S.db.doc('picks/' + oid);
+    try { await ref.update(d); }
+    catch (e){ const sn = await ref.get(); if (sn.exists) await ref.update(d); else { const base = emptyPick(); for (const [k, v] of Object.entries(d)) dotSet(base, k, v); await ref.set(base); } }
+    return true;
+  }));
+  PICK_Q[oid] = job.catch(() => null); return job;
+}
+/* 選區：勾選單據後按「合併揀貨」→ 這個畫面 → 選好區按「開始合併揀貨」 */
+async function openMergePick(ids, onClose){
+  if (!fxGate('picking')) return;
+  const orders = batchOrders(ids || []); if (!orders.length) return toast('找不到要揀的銷貨單');
+  const whs = [...new Set(orders.map(orderWh))];
+  if (whs.length > 1) return toast('選的單據不在同一個倉庫（' + whs.map(whName).join('、') + '），請分開揀貨');
+  const prog = {}; await Promise.all(orders.map(x => readPick(x.id).then(p => { prog[x.id] = p; })));
+  const all = mergePickItems(orders), zs = batchZones(all, prog);
+  if (!all.length) return toast('這幾張單據沒有商品');
+  const on = new Set(zs.filter(z => z.done < z.n).map(z => z.zone)); if (!on.size) zs.forEach(z => on.add(z.zone));
+  const sh = sheet({title:'合併揀貨　選要揀的區'}), box = h('div');
+  const go = h('button', {class:'btn grow', style:'min-height:52px;font-size:17px', 'aria-label':'開始合併揀貨', onclick:() => { if (!on.size) return; const zones = zs.map(z => z.zone).filter(z => on.has(z)); sh.forceClose(); setTimeout(() => openPickOrder(null, {batch:{ids:orders.map(x => x.id), zones}, onClose}), 60); }}, '開始合併揀貨');
+  const paint = () => {
+    const sel = zs.filter(z => on.has(z.zone)), nItems = sel.reduce((a, z) => a + z.n, 0), nLeft = sel.reduce((a, z) => a + z.n - z.done, 0);
+    setKids(box,
+      h('div', {class:'panel pad', 'aria-label':'要合併的單據', style:'margin-bottom:10px'}, h('b', {text:'合併 ' + orders.length + ' 張單據'}), h('small', {style:'display:block;overflow-wrap:anywhere', text:orders.map(x => { const pt = S.partners[x.partnerId] || {}; return x.no + ' ' + (pt.shortName || pt.name || '散客'); }).join('、')})),
+      h('p', {class:'note', text:'勾選這次要揀的區。同一個商品在好幾張單據上，會合併成一筆；揀的時候會告訴你每張單據各分幾個。路線依架位編號排列。'}),
+      h('div', {class:'btns', style:'margin-bottom:8px'}, h('button', {class:'btn ghost sm', 'aria-label':'全部區', onclick:() => { zs.forEach(z => on.add(z.zone)); paint(); }}, '全部區'), h('button', {class:'btn ghost sm', 'aria-label':'全部不選', onclick:() => { on.clear(); paint(); }}, '全部不選')),
+      h('div', {class:'panel', 'aria-label':'區域清單'}, zs.map(z => h('label', {class:'row', 'aria-label':'區 ' + z.label, style:'cursor:pointer'},
+        h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('input', {type:'checkbox', checked:on.has(z.zone), 'aria-label':'選 ' + z.label, style:'width:22px;height:22px;flex:none', onchange:e => { if (e.target.checked) on.add(z.zone); else on.delete(z.zone); paint(); }}),
+          h('span', {style:'min-width:0;text-align:left'}, h('b', {style:'font-size:18px', text:z.label}), h('br'), h('small', {style:'overflow-wrap:anywhere', text:z.n + ' 項・' + z.oids.size + ' 張單據　' + z.names.slice(0, 3).join('、') + (z.names.length > 3 ? '…' : '')}))),
+        h('span', {class:'right'}, h('span', {class:'pd-m ' + (z.done >= z.n ? 'cash' : z.done ? 'note' : 'other'), text:z.done >= z.n ? '都揀完了' : z.done ? '已揀 ' + z.done + '/' + z.n : '未開始'}))))),
+      h('small', {class:'hint', style:'display:block;margin-top:6px', 'aria-label':'選取摘要', text:sel.length ? '已選 ' + sel.length + ' 區・' + nItems + ' 項（還沒揀 ' + nLeft + ' 項）' : '請至少選一區'}));
+    go.disabled = !on.size;
+  };
+  put(sh.bodyEl, box); sh.footEl.append(go); paint();
+}
 function pickPhotos(it, repaint){
   const col = (kind, cap) => {
     const pack = kind === 'pack', list = pack ? (it.packs || []) : (it.pics || []), key = it.pid + '|' + kind, i = Math.min(PICK_IDX[key] || 0, Math.max(list.length - 1, 0)), lab = pack ? '包裝' : '商品';
@@ -11493,7 +11562,7 @@ function openPicking(pre){
   if (!fxGate('picking')) return;
   if (!can('stock') && !can('sale') && !S.isAdmin) return toast('你的角色沒有這項操作的權限');
   const cfg = loadPV(); let drv = ''; try { drv = (pre && pre.driver) || localStorage.getItem('pickDriver') || ''; } catch (_) {}
-  const U = {day:(pre && pre.day) || today(), drv, only:true, prog:{}};
+  const U = {day:(pre && pre.day) || today(), drv, only:true, prog:{}, sel:new Set(), pickable:[]};
   liveSheet({title:'揀貨輔助'}, ['orders', 'partners', 'products'], sh => {
     const names = [...driverHistory()].sort((a, b) => a.localeCompare(b, 'zh-TW')), listBox = h('div'), vb = voiceBar(cfg, {});
     /* 掃描銷貨單上的 QR Code（內容是單號）：直接帶出這張單的商品，不用先選送貨員 */
@@ -11513,24 +11582,37 @@ function openPicking(pre){
     }});
     const rowsOf = () => Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && deliveryOf(o) === U.day && (U.drv === '__all' ? true : U.drv === '__none' ? !o.driver : o.driver === U.drv)).sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
     const stat = o => { const its = pickItems(o), pk = U.prog[o.id], n = pk ? its.filter(i => pickHandled(pk, i.pid)).length : 0; return {total:its.length, n, qty:r3(its.reduce((a, i) => a + i.qty, 0)), done:!!(pk && pk.done), started:n > 0, skipN:pk ? its.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length : 0, lackN:its.filter(i => !(pk && pickHandled(pk, i.pid)) && stockAt(i.pid, orderWh(o)) < 0).length}; };
+    /* -eg：勾選單據 → 合併揀貨 */
+    const barBox = h('div', {style:'position:sticky;top:0;z-index:2'});
+    const paintBar = () => {
+      const pa = U.pickable, n = pa.filter(o => U.sel.has(o.id)).length;
+      setKids(barBox, pa.length ? h('div', {class:'panel pad', 'aria-label':'合併揀貨工具列', style:'margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap'},
+        h('button', {class:'btn ghost sm', 'aria-label':'全選', onclick:() => { pa.forEach(o => U.sel.add(o.id)); fill(); }}, '全選'),
+        h('button', {class:'btn ghost sm', 'aria-label':'清除勾選', disabled:!n, onclick:() => { U.sel.clear(); fill(); }}, '清除'),
+        h('span', {class:'hint', 'aria-label':'已選張數', style:'flex:1;min-width:0', text:n ? '已選 ' + n + ' 張' : '勾選多張單據，可以合併揀貨'}),
+        h('button', {class:'btn sm', 'aria-label':'合併揀貨', disabled:!n, onclick:() => openMergePick(pa.filter(o => U.sel.has(o.id)).map(o => o.id), () => loadProg())}, '合併揀貨' + (n ? '（' + n + ' 張）' : ''))) : null);
+    };
+    const pickRow = (o, st, i, btn) => h('div', {style:'display:flex;align-items:stretch' + (i ? ';border-top:1px solid var(--line)' : '')},
+      st.done ? h('span', {'aria-hidden':'true', style:'flex:none;width:8px'}) : h('label', {style:'flex:none;display:flex;align-items:center;justify-content:center;width:46px;cursor:pointer'}, h('input', {type:'checkbox', checked:U.sel.has(o.id), 'aria-label':'勾選 ' + o.no, style:'width:22px;height:22px', onchange:e => { if (e.target.checked) U.sel.add(o.id); else U.sel.delete(o.id); paintBar(); }})), btn);
     const fill = () => {
-      if (!U.drv){ setKids(listBox, h('div', {class:'panel empty', text:'請先選擇送貨員，系統會帶出他當天要送的銷貨單。'})); return; }
+      if (!U.drv){ U.pickable = []; paintBar(); setKids(listBox, h('div', {class:'panel empty', text:'請先選擇送貨員，系統會帶出他當天要送的銷貨單。'})); return; }
       const all = rowsOf(), rows = all.filter(o => !U.only || !stat(o).done);
+      U.pickable = rows.filter(o => !stat(o).done); for (const id of [...U.sel]) if (!U.pickable.some(x => x.id === id)) U.sel.delete(id); paintBar();
       setKids(listBox, h('div', {class:'panel ledger', style:'margin-bottom:10px'}, h('div', {class:'row'}, h('span', {text:'要送的銷貨單'}), h('b', {text:all.length + ' 張'})), h('div', {class:'row'}, h('span', {text:'已完成揀貨'}), h('span', {text:all.filter(o => stat(o).done).length + ' 張'}))),
-        rows.length ? h('div', {class:'panel'}, rows.map(o => { const st = stat(o), pt = S.partners[o.partnerId] || {};
-          return h('button', {class:'row', 'aria-label':'揀貨 ' + o.no, style:'align-items:flex-start', onclick:() => openPickOrder(o.id, {queue:rows.map(x => x.id), onClose:() => loadProg()})},
+        rows.length ? h('div', {class:'panel'}, rows.map((o, i) => { const st = stat(o), pt = S.partners[o.partnerId] || {};
+          const rowBtn = h('button', {class:'row', 'aria-label':'揀貨 ' + o.no, style:'align-items:flex-start;flex:1;min-width:0', onclick:() => openPickOrder(o.id, {queue:rows.map(x => x.id), onClose:() => loadProg()})},
             h('span', {style:'min-width:0;text-align:left'}, h('b', null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'}), h('br'), h('small', {text:st.total + ' 項・共 ' + num(st.qty) + ' 件' + (o.driver ? '' : '　未指定送貨員') + (st.lackN ? '　⚠ 庫存不足 ' + st.lackN + ' 項' : '') + (st.skipN ? '　⚠ 略過掃描 ' + st.skipN + ' 項' : '')})),
-            h('span', {class:'right'}, h('span', {class:'pd-m ' + (st.done ? 'cash' : st.started ? 'note' : 'other'), text:st.done ? '已完成' : st.started ? '揀貨中 ' + st.n + '/' + st.total : '未開始'}))); })) : h('div', {class:'panel empty', text:all.length ? '這位送貨員的單據都揀完了' : '這一天這位送貨員沒有要送的銷貨單'}));
+            h('span', {class:'right'}, h('span', {class:'pd-m ' + (st.done ? 'cash' : st.started ? 'note' : 'other'), text:st.done ? '已完成' : st.started ? '揀貨中 ' + st.n + '/' + st.total : '未開始'}))); return pickRow(o, st, i, rowBtn); })) : h('div', {class:'panel empty', text:all.length ? '這位送貨員的單據都揀完了' : '這一天這位送貨員沒有要送的銷貨單'}));
     };
     const loadProg = () => { const ids = rowsOf().map(o => o.id); Promise.all(ids.map(id => readPick(id).then(pk => { U.prog[id] = pk; }))).then(() => fill()); };
     const dIn = h('input', {class:'in', type:'date', value:U.day, 'aria-label':'揀貨日期', onchange:e => { U.day = e.target.value || U.day; fill(); loadProg(); }});
     const sel = h('select', {class:'in', 'aria-label':'送貨員', onchange:e => { U.drv = e.target.value; try { localStorage.setItem('pickDriver', U.drv); } catch (_) {} fill(); loadProg(); }}, h('option', {value:'', text:'請選擇送貨員'}), ...names.map(n => h('option', {value:n, text:n})), h('option', {value:'__none', text:'還沒指定送貨員的單據'}), h('option', {value:'__all', text:'全部送貨員'}));
     sel.value = U.drv;
-    const body = h('div', null, h('p', {class:'note', text:'選擇送貨員，系統帶出他當天要送的銷貨單。點一張單據，依架位順序揀貨，可以用語音提示。'}),
+    const body = h('div', null, h('p', {class:'note', text:'選擇送貨員，系統帶出他當天要送的銷貨單。點一張單據，依架位順序揀貨，可以用語音提示。想一次揀好幾張：勾選單據，按「合併揀貨」，選要揀的區，就會依架位編號順序一起揀。'}),
       h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('b', {text:'直接掃描銷貨單'}), h('small', {class:'hint', style:'display:block'}, '用相機或掃碼槍掃單據上的 QR Code，就直接帶出這張單的商品，不用先選送貨員。'), slipScan.el),
       h('div', {class:'chips', style:'padding-top:0'}, [['今天', 0], ['明天', 1], ['昨天', -1]].map(([t, n]) => h('button', {class:'chip', onclick:() => { U.day = addDays(today(), n); dIn.value = U.day; fill(); loadProg(); }}, t))),
       h('div', {class:'f2'}, fld('預計送貨日期', dIn), fld('送貨員', sel)), vb.el,
-      h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.only, 'aria-label':'只看還沒揀完的', onchange:e => { U.only = e.target.checked; fill(); }}), '只列出還沒揀完的單據'), listBox);
+      h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.only, 'aria-label':'只看還沒揀完的', onchange:e => { U.only = e.target.checked; fill(); }}), '只列出還沒揀完的單據'), barBox, listBox);
     fill(); if (U.drv) loadProg();
     return {body};
   });
@@ -13036,10 +13118,16 @@ function openDisStep(opt, it, wid, orderNo, done){
 function openPickOrder(orderId, opts){
   if (!fxGate('picking')) return;
   opts = opts || {};
-  const o = S.orders[orderId]; if (!o) return toast('找不到這張單據');
-  const cfg = loadPV(), items = pickItems(o), wid = orderWh(o), gaps = {}, skipped = new Set(); let pk = emptyPick(), unsub = null, focus = '', first = true, arrived = '', alertMsg = '';
+  const B = opts.batch || null, bOrders = B ? batchOrders(B.ids || []) : [];   // -eg：合併揀貨 {ids:[單據id], zones:[區]}
+  const o = B ? bOrders[0] : S.orders[orderId]; if (!o) return toast('找不到這張單據');
+  if (B && new Set(bOrders.map(orderWh)).size > 1) return toast('選的單據不在同一個倉庫，請分開揀貨');
+  const cfg = loadPV(), items = B ? mergePickItems(bOrders, B.zones) : pickItems(o), wid = orderWh(o), gaps = {}, skipped = new Set(); let pk = emptyPick(), unsub = null, focus = '', first = true, arrived = '', alertMsg = '';
+  if (B && !items.length) return toast('選的區沒有商品');
+  const bIn = B ? bOrders.filter(x => items.some(i => i.parts.some(p => p.oid === x.id))) : [], pks = {}, bLoaded = new Set();
+  const zoneList = B ? [...new Set(items.map(i => navZone(navShelf(i))))] : [], zoneTxt = zoneList.map(z => z ? z + ' 區' : '沒有架位').join('、');
+  const noTxt = B ? bIn.slice(0, 3).map(x => x.no).join('、') + (bIn.length > 3 ? '…等 ' + bIn.length + ' 張' : '') : o.no;
   const lis = makeListener(t => { if (!cfg.on || !cfg.cmd) return; const c = cur(); if (/重複|再說|再念/.test(t)){ speakCur(); } else if (/跳過|下一個|下一項/.test(t)){ if (c) skip(c); } else if (/到了|到達/.test(t)){ if (c) arriveNow(c); } else if (/好了|完成|確認|揀好|OK/i.test(t)){ if (c){ if (scanReqOn()) speakNow('請先掃描商品 QR Code', cfg); else mark(c, c.qty); } } });
-  const sh = sheet({title:'揀貨　' + o.no, onclose:() => { stopSpeak(); lis.stop(); if (typeof unsub === 'function') unsub(); if (opts.onClose) opts.onClose(); }});
+  const sh = sheet({title:B ? '合併揀貨　' + bIn.length + ' 張・' + (zoneList.length <= 3 ? zoneTxt : zoneList.length + ' 區') : '揀貨　' + o.no, onclose:() => { stopSpeak(); lis.stop(); if (typeof unsub === 'function') unsub(); if (opts.onClose) opts.onClose(); }});
   const body = h('div'), route = () => navRoute(items, pk, skipped), cur = () => items.find(i => i.pid === focus && !pickHandled(pk, i.pid)) || route().find(i => !pickHandled(pk, i.pid)) || null;
   /* 現在人在哪個架位：掃過架位標籤／按過「我到了」的，否則是最近揀好的那一項的架位；還沒揀過＝剛出發（null） */
   const here = () => { if (arrived) return arrived; let b = null; for (const it of items){ const d = pk.items && pk.items[it.pid]; if (d && (!b || (d.t || 0) >= b.t)) b = {t:d.t || 0, s:navShelf(it)}; } return b ? b.s : null; };
@@ -13052,6 +13140,7 @@ function openPickOrder(orderId, opts){
   const vb = voiceBar(cfg, {repeat:() => speakCur(), onChange:k => { if (k === 'cmd' || k === 'on'){ if (cfg.on && cfg.cmd) lis.start(); else lis.stop(); } if (k === 'on' && cfg.on) speakCur(); }});
   const scan = scanReqOn() ? scanControls({onCode:code => onScan(code), onSkip:() => { const c = cur(); if (c) skipScan(c); }}) : null;
   async function mark(it, qty, extra){
+    if (B) return bMark(it, qty, extra);
     const q = r3(qty), nx = {...pk, items:{...pk.items, [it.pid]:{q, short:q < it.qty - 0.0004, t:Date.now(), ...(extra || {})}}, by:S.meId || null, byName:myName(), startedAt:pk.startedAt || Date.now()};
     focus = ''; arrived = ''; alertMsg = ''; pk = nx; delete gaps[it.pid]; paint();
     const ok = await writePick(orderId, nx);
@@ -13062,7 +13151,7 @@ function openPickOrder(orderId, opts){
     const sq = parseShelfQR(c); if (sq) return onArrive(sq);
     const hitOf = x => items.find(i => String(i.sku).toLowerCase() === x || String((S.products[i.pid] || {}).barcode || '').toLowerCase() === x), Lb = labelDecode(c);
     const lc = (Lb && !hitOf(c.toLowerCase()) && hitOf(Lb.code.toLowerCase()) ? Lb.code : c).toLowerCase(), it = hitOf(lc);
-    if (!it){ const so = Object.values(S.orders).find(x => String(x.no || '').toLowerCase() === lc); if (so){ beep(false); return {ok:false, msg:so.id === orderId ? '這是目前這張單據的單號（' + so.no + '），請掃商品條碼' : '✗ 這是另一張銷貨單的 QR Code（' + so.no + '），請先完成或關閉目前這張再掃'}; } const p = prodByCode(c); beep(false); speakNow(p ? '掃錯了，這張單據沒有' + p.name : '掃錯了，找不到商品', cfg); return {ok:false, msg:p ? '✗ 掃到「' + p.name + '」，這張單據沒有這個商品，請檢查' : '✗ 找不到這個條碼：' + c}; }
+    if (!it){ const so = Object.values(S.orders).find(x => String(x.no || '').toLowerCase() === lc); if (so){ beep(false); return {ok:false, msg:(B ? bIn.some(x => x.id === so.id) : so.id === orderId) ? '這是' + (B ? '這次合併揀貨的' : '目前這張') + '單據的單號（' + so.no + '），請掃商品條碼' : '✗ 這是另一張銷貨單的 QR Code（' + so.no + '），請先完成或關閉目前這張再掃'}; } const p = prodByCode(c); beep(false); const zOut = B && p && bOrders.some(x => (x.lines || []).some(l => l.pid === p.id)); speakNow(p ? (zOut ? '這個商品不在這次要揀的區' : '掃錯了，' + (B ? '這幾張' : '這張') + '單據沒有' + p.name) : '掃錯了，找不到商品', cfg); return {ok:false, msg:p ? (zOut ? '✗ 掃到「' + p.name + '」，它在這次沒選的區（' + (navZone(shelfOf(p, wid)) || '沒有架位') + '），不在這次要揀的商品裡' : '✗ 掃到「' + p.name + '」，' + (B ? '這幾張' : '這張') + '單據沒有這個商品，請檢查') : '✗ 找不到這個條碼：' + c}; }
     if (pickHandled(pk, it.pid)){ beep(false); return {ok:false, msg:'「' + it.name + '」已經揀過了'}; }
     const cu = cur(); beep(true); mark(it, it.qty, {scanned:true, code:c});
     return {ok:true, msg:'✓ ' + it.name + ' 正確' + (cu && cu.pid !== it.pid ? '（不是目前這一項，已先記下）' : '')};
@@ -13084,7 +13173,7 @@ function openPickOrder(orderId, opts){
     return {ok:false, msg:alertMsg};
   }
   function skipScan(it){ rtStepSheet('略過掃描', [{k:'reason', label:'為什麼要略過', type:'select', value:'標籤損壞或掃不到', options:['標籤損壞或掃不到', '商品沒有標籤', '掃描設備故障', '其他'].map(x => [x, x])}, {k:'note', label:'說明（選填）', value:''}], st => { mark(it, it.qty, {skip:true, skipReason:st.reason, skipNote:(st.note || '').trim()}); return true; }, '略過並確認揀貨'); }
-  async function unmark(it){ const its = {...pk.items}; delete its[it.pid]; pk = {...pk, items:its, done:false}; paint(); await writePick(orderId, pk); }
+  async function unmark(it){ if (B) return bUnmark(it); const its = {...pk.items}; delete its[it.pid]; pk = {...pk, items:its, done:false}; paint(); await writePick(orderId, pk); }
   function skip(it){ const rest = route().filter(i => !pickHandled(pk, i.pid)), k = rest.findIndex(i => i.pid === it.pid); if (rest.length > 1){ focus = rest[(k + 1) % rest.length].pid; skipped.add(it.pid); alertMsg = ''; paint(); speakCur('先跳過，'); } }
   async function shortSheet(it){
     rtStepSheet('實際揀到幾' + (it.unit || '件') + '？', [{k:'q', label:'實際揀到的數量（應揀 ' + num(it.qty) + '）', value:it.qty, type:'number'}], async st => {
@@ -13096,10 +13185,81 @@ function openPickOrder(orderId, opts){
       mark(it, q); return true; }, '確認');
   }
   async function finish(){
+    if (B) return bFinish();
     const nx = {...pk, done:true, doneAt:Date.now(), doneBy:S.meId || null, doneByName:myName()}; pk = nx;
     const ok = await writePick(orderId, nx); if (!ok) return;
     toast('揀貨完成 ' + o.no); stopSpeak(); if (cfg.on) speakNow('揀貨完成', cfg);
     const q = opts.queue || [], k = q.indexOf(orderId), nxt = k >= 0 ? q.slice(k + 1)[0] : null; sh.forceClose(); if (nxt) setTimeout(() => openPickOrder(nxt, opts), 60);
+  }
+  /* -eg：合併揀貨。pks＝每張單據自己的揀貨紀錄；pk＝合併後的樣子（一項的每個分給單據都處理了，才算處理過） */
+  function derive(){
+    const its = {}, dis = [], asm = [];
+    for (const it of items){
+      const ds = it.parts.map(p => (pks[p.oid] && pks[p.oid].items && pks[p.oid].items[it.pid]) || null), left = it.parts.filter((p, i) => !ds[i]);
+      it.left = left; it.qty = left.length ? r3(left.reduce((a, p) => a + p.qty, 0)) : it.qtyAll;
+      if (!left.length){ const sk = ds.find(d => d.skip); its[it.pid] = {q:r3(ds.reduce((a, d) => a + (Number(d.q) || 0), 0)), short:ds.some(d => d.short), t:Math.max(...ds.map(d => d.t || 0)), ...(ds.every(d => d.scanned) ? {scanned:true} : {}), ...(sk ? {skip:true, skipReason:sk.skipReason || '', skipNote:sk.skipNote || ''} : {})}; }
+    }
+    for (const x of bIn){ const p = pks[x.id]; if (p){ (p.dis || []).forEach(r => dis.push(r)); (p.asm || []).forEach(r => asm.push(r)); } }
+    pk = {items:its, done:bIn.length > 0 && bIn.every(x => pks[x.id] && pks[x.id].done), dis, asm};
+  }
+  const bRec = (oid, nx) => { pks[oid] = nx; };
+  async function bMark(it, qty, extra){
+    const q = r3(qty), t = Date.now(), al = allocParts(it.left && it.left.length ? it.left : it.parts, q), ws = [];
+    focus = ''; arrived = ''; alertMsg = ''; delete gaps[it.pid];
+    for (const a of al){
+      const rec = {q:a.q, short:a.short, t, merged:true, ...(extra || {})}, cur0 = pks[a.oid] || emptyPick(), who = {by:S.meId || null, byName:myName()}, started = cur0.startedAt ? {} : {startedAt:t};
+      bRec(a.oid, {...cur0, items:{...cur0.items, [it.pid]:rec}, ...who, startedAt:cur0.startedAt || t});
+      ws.push(patchPick(a.oid, pickKeyOk(it.pid) ? {['items.' + it.pid]:rec, ...who, ...started} : {items:pks[a.oid].items, ...who, ...started}));
+    }
+    derive(); paint();
+    const ok = (await Promise.all(ws)).every(Boolean);
+    if (ok && cfg.on && cfg.auto){ const n = cur(); speakNow(n ? navSayCur(n) : '已到達終點，這幾區揀貨完成', cfg); }
+  }
+  async function bUnmark(it){
+    const ws = [];
+    for (const p of it.parts){ const cur0 = pks[p.oid]; if (!cur0 || !cur0.items || !cur0.items[it.pid]) continue; const its = {...cur0.items}; delete its[it.pid]; bRec(p.oid, {...cur0, items:its, done:false}); ws.push(patchPick(p.oid, {items:its, done:false})); }
+    derive(); paint(); await Promise.all(ws);
+  }
+  /* 完成：這次選的區都處理了。每張單據：全部商品都處理了才標「已完成」，還有別區沒揀的維持揀貨中 */
+  async function bFinish(){
+    const t = Date.now(), ws = []; let fin = 0, rest = 0;
+    for (const x of bIn){
+      const p = pks[x.id] || emptyPick();
+      if (pickItems(x).every(i => pickHandled(p, i.pid))){ fin++; if (!p.done){ const w = {done:true, doneAt:t, doneBy:S.meId || null, doneByName:myName()}; bRec(x.id, {...p, ...w}); ws.push(patchPick(x.id, w)); } } else rest++;
+    }
+    derive(); paint();
+    if (!(await Promise.all(ws)).every(Boolean)) return;
+    toast('合併揀貨完成：' + fin + ' 張單據全部揀完' + (rest ? '，' + rest + ' 張還有別的區沒揀' : '')); stopSpeak(); if (cfg.on) speakNow('揀貨完成', cfg);
+    sh.forceClose();
+  }
+  /* 拆解、組裝紀錄：單張＝記在這張單據；合併＝記在第一張還沒揀的單據（紀錄裡有商品名稱） */
+  async function addRec(kind, rec, c){
+    if (!B){ pk = {...pk, [kind]:[...(pk[kind] || []), rec]}; await writePick(orderId, pk); return; }
+    const oid = ((c.left && c.left[0]) || c.parts[0]).oid, cur0 = pks[oid] || emptyPick(), arr = [...(cur0[kind] || []), rec];
+    bRec(oid, {...cur0, [kind]:arr}); derive(); await patchPick(oid, {[kind]:arr});
+  }
+  let headOpen = bIn.length <= 3;   // 單據多的時候預設收起來，免得把「目前這一項」擠到畫面下面
+  const batchHead = () => h('details', {class:'panel pad', 'aria-label':'合併揀貨單據', style:'margin-bottom:10px', open:headOpen, ontoggle:e => { headOpen = e.target.open; }},
+    h('summary', {style:'cursor:pointer;list-style:none'}, h('b', {class:'big', text:'合併揀貨　' + bIn.length + ' 張單據'}), h('br'), h('small', {text:zoneTxt + '・共 ' + items.length + ' 項商品' + (headOpen ? '' : '　（點開看單據）')})),
+    ...bIn.map(x => { const pt = S.partners[x.partnerId] || {}, mine = items.filter(i => i.parts.some(p => p.oid === x.id)), n = mine.filter(i => pickHandled(pks[x.id] || emptyPick(), i.pid)).length;
+      return h('div', {'aria-label':'單據 ' + x.no, style:'display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)'},
+        h('span', {style:'min-width:0;overflow-wrap:anywhere'}, h('b', {text:x.no}), x.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, x.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, h('small', {text:'　' + (pt.shortName || pt.name || '散客') + (x.store ? '（' + x.store + '）' : '')})),
+        h('small', {style:'white-space:nowrap', 'aria-label':'單據進度 ' + x.no, text:n + ' / ' + mine.length + ' 項'})); }));
+  const partsBox = c => { const ls = c.left && c.left.length ? c.left : c.parts;
+    const row = p => { const x = S.orders[p.oid] || {}, pt = S.partners[x.partnerId] || {}; return h('div', {style:'display:flex;justify-content:space-between;gap:8px;overflow-wrap:anywhere'}, h('span', {text:p.no + '　' + (pt.shortName || pt.name || '散客')}), h('b', {style:'white-space:nowrap', text:num(p.qty) + ' ' + (c.unit || '')})); };
+    return h('div', {'aria-label':'分給哪幾張單', style:'margin:4px 0 8px;padding:8px;background:var(--soft);border-radius:8px'},
+      h('div', {style:'font-weight:800', text:'分給 ' + ls.length + ' 張單據：'}),
+      ...ls.slice(0, 5).map(row),
+      ls.length > 5 ? h('details', {style:'margin-top:2px'}, h('summary', {style:'cursor:pointer;font-weight:700', text:'還有 ' + (ls.length - 5) + ' 張（點開看）'}), ...ls.slice(5).map(row)) : null,
+      c.left && c.left.length && c.left.length < c.parts.length ? h('small', {class:'hint', style:'display:block', text:'另外 ' + (c.parts.length - c.left.length) + ' 張單據的這個商品已經揀好了'}) : null,
+      ls.length > 1 ? h('small', {class:'hint', style:'display:block', text:'數量不夠時，從最後面的單據開始少'}) : null); };
+  function bSubscribe(){
+    const subs = []; unsub = () => subs.forEach(f => { try { if (typeof f === 'function') f(); } catch (_) {} });
+    const got = () => { derive(); paint(); if (first && bLoaded.size >= bIn.length){ first = false; if (cfg.on){ const c = cur(); speakNow('共 ' + items.length + ' 項，合併 ' + bIn.length + ' 張單據，' + navStations(route()).length + ' 站，' + (c ? navSayCur(c) : '都已處理'), cfg); if (cfg.cmd) lis.start(); } } };
+    for (const x of bIn){
+      try { subs.push(S.db.doc('picks/' + x.id).onSnapshot(snap => { pks[x.id] = snap && snap.exists ? {...emptyPick(), ...(snap.data() || {})} : emptyPick(); bLoaded.add(x.id); got(); }, () => null)); }
+      catch (_) { readPick(x.id).then(p => { pks[x.id] = p; bLoaded.add(x.id); got(); }); }
+    }
   }
   /* 這一項不夠時的提示：① 其他架位 ② 拆解（大包裝、組合商品在哪個架位、拆幾個）③ 組裝（每個組件在哪個架位、拿幾個、夠組幾個） */
   function disPrompt(c){
@@ -13112,12 +13272,12 @@ function openPickOrder(orderId, opts){
     if (os.length) kids.push(...os.map(op => card('拆解來源 ' + op.F.sku, '拆解：拆 ' + num(op.n) + ' ' + (op.F.unit || '') + '「' + op.F.name + '」→ 得到 ' + num(op.yield) + ' ' + unit,
       h('small', {style:'display:block', text:'成品在' + pickWhere(shelfAll(op.F, wid)) + '，成品庫存 ' + num(op.fstock) + (op.ok ? '' : '（不夠）')}),
       op.plan && op.plan.hint ? h('small', {style:'display:block', text:'提示：' + op.plan.hint}) : (op.plan ? null : h('small', {class:'hint', style:'display:block', text:'還沒有拆解提示，請作業人員到「拆解作業設定」補充'})),
-      can('stock') ? h('button', {class:'btn', style:'margin-top:6px', 'aria-label':'拆解補貨 ' + op.F.sku, onclick:() => openDisStep({...op, need}, c, wid, o.no, async info => { delete gaps[c.pid]; pk = {...pk, dis:[...(pk.dis || []), {...info, t:Date.now(), byName:myName(), item:c.name}]}; await writePick(orderId, pk); paint(); if (cfg.on) speakNow('拆解完成，請掃描' + c.name, cfg); })}, '開始拆解補貨') : h('small', {class:'soon', style:'display:block', text:'你沒有拆解的權限，請通知作業人員拆解。'}))));
+      can('stock') ? h('button', {class:'btn', style:'margin-top:6px', 'aria-label':'拆解補貨 ' + op.F.sku, onclick:() => openDisStep({...op, need}, c, wid, noTxt, async info => { delete gaps[c.pid]; await addRec('dis', {...info, t:Date.now(), byName:myName(), item:c.name}, c); paint(); if (cfg.on) speakNow('拆解完成，請掃描' + c.name, cfg); })}, '開始拆解補貨') : h('small', {class:'soon', style:'display:block', text:'你沒有拆解的權限，請通知作業人員拆解。'}))));
     if (A) kids.push(card('組裝來源 ' + c.sku, A.n > 0 ? '組裝：用組件組出 ' + num(A.n) + ' ' + unit + '「' + c.name + '」' : '組裝：組件不夠，現在一個都組不出來',
       h('div', {'aria-label':'組件清單', style:'margin-top:4px'}, A.comps.map(x => h('small', {style:'display:block' + (x.lack > 0.0004 ? ';color:var(--zero);font-weight:700' : ''), text:'・' + x.cp.name + ' ' + num(x.q) + ' ' + (x.cp.unit || '') + '（庫存 ' + num(x.stock) + (x.lack > 0.0004 ? '，缺 ' + num(x.lack) : '') + '）　' + pickWhere(x.shelves)}))),
       A.n > 0 && A.n < need - 0.0004 ? h('small', {style:'display:block;margin-top:4px', text:'組件只夠組 ' + num(A.n) + ' ' + unit + '，還差 ' + num(r3(need - A.n)) + ' ' + unit + ' 要用其他方式補。'}) : null,
       A.n > 0 && A.comps.some(x => x.lack > 0.0004) ? h('small', {style:'display:block;margin-top:4px', text:'系統允許負庫存：組裝後，缺的組件庫存會變成負數。'}) : null,
-      A.n > 0 ? (can('stock') && fxOn('assembly') ? h('button', {class:'btn', style:'margin-top:6px', 'aria-label':'組裝補貨 ' + c.sku, onclick:() => openAsmStep(S.products[c.pid], A.n, need, c, wid, o.no, async info => { delete gaps[c.pid]; pk = {...pk, asm:[...(pk.asm || []), {...info, t:Date.now(), byName:myName(), item:c.name}]}; await writePick(orderId, pk); paint(); if (cfg.on) speakNow('組裝完成，請掃描' + c.name, cfg); })}, '開始組裝補貨') : h('small', {class:'soon', style:'display:block', text:'你沒有組裝的權限，請通知作業人員組裝。'})) : h('small', {style:'display:block;margin-top:4px', text:'請先補缺的組件，或改用其他方式。'})));
+      A.n > 0 ? (can('stock') && fxOn('assembly') ? h('button', {class:'btn', style:'margin-top:6px', 'aria-label':'組裝補貨 ' + c.sku, onclick:() => openAsmStep(S.products[c.pid], A.n, need, c, wid, noTxt, async info => { delete gaps[c.pid]; await addRec('asm', {...info, t:Date.now(), byName:myName(), item:c.name}, c); paint(); if (cfg.on) speakNow('組裝完成，請掃描' + c.name, cfg); })}, '開始組裝補貨') : h('small', {class:'soon', style:'display:block', text:'你沒有組裝的權限，請通知作業人員組裝。'})) : h('small', {style:'display:block;margin-top:4px', text:'請先補缺的組件，或改用其他方式。'})));
     if (!hp.more.length && !os.length && !A) kids.push(h('br'), h('small', {text:'這個商品沒有其他架位，也沒有可以拆解或組裝的來源。請找主管處理，或按「數量不足」記錄。'}));
     return h('div', {class:'note bad', 'aria-label':'庫存不足提示', style:'margin:10px 0 0'}, ...kids);
   }
@@ -13151,37 +13311,40 @@ function openPickOrder(orderId, opts){
   function paint(){
     const rt = route(), st = navStations(rt), multiZone = new Set(rt.map(i => navZone(navShelf(i)))).size > 1, c = cur(), n = items.filter(i => pickHandled(pk, i.pid)).length, total = items.length, pt = S.partners[o.partnerId] || {}, all = n === total, skipN = items.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length, lackN = items.filter(i => !pickHandled(pk, i.pid) && needOf(i) > 0).length;
     setKids(body,
-      h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('div', {style:'display:flex;justify-content:space-between;gap:10px;align-items:flex-start'}, h('div', {style:'min-width:0'}, h('b', {class:'big', text:(pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')}), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'})), o.urgent || o.collect ? h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, o.collect ? h('span', {class:'soon', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'順收貨款'}) : null, o.urgent ? h('span', {class:'overdue', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'早一點'}) : null) : null),
+      B ? batchHead() : h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('div', {style:'display:flex;justify-content:space-between;gap:10px;align-items:flex-start'}, h('div', {style:'min-width:0'}, h('b', {class:'big', text:(pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')}), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'})), o.urgent || o.collect ? h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, o.collect ? h('span', {class:'soon', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'順收貨款'}) : null, o.urgent ? h('span', {class:'overdue', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'早一點'}) : null) : null),
         h('small', {class:'hint', style:'display:block;margin-top:4px', text:(o.driver ? '送貨員 ' + o.driver + '　' : '') + '預計送貨 ' + deliveryOf(o) + (o.truckPlate ? '　' + o.truckPlate + ' ' + truckSlotTxt(o) : '')})),
       lackN ? (() => { const ws = new Set(); items.forEach(i => { if (!pickHandled(pk, i.pid)){ const hp = helpOf(i); if (hp) hp.ways.forEach(w => ws.add(w)); } }); const wl = ['到其他架位找', '拆解', '組裝'].filter(w => ws.has(w));
-        return h('div', {class:'note warn', 'aria-label':'庫存不足總覽', text:'⚠ 這張單據有 ' + lackN + ' 項庫存不足' + (wl.length ? '，可以' + shortJoin(wl) + '補貨' : '') + '（揀到那一項時會提示）。'}); })() : null,
+        return h('div', {class:'note warn', 'aria-label':'庫存不足總覽', text:(B ? '⚠ 這次合併揀貨有 ' : '⚠ 這張單據有 ') + lackN + ' 項庫存不足' + (wl.length ? '，可以' + shortJoin(wl) + '補貨' : '') + '（揀到那一項時會提示）。'}); })() : null,
       h('div', {style:'height:10px;background:var(--soft);border-radius:6px;overflow:hidden;margin-bottom:4px'}, h('div', {style:'height:100%;background:var(--brand);width:' + (total ? Math.round(n / total * 100) : 0) + '%'})), h('small', {class:'hint', style:'display:block;margin-bottom:8px', 'aria-label':'揀貨進度', text:'已處理 ' + n + ' / ' + total + ' 項' + (skipN ? '　⚠ 略過掃描 ' + skipN + ' 項' : '') + (pk.done ? '　（已完成揀貨）' : '')}),
       vb.el,
       navPanel(c, st),
       c ? h('div', {class:'panel pad', 'aria-label':'目前這一項', style:'margin-bottom:10px;border:2px solid var(--brand)'},
         pickPhotos(c, paint), h('div', {style:'min-width:0'}, h('div', {style:'font-size:20px;font-weight:800;overflow-wrap:anywhere', text:c.name}), h('small', {text:c.sku})),
         h('div', {style:'display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 4px;gap:10px'}, h('div', null, h('small', {text:'架位'}), h('div', {'aria-label':'架位', style:'font-size:34px;font-weight:800;color:var(--brand);line-height:1.1;overflow-wrap:anywhere', text:c.shelf || '—'})), h('div', {style:'text-align:right'}, h('small', {text:'數量'}), h('div', {'aria-label':'數量', style:'font-size:34px;font-weight:800;line-height:1.1;white-space:nowrap', text:num(c.qty) + ' ' + (c.unit || '')}))),
+        B ? partsBox(c) : null,
         (c.more || []).length ? h('div', {'aria-label':'其他架位', style:'margin:2px 0 6px;font-weight:700;color:var(--brand);overflow-wrap:anywhere'}, '也放在：' + c.more.join('、'), h('small', {style:'display:block;font-weight:400;color:var(--ink3)', text:'主要架位不夠時，到這' + (c.more.length > 1 ? '幾' : '') + '個架位拿'})) : null,
         h('small', {class:'hint', text:'庫存（扣除所有已開單據後）' + num(stockNow(c))}),
         disPrompt(c),
         scan ? h('div', {style:'margin-top:8px'}, h('small', {style:'display:block;font-weight:700', text:'請掃描這個商品的 QR Code 確認拿對了'}), scan.el) : null,
-        h('div', {class:'btns', style:'margin-top:10px'}, !scan ? h('button', {class:'btn grow', style:'min-height:56px;font-size:18px', 'aria-label':'揀好了', onclick:() => mark(c, c.qty)}, '揀好了') : null, h('button', {class:'btn ghost', 'aria-label':'數量不足', onclick:() => shortSheet(c)}, '數量不足'), h('button', {class:'btn ghost', 'aria-label':'跳過這一項', onclick:() => skip(c)}, '先揀別項'))) : h('div', {class:'note', style:'font-size:16px', text:'這張單據的商品都處理完了，按「完成揀貨」。'}),
+        h('div', {class:'btns', style:'margin-top:10px'}, !scan ? h('button', {class:'btn grow', style:'min-height:56px;font-size:18px', 'aria-label':'揀好了', onclick:() => mark(c, c.qty)}, '揀好了') : null, h('button', {class:'btn ghost', 'aria-label':'數量不足', onclick:() => shortSheet(c)}, '數量不足'), h('button', {class:'btn ghost', 'aria-label':'跳過這一項', onclick:() => skip(c)}, '先揀別項'))) : h('div', {class:'note', style:'font-size:16px', text:(B ? '這幾區的商品都處理完了，按「完成揀貨」。' : '這張單據的商品都處理完了，按「完成揀貨」。')}),
       nextPanel(c, rt),
       h('div', {class:'sec-h'}, h('h2', {text:'整條路線'})), h('small', {class:'hint', style:'display:block;margin:0 0 6px', text:'全部商品，依架位排列。✓ 揀好了　➜ 現在這一項　↩ 先跳過，最後回來補'}),
       h('div', {class:'panel'}, rt.map((it, i) => { const d = pk.items && pk.items[it.pid], isCur = c && c.pid === it.pid, sIdx = st.findIndex(g => g.items.includes(it)), zoneHd = multiZone && (i === 0 || navZone(navShelf(rt[i - 1])) !== navZone(navShelf(it))) ? h('div', {'aria-label':'區域 ' + (navZone(navShelf(it)) || '無架位'), style:'padding:6px 12px;font-weight:800;background:var(--soft);color:var(--ink3)', text:navZone(navShelf(it)) ? navZone(navShelf(it)) + ' 區' : '沒有架位'}) : null;
-        return [zoneHd, h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ skipped.delete(it.pid); alertMsg = ''; focus = it.pid; paint(); speakCur(); } }}, h('span', {'aria-hidden':'true', style:'flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;' + (d ? 'background:var(--brand);color:#fff' : (isCur ? 'background:var(--brand);color:#fff' : 'background:var(--soft);color:var(--ink3)')), text:d ? '✓' : (isCur ? '➜' : String(sIdx + 1))}), h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && skipped.has(it.pid) ? '　↩ 先跳過，最後回來補' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
+        return [zoneHd, h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ skipped.delete(it.pid); alertMsg = ''; focus = it.pid; paint(); speakCur(); } }}, h('span', {'aria-hidden':'true', style:'flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;' + (d ? 'background:var(--brand);color:#fff' : (isCur ? 'background:var(--brand);color:#fff' : 'background:var(--soft);color:var(--ink3)')), text:d ? '✓' : (isCur ? '➜' : String(sIdx + 1))}), h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (B && it.parts.length > 1 ? '（' + it.parts.length + ' 張單）' : '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && skipped.has(it.pid) ? '　↩ 先跳過，最後回來補' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
           d ? h('button', {class:'btn ghost sm', 'aria-label':'取消 ' + it.sku, onclick:() => unmark(it)}, '取消') : null)].filter(Boolean); }).flat()),
-      (pk.dis || []).length || (pk.asm || []).length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:'這張單據的' + ((pk.dis || []).length && (pk.asm || []).length ? '拆解、組裝' : ((pk.asm || []).length ? '組裝' : '拆解')) + '補貨'})), h('div', {class:'panel', 'aria-label':'拆解組裝紀錄'},
+      (pk.dis || []).length || (pk.asm || []).length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:(B ? '這次合併揀貨的' : '這張單據的') + ((pk.dis || []).length && (pk.asm || []).length ? '拆解、組裝' : ((pk.asm || []).length ? '組裝' : '拆解')) + '補貨'})), h('div', {class:'panel', 'aria-label':'拆解組裝紀錄'},
         (pk.dis || []).map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'拆 ' + num(x.n) + '「' + x.fname + '」→ ' + num(x.yield) + '（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))),
         (pk.asm || []).map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'組 ' + num(x.n) + '「' + x.name + '」（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))))] : null);
     sh.footEl.replaceChildren(...clean([[all && !pk.done ? h('button', {class:'btn grow', style:'min-height:52px;font-size:17px', 'aria-label':'完成揀貨', onclick:finish}, '完成揀貨') : (pk.done && opts.queue && opts.queue.indexOf(orderId) >= 0 && opts.queue.indexOf(orderId) < opts.queue.length - 1 ? h('button', {class:'btn grow', 'aria-label':'下一張', onclick:() => { const nxt = opts.queue[opts.queue.indexOf(orderId) + 1]; sh.forceClose(); setTimeout(() => openPickOrder(nxt, opts), 60); }}, '下一張') : null)]]));
     if (scan) setTimeout(scan.focus, 30);
   }
+  if (B) derive();
   put(sh.bodyEl, body); paint();
-  const apply = snap => { pk = snap && snap.exists ? {...emptyPick(), ...(snap.data() || {})} : emptyPick(); paint(); if (first){ first = false; if (cfg.on){ const c = cur(); speakNow('共 ' + items.length + ' 項，' + navStations(route()).length + ' 站，' + (c ? navSayCur(c) : '都已處理'), cfg); if (cfg.cmd) lis.start(); } } };
-  try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
+  const apply = snap => { pk = snap && snap.exists ? {...emptyPick(), ...(snap.data() || {})} : emptyPick(); paint(); if (first){ first = false; if (cfg.on){ const c = cur(); speakNow('共 ' + items.length + ' 項' + (B ? '，合併 ' + bIn.length + ' 張單據' : '') + '，' + navStations(route()).length + ' 站，' + (c ? navSayCur(c) : '都已處理'), cfg); if (cfg.cmd) lis.start(); } } };
+  if (B) bSubscribe();
+  else try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems, mergePickItems, allocParts, batchZones, batchOrders, openMergePick:(...x) => openMergePick(...x)}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders()}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{unassignedOrders, cashStampOn, codWaiting, cashSaleOf, cashPending, awaitCash, openCashPending, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
@@ -15100,7 +15263,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ef';
+const APP_VERSION = '2026.10.11-eg';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
