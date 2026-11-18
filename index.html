@@ -4709,6 +4709,7 @@ function slipFormHTML(o, F, L, local, opt){
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
   const {c, pages} = slipRows(o, F, Math.max(Math.round(L.item.rows), 1));
   const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
+  const qUnit = !!(local && local.qu === true);   /* -el：數量後面印單位（預設不印，「20」；勾選才印「20組」） */
   const ctr = !!(local && local.ctr === true);   /* -ej：數量、單價預設靠右；列印設定勾選「印在格子正中間」（local.ctr === true）才置中（-ei 曾經預設置中） */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
@@ -4734,7 +4735,8 @@ function slipFormHTML(o, F, L, local, opt){
       if (r.sku) h += T(cl.sku.x, y, r.sku, {w:cl.sku.w});
       h += T(cl.name.x, y, r.name, {w:cl.name.w});
       /* -ei／-ej：數量、單價預設靠右；列印設定勾選才印在格子正中間；金額一律靠右對齊 */
-      h += ctr ? T(cl.qty.xr - cl.qty.w / 2, y, n2(r.qty) + (r.unit || ''), {c:1, w:cl.qty.w}) : T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
+      const qTxt = n2(r.qty) + (qUnit ? (r.unit || '') : '');
+      h += ctr ? T(cl.qty.xr - cl.qty.w / 2, y, qTxt, {c:1, w:cl.qty.w}) : T(cl.qty.xr, y, qTxt, {r:1, w:cl.qty.w});
       if (!np) h += (ctr ? T(cl.price.xr - cl.price.w / 2, y, n2(r.price), {c:1, w:cl.price.w}) : T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w})) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
     });
     const note = (pages.length > 1 ? '第 ' + (pi + 1) + '/' + pages.length + ' 頁' + (last ? '' : '，續下頁') + (last && F.note ? '　' : '') : '') + (last ? (F.note || '') : '');
@@ -4760,6 +4762,10 @@ function slipSouthHTML(o, F, L, local, opt){
   const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
+  /* -ek：品名格往右延伸（預設 23 mm＝2.3 公分；local.nx 可改，0＝不延伸，最多 60）。右邊的數量數字會碰到時，這一列的品名格縮短讓開（空 1.5 mm） */
+  const nameExt = local && local.nx !== undefined && local.nx !== '' && local.nx !== null ? Math.min(Math.max(toNum(local.nx), 0), 60) : 23;
+  const qtyFs = fs >= 9 ? env.upFs(fs) : fs, rd2 = v => Math.round(v * 100) / 100, qUnit = !!(local && local.qu === true);   /* -el：數量後面印單位（預設不印） */
+  const emOf = t => { let em = 0; for (const ch of String(t == null ? '' : t)) em += ch.charCodeAt(0) > 255 ? 1 : 0.65; return em; };
   const html = pages.map((pr, pi) => {
     const last = pi === pages.length - 1;
     let h = env.stamps(o) + env.qr(o, {x:f.no.x, y:f.no.y, w:24, fs:hfs});
@@ -4774,8 +4780,9 @@ function slipSouthHTML(o, F, L, local, opt){
       const y = L.item.y + i * L.item.pitch;
       h += T(cl.no.xr, y, pi * per + i + 1, {r:1, w:cl.no.w, fs:fs - 1});
       if (F.brandSku && r.sku) h += T(cl.brand.x, y, r.sku, {w:cl.brand.w, fs:fs - 1.5});
-      h += T(cl.name.x, y, r.name, {w:cl.name.w});
-      h += T(cl.qty.xr, y, n2(r.qty) + (r.unit || ''), {r:1, w:cl.qty.w});
+      const qtyTxt = n2(r.qty) + (qUnit ? (r.unit || '') : ''), nameCap = cl.qty.xr - emOf(qtyTxt) * qtyFs * 0.3528 - 1.5 - cl.name.x;
+      h += T(cl.name.x, y, r.name, {w:rd2(Math.max(cl.name.w, Math.min(cl.name.w + nameExt, nameCap)))});
+      h += T(cl.qty.xr, y, qtyTxt, {r:1, w:cl.qty.w});
       if (!np) h += T(cl.price.xr, y, n2(r.price), {r:1, w:cl.price.w}) + T(cl.amt.xr, y, n2(r.amt), {r:1, w:cl.amt.w});
     });
     if (F.ship) h += T(f.ship.x, f.ship.y, F.ship, {w:64, fs:hfs}) + env.spStamp(o, {x:f.ship.x, y:f.ship.y, w:64, fs:hfs});
@@ -5156,6 +5163,8 @@ function openPrint(ref){
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.sp !== false, 'aria-label':'套表印指送戳章', onchange:e => { if (e.target.checked) delete local.sp; else local.sp = false; saveSlipFormLocal(local, tp.id); paint(); }}), '有「指送特別地址」時，在送貨地址後面蓋「指送」戳章（送貨地址本身一定改印特別地址）'),
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ss !== false, 'aria-label':'套表印分店戳章', onchange:e => { if (e.target.checked) delete local.ss; else local.ss = false; saveSlipFormLocal(local, tp.id); paint(); }}), '單據選了叫貨店面時，把「○○店 叫貨」戳章蓋在客戶編號上方（例如「八德店 叫貨」；中南區表單會稍微靠右，避開預印的單據類別）'),
         local.ss !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['ssx', '分店戳章 再往右（mm，可填負數）'], ['ssy', '分店戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
+        h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.qu === true, 'aria-label':'套表數量後面印單位', onchange:e => { if (e.target.checked) local.qu = true; else delete local.qu; saveSlipFormLocal(local, tp.id); paint(); }}), '數量後面也印單位（沒勾＝只印數字，例如「20」；勾了印「20組」）'),
+        tp.id === 'south' ? h('div', {style:'margin-top:8px'}, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:'品名欄位 往右延伸（mm；預設 23＝2.3 公分，填 0＝不延伸）'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local.nx === undefined || local.nx === '' ? '' : local.nx, placeholder:'預設 23', 'aria-label':'中南區品名欄位往右延伸（mm）', style:'height:38px;max-width:160px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local.nx; else local.nx = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }}), h('small', {class:'hint', style:'display:block;margin-top:4px', text:'品名太長還是會自動縮小字；右邊的數量數字會碰到時，這一列的品名會自動縮短讓開，不會印在一起。'})) : null,
         tp.id === 'north' ? h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.ctr === true, 'aria-label':'套表數量單價置中', onchange:e => { if (e.target.checked) local.ctr = true; else delete local.ctr; saveSlipFormLocal(local, tp.id); paint(); }}), '數量、單價改印在格子正中間（沒勾＝靠右對齊，預設；金額一律靠右）') : null,
         h('label', {class:'check'}, h('input', {type:'checkbox', checked:local.rc !== false, 'aria-label':'套表印銷貨收款戳章', onchange:e => { if (e.target.checked) delete local.rc; else local.rc = false; saveSlipFormLocal(local, tp.id); paint(); }}), '銷貨收現的單據，在合計金額下方蓋「銷貨收款」戳章（右邊對齊合計數字）'),
     local.rc !== false ? h('div', {style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px'}, ...[['rcx', '銷貨收款戳章 再往右（mm，可填負數）'], ['rcy', '銷貨收款戳章 再往下（mm，可填負數）']].map(([k, t]) => h('div', null, h('label', {style:'display:block;font-size:12px;color:var(--ink3);margin-bottom:4px', text:t}), h('input', {class:'in', type:'text', inputmode:'decimal', value:local[k] === undefined || local[k] === '' ? '' : local[k], placeholder:'預設 0', 'aria-label':t + '（套表）', style:'height:38px', onchange:e => { const v = e.target.value.trim(); if (v === '') delete local[k]; else local[k] = toNum(v); saveSlipFormLocal(local, tp.id); paint(); }})))) : null,
@@ -15292,7 +15301,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ej';
+const APP_VERSION = '2026.10.11-el';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
