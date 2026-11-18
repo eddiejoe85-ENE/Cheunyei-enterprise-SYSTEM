@@ -797,7 +797,7 @@ function repCalc(o){
 }
 const repInPeriod = (o, from, to) => o.status !== 'void' && !!o.date && o.date >= from && o.date <= to;
 function summarize(from, to){
-  const r = {sale:0, purchase:0, profit:0, tax:0, gross:0, count:0, items:{}};
+  const r = {sale:0, purchase:0, profit:0, tax:0, gross:0, count:0, items:{}, saleGross:0, saleRet:0, saleN:0, retN:0};   /* -em：saleGross＝銷貨單未稅（不含退回）、saleRet＝銷貨退回未稅（負數）、saleN／retN＝張數；saleGross + saleRet ＝ sale */
   for (const o of Object.values(S.orders)){
     if (!repInPeriod(o, from, to)) continue;
     const c = repCalc(o); if (!c) continue;
@@ -805,10 +805,11 @@ function summarize(from, to){
     r.count++;
     if (c.side === 'sale'){
       r.sale += c.net; r.tax += c.tax; r.profit += c.profit;
+      if (o.type === 'sale_return'){ r.saleRet += c.net; r.retN++; } else { r.saleGross += c.net; r.saleN++; }
       for (const [pid, i] of Object.entries(c.items)){ const it = r.items[pid] || (r.items[pid] = {name:i.name, qty:0, amt:0}); it.qty += i.qty; it.amt += i.amt; }
     } else r.purchase += c.net;
   }
-  r.sale = r2(r.sale); r.purchase = r2(r.purchase); r.profit = r2(r.profit); r.tax = r2(r.tax); r.gross = r2(r.sale + r.tax);
+  r.sale = r2(r.sale); r.purchase = r2(r.purchase); r.profit = r2(r.profit); r.tax = r2(r.tax); r.gross = r2(r.sale + r.tax); r.saleGross = r2(r.saleGross); r.saleRet = r2(r.saleRet);
   r.disc = r2(Object.values(S.payments).filter(pm => pm.status !== 'void' && pm.dir === 'in' && pm.date >= from && pm.date <= to).reduce((a, pm) => a + (pm.discount || 0) + (pm.extra || 0), 0));
   return r;
 }
@@ -2513,6 +2514,8 @@ function pRep(){
   const dr = (kind, name, val, canOpen = true) => canOpen ? h('button', {class:'row drill', 'aria-label':'看明細 ' + name, onclick:() => openRepDocs({kind, from, to})}, h('span', {text:name}), h('span', {text:val})) : h('div', {class:'row'}, h('span', {text:name}), h('span', {text:val}));
   page.append(h('section', {class:'sec'},
     h('div', {class:'panel ledger'},
+      dr('saleOnly', '銷貨額（未稅，不含銷貨退回）', money(s.saleGross)),
+      dr('saleRet', '銷貨退回（未稅）', money(s.saleRet)),
       dr('sale', '銷貨淨額（未稅）', money(s.sale)),
       dr('tax', '銷貨稅金（營業稅）', money(s.tax)),
       dr('gross', '銷貨含稅合計', money(s.gross)),
@@ -2521,7 +2524,7 @@ function pRep(){
       see('cost') ? dr('profit', '毛利率', s.sale > 0 ? (s.profit / s.sale * 100).toFixed(1) + '%' : '—') : null,
       dr('disc', '收款折讓（期間內）', money(s.disc)),
       dr('count', '進銷單據數', s.count)),
-    h('small', {class:'hint', 'aria-label':'明細提示', style:'display:block;margin:6px 2px 0', text:'點上面的項目，可以看這段期間是哪些單據（再點單據看內容、也可匯出）。銷貨稅金＝單據上的營業稅＋月結稅金（月結客戶月底算的稅，算在帳款月份最後一天）；銷貨含稅合計＝未稅＋稅金。'})));
+    h('small', {class:'hint', 'aria-label':'明細提示', style:'display:block;margin:6px 2px 0', text:'點上面的項目，可以看這段期間是哪些單據（再點單據看內容、也可匯出）。銷貨稅金＝單據上的營業稅＋月結稅金（月結客戶月底算的稅，算在帳款月份最後一天）；銷貨含稅合計＝未稅＋稅金。銷貨淨額＝銷貨額＋銷貨退回（退回是負數）；這段期間銷貨 ' + s.saleN + ' 張、銷貨退回 ' + s.retN + ' 張。'})));
   page.append(repBillSection());
   page.append(h('section', {class:'sec'},
     h('div', {class:'sec-h'}, h('h2', {text:'商品銷售排行'})),
@@ -2545,6 +2548,8 @@ function pRep(){
 
 /* ================= -dq：營運報表 → 點數字看單據明細 ================= */
 const REP_DOC = {
+  saleOnly: {title:'銷貨額明細（不含銷貨退回）', val:'未稅金額', note:'只有銷貨單的未稅金額，不含銷貨退回；已作廢的不算。合計＝營運報表的「銷貨額」。'},
+  saleRet:  {title:'銷貨退回明細', val:'未稅金額', note:'銷貨退回單的未稅金額（負數）；已作廢的不算。合計＝營運報表的「銷貨退回」；銷貨額加銷貨退回＝銷貨淨額。'},
   sale:     {title:'銷貨淨額明細', val:'未稅金額', note:'未稅金額；銷貨退回算負數。合計＝營運報表的「銷貨淨額」。'},
   tax:      {title:'銷貨稅金明細', val:'營業稅', note:'單據上的營業稅（銷貨退回算負數），加上「月結稅金」（月結客戶月底依整月銷貨額算的稅，日期是帳款月份最後一天）。免稅單據沒有稅金，不列出。合計＝營運報表的「銷貨稅金」。'},
   gross:    {title:'銷貨含稅明細', val:'含稅金額', note:'未稅金額＋營業稅；月結客戶的稅金在「月結稅金」那一張。銷貨退回算負數。合計＝營運報表的「銷貨含稅合計」。'},
@@ -2568,7 +2573,9 @@ function repDocRows(kind, from, to, pid){
   for (const o of Object.values(S.orders)){
     if (!repInPeriod(o, from, to)) continue;
     const c = repCalc(o); if (!c) continue;
-    if ((kind === 'sale' || kind === 'profit' || kind === 'item') && c.side !== 'sale') continue;
+    if ((kind === 'sale' || kind === 'profit' || kind === 'item' || kind === 'saleOnly' || kind === 'saleRet') && c.side !== 'sale') continue;
+    if (kind === 'saleOnly' && o.type !== 'sale') continue;            // -em：只要銷貨單
+    if (kind === 'saleRet' && o.type !== 'sale_return') continue;      // -em：只要銷貨退回
     if (kind === 'purchase' && c.side !== 'purchase') continue;
     if (kind === 'count' && c.side === 'tax') continue;               // 月結稅金不算「進銷單據數」
     if ((kind === 'tax' || kind === 'gross') && c.side === 'purchase') continue;
@@ -13383,7 +13390,7 @@ function openPickOrder(orderId, opts){
   else try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
 }
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems, mergePickItems, allocParts, batchZones, batchOrders, openMergePick:(...x) => openMergePick(...x)}}); } catch(_){}
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders()}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders(), dsReport:() => dsReport()}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{unassignedOrders, cashStampOn, codWaiting, cashSaleOf, cashPending, awaitCash, openCashPending, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
 function openDisPlanForm(ex){
@@ -15301,7 +15308,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-el';
+const APP_VERSION = '2026.10.11-em';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -17736,7 +17743,7 @@ function dsReport(){
   const [from, to] = rangeOf(S.ui.rep), s = summarize(from, to), costOk = see('cost');
   const top = Object.values(s.items).filter(i => i.amt > 0).sort((a, b) => b.amt - a.amt);
   const label = ({today:'今日', month:'本月', last:'上月', cycle:'本帳期', lastcycle:'上帳期', year:'今年', custom:'自訂', all:'全部'})[S.ui.rep] || S.ui.rep;
-  const sumRows = [['銷貨淨額（未稅）', s.sale], ['銷貨稅金（營業稅）', s.tax], ['銷貨含稅合計', s.gross], ['進貨淨額（未稅）', s.purchase], ['收款折讓', s.disc], ...(costOk ? [['估算毛利', s.profit], ['毛利率（%）', s.sale > 0 ? Math.round(s.profit / s.sale * 1000) / 10 : 0]] : []), ['進銷單據數', s.count]];
+  const sumRows = [['銷貨額（未稅，不含銷貨退回）', s.saleGross], ['銷貨退回（未稅）', s.saleRet], ['銷貨淨額（未稅）', s.sale], ['銷貨稅金（營業稅）', s.tax], ['銷貨含稅合計', s.gross], ['進貨淨額（未稅）', s.purchase], ['收款折讓', s.disc], ...(costOk ? [['估算毛利', s.profit], ['毛利率（%）', s.sale > 0 ? Math.round(s.profit / s.sale * 1000) / 10 : 0]] : []), ['進銷單據數', s.count]];
   const debts = Object.entries(S.d.bal).filter(([id, b]) => S.partners[id] && Math.abs(b) > 0.004).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   return {title:'營運報表', sub:label + '（' + (S.ui.rep === 'all' ? '全部期間' : from + ' ~ ' + to) + '）　' + today(), filename:'營運報表_' + (S.ui.rep === 'custom' ? from + '_' + to : label),
     sections:[{name:'摘要', cols:[XC('項目', 'text', 22), XC('數值', 'money', 16)], rows:sumRows},
