@@ -1454,7 +1454,7 @@ function openOrder(type, pre){
   if (!fxOrderOk(type, pre)) return;
   const T = TYPES[type], isAdj = type === 'adjust';
   const editO = pre.edit || null;
-  if (editO && !(editO.type === 'sale' && can('sale') && (S.isAdmin || (editO.by && editO.by === S.meId)))) return toast('你沒有修改這張單據的權限');
+  if (editO && !((editO.type === 'sale' || editO.type === 'sale_return') && can('sale') && (S.isAdmin || (editO.by && editO.by === S.meId)))) return toast('你沒有修改這張單據的權限');
   const side = T.price === 'cost' ? 'purchase' : 'sale';
   const st = {date:today(), wh:pre.wh || defaultWh(), partnerId:pre.partnerId || '', note:pre.note || '', pay:'full', paid:'', lines:[], total:0, net:0, tax:0, taxType:'taxable', truckDate:today(), volume:'', volManual:false, freightCash:true};
   const partnerOf = () => S.partners[st.partnerId];
@@ -1465,13 +1465,13 @@ function openOrder(type, pre){
   if (editO){
     st.date = editO.date; st.partnerId = editO.partnerId || ''; st.wh = editO.wh || WH_MAIN; st.note = editO.note || '';
     st.taxType = editO.taxType || 'exempt'; st.taxMode = editO.taxMode === 'incl' ? 'incl' : (editO.taxMode === 'month' ? 'month' : 'excl');
-    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {}),
+    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, ...(type === 'sale_return' && l.cost != null ? {cost0:Number(l.cost) || 0} : {}), list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {}),
       pm:!!l.pm, price0:Number(l.price) || 0, promo0:l.promoId && !l.gift ? {id:l.promoId, name:l.promoName || '', base:Number(l.basePrice) || 0} : null, ...(l.gift ? {gift:true, promoId:l.promoId || null, promoName:l.promoName || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
     const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' || type === 'sale_return' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
     if (type === 'sale' && (editO.cashSale === true || editO.codWait === true)){ st.pay = 'cash'; st.paid = ''; }   /* -dr：銷貨收現（待沖帳）的單，原本選的是銷貨收現 */
   }
-  const stockEff = pid => stockAt(pid, st.wh) + ((editO && orderWh(editO) === st.wh) ? (oldQty[pid] || 0) : 0);
+  const stockEff = pid => stockAt(pid, st.wh) + ((editO && orderWh(editO) === st.wh) ? (oldQty[pid] || 0) * (type === 'sale_return' ? -1 : 1) : 0);   /* -eq：修改銷貨退回＝先扣掉原本加進庫存的數量，再加新的 */
   st.payTouched = false;
   if (!editO && type === 'sale') st.pay = custPayDefault(partnerOf());
   if (!editO && type === 'sale_return') st.pay = retPayDefault(partnerOf());   /* -cr：銷貨退回＝銷貨的負值，跟著客戶的付款方式 */
@@ -1490,7 +1490,7 @@ function openOrder(type, pre){
   st.deliv = editO ? (editO.deliveryDate || editO.date) : st.date; st.delivTouched = !!(editO && editO.deliveryDate && editO.deliveryDate !== editO.date);
   if (!editO && pre.deliv && pre.deliv > st.date){ st.deliv = pre.deliv; st.delivTouched = true; }
   st.urgent = !!(editO && editO.urgent); st.collect = !!(editO && editO.collect && editO.codWait !== true);   /* -dp：待送達收款的單自動蓋「順收貨款」，不算手動勾的 */ st.store = editO ? (editO.store || '') : '';
-  st.srcSale = pre.srcSale || ''; st.srcPO = pre.src && pre.src.kind === 'po' ? pre.src.id : '';
+  st.srcSale = pre.srcSale || (editO && type === 'sale_return' && editO.srcKind === 'sale' && S.orders[editO.srcId] ? editO.srcId : ''); st.srcPO = pre.src && pre.src.kind === 'po' ? pre.src.id : '';
   const fromCo = type === 'sale' && !editO && !!(pre.src && pre.src.kind === 'co');
   if (fromCo && S.corders[pre.src.id]) applyCoInfo(S.corders[pre.src.id], true, false);   // -dn：訂單裡的送貨方式、指送地址、稅別帶進銷貨單
   st.cos = fromCo ? [{id:pre.src.id, no:pre.src.no}] : []; st.noteAuto = fromCo ? st.note : '';   // 帶入的客戶訂單；系統自動寫的備註（使用者改過就不再動）
@@ -1588,6 +1588,7 @@ function openOrder(type, pre){
     if (type === 'sale' && !editO){ if (st.coTouched){ for (const k of st.coTouched) delete st.ship.touched[k]; st.coTouched = null; } st.ship.special = ''; st.ship.only = false; shipFill(); paintShip(); }
     if (type === 'sale' && !editO && !st.driverTouched){ st.driver = (partnerOf() || {}).driver || ''; paintDriver(); }
     if (type === 'sale'){ st.store = editO && editO.partnerId === st.partnerId ? st.store : ''; paintStamp(); }
+    if (type === 'sale_return' && editO && st.srcSale){ if ((st.partnerId || '') !== (editO.partnerId || '')){ st.partnerId = editO.partnerId || ''; fillPartners(); toast('這張銷貨退回有對應的銷貨單，不能更換客戶'); } return; }   /* -eq */
     if (type === 'sale_return'){ st.srcSale = ''; paintRet(); }
     if (type === 'purchase'){ st.srcPO = ''; for (const k of Object.keys(srcMap)) delete srcMap[k]; paintPO(); }
     paintRt(true);
@@ -1733,8 +1734,8 @@ function openOrder(type, pre){
   function paintRet(){
     if (!retBox) return;
     const list = st.partnerId ? Object.values(S.orders).filter(x => x.type === 'sale' && x.status !== 'void' && x.partnerId === st.partnerId).sort(cmpOrd) : [];
-    const sel = h('select', {class:'in', 'aria-label':'對應銷貨單', onchange:e => { st.srcSale = e.target.value; loadFromSale(); }}, h('option', {value:'', text:st.partnerId ? '不指定（沒有對應的銷貨單）' : '請先選擇客戶'}), ...list.map(x => h('option', {value:x.id, text:x.no + '　' + x.date + '　' + money(x.total)})));
-    sel.value = st.srcSale; setKids(retBox, h('label', {text:'對應銷貨單（退貨會帶入原單價、倉庫與稅別，數量不能超過可退數量）'}), sel);
+    const sel = h('select', {class:'in', 'aria-label':'對應銷貨單', disabled:!!editO, onchange:e => { st.srcSale = e.target.value; loadFromSale(); }}, h('option', {value:'', text:st.partnerId ? '不指定（沒有對應的銷貨單）' : '請先選擇客戶'}), ...list.map(x => h('option', {value:x.id, text:x.no + '　' + x.date + '　' + money(x.total)})));
+    sel.value = st.srcSale; setKids(retBox, h('label', {text:editO ? '對應銷貨單（修改時不能更換；數量不能超過可退數量，扣掉這張自己）' : '對應銷貨單（退貨會帶入原單價、倉庫與稅別，數量不能超過可退數量）'}), sel);
   }
   function loadFromSale(){
     const o = S.orders[st.srcSale]; if (!o) return;
@@ -1743,6 +1744,7 @@ function openOrder(type, pre){
     if (whSel) whSel.value = st.wh; paintTax(); paintLines();
     if (!st.lines.length) toast('這張銷貨單已經全部退完了');
   }
+  if (editO && type === 'sale_return'){ const so0 = S.orders[st.srcSale]; if (so0) for (const l of st.lines) l.retMax = retLeft(so0, l.pid); }   /* -eq：修改時，每一行顯示「原銷貨單可退 N」（扣掉這張自己） */
   const photoPk = type === 'sale_return' ? photoPicker({}) : null;
   const poBox = type === 'purchase' ? h('div', {class:'f'}) : null;
   function paintPO(){
@@ -1920,7 +1922,7 @@ function openOrder(type, pre){
   const dateIn = h('input', {class:'in', type:'date', value:st.date, 'aria-label':'日期', onchange:e => { st.date = e.target.value || today(); if (!st.delivTouched || st.deliv < st.date) st.deliv = st.date; repriceAll(); paintBill(); paintShip(); }});
   /* -ct：銷貨單、銷貨退回可以指定帳款月份；沒有指定就依日期和客戶的結帳日 */
   const bmOn = (type === 'sale' || type === 'sale_return') && !!T.partner;
-  st.bm = editO && BM_RE.test(String(editO.bm || '')) ? editO.bm : '';
+  st.bm = editO ? (BM_RE.test(String(editO.bm || '')) ? editO.bm : '') : (BM_RE.test(String(pre.bm || '')) ? pre.bm : '');   /* -en：從退貨處理建立銷貨退回單，帶入退款時選的帳款月份 */
   const bmAuto = () => billMonth(st.date, cutoffOf(S.partners[st.partnerId]));
   const bmIn = bmOn ? h('input', {class:'in', type:'month', 'aria-label':'帳款月份', style:'max-width:190px;height:40px', onchange:e => { const v = e.target.value; st.bm = BM_RE.test(v) && v !== bmAuto() ? v : ''; paintBill(); }}) : null;
   const bmReset = bmOn ? h('button', {class:'btn plain sm', type:'button', 'aria-label':'帳款月份改回依日期', onclick:() => { st.bm = ''; paintBill(); }}, '改回依日期') : null;
@@ -1954,7 +1956,7 @@ function openOrder(type, pre){
     h('details', {class:'fold'}, h('summary', {text:'更多選項（稅別、備註）'}), h('div', {class:'fold-b'},
       T.money && S.set.taxMode !== 'none' ? h('div', {class:'f'}, h('label', {text:'稅別（預設依客戶設定）'}), taxChips) : null,
       fld('備註', noteIn = h('input', {class:'in', placeholder:'選填', value:st.note, 'aria-label':'備註', oninput:e => { st.note = e.target.value; }})))),
-    photoPk ? h('div', {class:'f'}, h('label', {text:'退貨照片（拍下退回的商品狀況，最多 ' + PH_MAX + ' 張）'}), photoPk.el) : null,
+    photoPk && !editO ? h('div', {class:'f'}, h('label', {text:'退貨照片（拍下退回的商品狀況，最多 ' + PH_MAX + ' 張）'}), photoPk.el) : null,
     printChk ? h('label', {class:'check'}, printChk, '儲存後列印' + T.label) : null);
   if (editO && st.pay === 'part'){ paidIn.value = st.paid; paidIn.style.display = ''; }
   sh.footEl.append(totEl, saveBtn);
@@ -1971,7 +1973,7 @@ function openOrder(type, pre){
     const lines = [], needQ = {};
     for (const ln of st.lines){
       const p = S.products[ln.pid], stock = stockAt(ln.pid, st.wh);
-      const base = {pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', cost:p.cost || 0};
+      const base = {pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', cost:(type === 'sale_return' && ln.cost0 != null ? ln.cost0 : (p.cost || 0))};   /* -eq：修改銷貨退回，原本的商品維持原本的成本 */
       if (isAdj){
         if (ln.counted === '') return toast('請輸入「' + p.name + '」的實盤數量');
         const c = toNum(ln.counted); if (c < 0) return toast('實盤數量不可為負');
@@ -1991,7 +1993,7 @@ function openOrder(type, pre){
       for (const l of perPid){
         const have = stockEff(l.pid), after = r3(have + T.sign * l.qty);
         if (after < 0){
-          if (type !== 'sale' || !shortAct()) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : ''));
+          if (type !== 'sale' || !shortAct()) return toast('「' + l.name + '」庫存不足（現有 ' + num(have) + '）' + (type === 'sale' ? '，請通知採購或作業人員補貨' : (type === 'sale_return' && editO ? '。這張退貨的商品已經賣出一部分，退貨數量不能再減少到讓庫存變負的' : '')));
           if (await dialog({title:'「' + l.name + '」庫存不足', msg:'現有 ' + num(have) + '，這張要出 ' + num(l.qty) + '，差 ' + num(r3(-after)) + '。要用' + shortJoin(shortWays(shortagePlan(l.pid, r3(-after), st.wh))) + '處理嗎？', ok:'處理缺貨', cancel:'回去修改'}))
             openShortage({pid:l.pid, need:l.qty, have:() => stockEff(l.pid), wid:() => st.wh, label:'銷貨單', haveLabel:editO ? '可用庫存（含這張單原本的數量）' : '目前庫存', ref:editO ? editO.no : ''});
           return;
@@ -2028,9 +2030,10 @@ function openOrder(type, pre){
       for (const l of lines){ if (soldOf(so, l.pid) <= 0) return toast('「' + l.name + '」不在對應的銷貨單裡'); if (l.qty > retLeft(so, l.pid) + 0.0004) return toast('「' + l.name + '」退貨數量超過可退數量（' + num(retLeft(so, l.pid)) + '）'); }
     }
     if (type === 'sale' && st.deliv && st.deliv < st.date) return toast('預計送貨日期不可早於訂單日期');
-    if (reviewOn() && type === 'sale' && monthLocked('orders', st.date)) return toast(ymOf(st.date) + ' 的訂單已封存，不能新增或修改這個月份的單據');
+    if (reviewOn() && (type === 'sale' || (type === 'sale_return' && editO)) && monthLocked('orders', st.date)) return toast(ymOf(st.date) + ' 的訂單已封存，不能新增或修改這個月份的單據');
     if (editO){
       if (S.set.closeDate && (editO.date <= S.set.closeDate || st.date <= S.set.closeDate)) return toast('庫存已關帳至 ' + S.set.closeDate + '，不能修改關帳日以前的單據');
+      if (type === 'sale_return' && st.srcSale && (st.partnerId || '') !== (editO.partnerId || '')) return toast('這張銷貨退回有對應的銷貨單，不能更換客戶');
       const al = S.d.alloc[editO.id] || 0;
       if (al > 0.004){ if ((st.partnerId || '') !== (editO.partnerId || '')) return toast('這張單已有收款沖銷，不能更換客戶'); if (r2(paid + al) > total + 0.004) return toast('已收款 ' + money(al) + ' 加上這張單已付的金額，超過新的合計'); }
       if (editO.invNo && (Math.abs(total - (editO.total || 0)) > 0.004 || (st.partnerId || '') !== (editO.partnerId || '')) && !await dialog({title:'這張單已記錄發票', msg:'發票號碼 ' + editO.invNo + '。修改金額或客戶後，已開立的發票不會自動更正，請自行處理。', ok:'仍要修改'})) return;
@@ -2042,7 +2045,7 @@ function openOrder(type, pre){
         for (const x of editO.lines || []) if (!pids.has(x.pid) && returnedQty(editO.id, x.pid) > 0.0004) return toast('「' + x.name + '」已有退貨，不能移除');
       }
       saving = true; saveBtn.disabled = true;
-      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update({shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:cashHoldNow ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), cashSale:cashHoldNow, codWait:hold, codAmt:cashHoldNow ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+      const ok = await run(async () => { await S.db.doc('orders/' + editO.id).update(type === 'sale_return' ? {date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((st.partnerId || '') !== (editO.partnerId || '') ? {bu:buOf(S.partners[st.partnerId])} : {}), editedBy:S.meId || null, editedAt:Date.now()} : {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:cashHoldNow ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), cashSale:cashHoldNow, codWait:hold, codAmt:cashHoldNow ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date, date:st.date, bm:st.bm && st.bm !== bmAuto() ? st.bm : '', partnerId:st.partnerId || null, lines, total, paid, note:st.note.trim(), wh:st.wh, net:ts.net, tax:ts.tax, taxType:st.taxType, taxMode:st.taxType === 'taxable' ? st.taxMode : 'excl', ...((editO.lines || []).some(l => l.co) ? (coSrcOf(lines, true) || {srcId:'', srcNo:'', srcKind:'', srcIds:[], srcNos:[]}) : {}), editedBy:S.meId || null, editedAt:Date.now()}); return true; });
       saving = false; saveBtn.disabled = false;
       if (ok){ toast('已更新 ' + editO.no); sh.forceClose(); }
       return;
@@ -2055,7 +2058,7 @@ function openOrder(type, pre){
       extra:{...(phList.length ? {photos:phList.map(photoMeta)} : {}), ...(bmOn && st.bm && st.bm !== bmAuto() ? {bm:st.bm} : {}), ...(type === 'sale' ? (coSrcOf(lines) || {}) : (pre.src ? {srcId:pre.src.id, srcNo:pre.src.no, srcKind:pre.src.kind} : {})), ...(type === 'sale_return' && st.srcSale && S.orders[st.srcSale] ? {srcId:st.srcSale, srcNo:S.orders[st.srcSale].no, srcKind:'sale'} : {}), ...(type === 'purchase' && st.srcPO && S.porders[st.srcPO] ? {srcId:st.srcPO, srcNo:S.porders[st.srcPO].no, srcKind:'po'} : {}), ...(type === 'sale' ? {shipAddress:st.ship.addr.trim(), shipSpot:(st.ship.spot || '').trim(), shipSpecial:(st.ship.special || '').trim(), shipOnly:!!(st.ship.only && (st.ship.special || '').trim()), shipContact:st.ship.contact.trim(), shipPhone:st.ship.phone.trim(), shipMethod:st.ship.method || '', paidMethod:cashHoldNow ? '' : ((st.pay === 'cash' || st.pay === 'part') ? 'cash' : (st.pay === 'full' ? 'other' : '')), cashSale:cashHoldNow, codWait:hold, codAmt:cashHoldNow ? total : 0, urgent:!!st.urgent, collect:hold || !!st.collect, store:st.store || '', driver:st.driver.trim(), deliveryDate:st.deliv || st.date} : {}), wh:st.wh, ...(type === 'purchase' && toNum(st.volume) > 0 ? {truckDate:st.truckDate, volume:toNum(st.volume), freight:mInt(toNum(st.volume) * (S.set.freightRate || 0)), freightCash:st.freightCash} : {})}}));
     saving = false; saveBtn.disabled = false;
     if (!doc && phList.length) deletePhotoDocs(phList.map(x => x.id));
-    if (doc && pre.rtn) S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no)}).catch(() => null);
+    if (doc && pre.rtn) { const bmU = bmOn && st.bm && st.bm !== bmAuto() ? st.bm : ''; S.db.doc('returns/' + pre.rtn.id).update({returnOrderId:doc.id, returnOrderNo:doc.no, bm:bmU, log:rtLog(S.returns[pre.rtn.id] || {log:[]}, 'refund', '已建立銷貨退回單 ' + doc.no + (bmU ? '　帳款 ' + bmU : ''))}).catch(() => null); }
     if (doc && closePO){
       const {po, pr, got} = closePO, nl = [];
       for (const l of pr.lines){ const q = r3((l.got || 0) + (got[l.pid] || 0)); if (q > 0.0004){ const {got:_g, rem:_r, ...rest} = l; nl.push({...rest, qty:q}); } }
@@ -2081,7 +2084,7 @@ function openOrderDetail(id){
     const revLocked = reviewLock('order', o);
     const canVoid = can('void') && !isVoid && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
     const canDel = o.type === 'sale' && can('void') && !revLocked && (S.isAdmin || (o.by && o.by === S.meId));
-    const canEdit = o.type === 'sale' && !isVoid && !revLocked && can('sale') && fxOn('sale') && (S.isAdmin || (o.by && o.by === S.meId));
+    const canEdit = (o.type === 'sale' ? fxOn('sale') : o.type === 'sale_return' && fxOn('sale_return')) && !isVoid && !revLocked && can('sale') && (S.isAdmin || (o.by && o.by === S.meId));   /* -eq：銷貨退回也能修改 */
     const canPay = can('pay') && fxOn((pt ? pt.type : T.partner) === 'supplier' ? 'ap' : 'settle') && !isVoid && T.money === 1 && o.partnerId && due > 0.004 && !codWaiting(o);
     const cashP = cashPending(o);   /* -dr：銷貨收現，等人工沖帳 */
     const canCod = codWaiting(o) && !isVoid && S.canWrite && (can('sale') || can('pay') || canField() || S.isAdmin);   /* -dp */
@@ -2123,7 +2126,7 @@ function openOrderDetail(id){
           h('b', {text:money(pm.allocations.filter(a => a.orderId === id).reduce((x, a) => x + a.amount, 0))}))))] : null);
     const foot = [];
     foot.push(...reviewBtns('order', o));
-    if (canEdit) foot.push(h('button', {class:'btn ghost', 'aria-label':'修改單據', onclick:() => openOrder('sale', {edit:o})}, '修改'));
+    if (canEdit) foot.push(h('button', {class:'btn ghost', 'aria-label':'修改單據', onclick:() => openOrder(o.type, {edit:o})}, '修改'));
     if (o.type === 'sale' && !isVoid && can('sale') && fxOn('sale_return')) foot.push(h('button', {class:'btn ghost', 'aria-label':'銷貨退回', onclick:() => openOrder('sale_return', {srcSale:o.id})}, '退貨'));
     if (canVoid) foot.push(h('button', {class:'btn plain', onclick:() => voidOrder(o, sh)}, '作廢'));
     if (o.type === 'tax' && (can('pay') || S.isAdmin) && fxOn('monthTax')) foot.push(h('button', {class:'btn ghost', 'aria-label':'打開月結稅金', onclick:() => openMonthTax(o.month)}, '月結稅金'));
@@ -7211,6 +7214,9 @@ function arStmtCss(P, key, off){
     '@media screen{body{background:#dfe3e8;padding:12px}.sheet{background:#fff;margin:0 auto 12px;box-shadow:0 1px 6px rgba(0,0,0,.25)}.sheet.cont:before,.sheet.cont:after{content:"";position:absolute;top:0;bottom:0;border-left:1px dashed #c3ccd5}.sheet.cont:before{left:12.7mm}.sheet.cont:after{right:12.7mm}.bar{max-width:' + P.w + 'mm;margin:0 auto 10px;font:14px sans-serif}.bar button{font:inherit;padding:6px 16px}}@media print{.bar{display:none!important}body{padding:0}}';
 }
 const arStmtBar = key => key === 'letter' ? '　印表機選點陣式印表機（EPSON LQ-690C），紙張大小選「Letter」（8.5×11 吋連續報表紙）、邊界「無」、縮放 100%；每位客戶從新的一張開始。' : key === 'cont' ? '　印表機選點陣式印表機（EPSON LQ-690C），紙張選「整張 9.5x11」（9.5×11 吋連續報表紙）、邊界「無」、縮放 100%；每位客戶從新的一張開始。' : '　紙張選 A4 直式、邊界「無」、縮放 100%；每位客戶從新的一頁開始。';
+/* -ep：金額是 0 的單據、收款，不列在應收帳款對帳單上（本期合計照舊算，0 不影響） */
+const arZeroDoc = d => Math.abs(Number(d.total) || 0) < 0.005;
+const arZeroPay = p => Math.abs(Number(p.gross) || 0) < 0.005;
 function arStmtHTML(M, opt, standalone){
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
   const key = arStmtPaperKey(opt.paper), P = ARSTMT_PAPERS[key], off = arStmtCont(key) ? {ox:offClamp(opt.ox), oy:offClamp(opt.oy)} : {ox:0, oy:0}, H = AR_STMT_H;
@@ -7229,7 +7235,7 @@ function arStmtHTML(M, opt, standalone){
     const info = '<div class="cust" style="height:' + custIn + 'mm"><div class="cl"><div><span class="k">客　　戶:</span> ' + e(pt.name) + '</div>' + (name2 ? '<div class="ind">' + e(name2) + '</div>' : '') + (addr ? '<div class="ind">' + e(addr) + '</div>' : '') + '</div><div class="cr">' + rights.map(t => '<div>' + e(t) + '</div>').join('') + '</div></div>';
     const topH = r2((opt.env ? H.env : 0) + headH + H.meta + custIn + 3.5);
     /* 每張單據：品項一行一行，最後一行「貨物金額＋加扣款＋稅金＝合計」 */
-    const groups = r.docs.map(d => {
+    const groups = r.docs.filter(d => !arZeroDoc(d)).map(d => {
       const lead = '<td class="nw">' + e(rocD(d.o.date)) + '</td><td class="nw">' + e(d.o.no) + '</td>', leadCont = '<td class="nw">（續）</td><td class="nw">' + e(d.o.no) + '</td>';
       /* -cq：月結稅金照列一行：說明＋稅金金額 */
       if (d.o.type === 'tax'){ const segs = mtaxDescSegs(d.o); return [{h:r2(1.7 + 5.2 * segs.reduce((a, t) => a + linesIn(t, (nameW + 35) * 0.8, 10.5), 0)), html:() => '<tr class="st tx">' + lead + '<td colspan="3" class="wr">' + segs.map(e).join('<br>') + '</td><td class="r">' + n0(d.sg * d.tax) + '</td></tr>'}]; }
@@ -7256,10 +7262,11 @@ function arStmtHTML(M, opt, standalone){
     const T = r.docs.reduce((t, d) => ({goods:t.goods + d.sg * d.goods, adj:t.adj + d.sg * d.adj, tax:t.tax + d.sg * d.tax, total:t.total + d.sg * d.total}), {goods:0, adj:0, tax:0, total:0});
     brk(H.ptot);
     putBlock(H.ptot, '<div class="ptot">本期合計　貨物金額 ' + n0(r2(T.goods)) + '　＋ 加扣款 ' + n0(r2(T.adj)) + '　＋ 稅金 ' + n0(r2(T.tax)) + '　＝ 合計 ' + n0(r2(T.total)) + '</div>');
-    if (opt.pays && r.pays.length){
+    const showPays = r.pays.filter(p => !arZeroPay(p));
+    if (opt.pays && showPays.length){
       brk(H.sec + H.th + H.pay);
       putBlock(H.sec, '<div class="sec">本期收款</div>');
-      for (const p of r.pays){ const row = {h:H.pay, html:() => '<tr><td>' + e(rocD(p.pm.date)) + '</td><td>' + e(p.pm.no || '') + '</td><td>' + e((p.pm.dir === 'out' ? '退款・' : '') + (METHODS[p.pm.method] || '')) + '</td><td class="r">' + n0(p.sign * (Number(p.pm.amount) || 0)) + '</td><td class="r">' + n0(p.sign * ((Number(p.pm.discount) || 0) + (Number(p.pm.extra) || 0))) + '</td><td class="r">' + n0(p.sign * p.used) + '</td><td class="r">' + n0(p.sign * p.left) + '</td></tr>'}; brk(needT('pay') + row.h); putRow('pay', row); }
+      for (const p of showPays){ const row = {h:H.pay, html:() => '<tr><td>' + e(rocD(p.pm.date)) + '</td><td>' + e(p.pm.no || '') + '</td><td>' + e((p.pm.dir === 'out' ? '退款・' : '') + (METHODS[p.pm.method] || '')) + '</td><td class="r">' + n0(p.sign * (Number(p.pm.amount) || 0)) + '</td><td class="r">' + n0(p.sign * ((Number(p.pm.discount) || 0) + (Number(p.pm.extra) || 0))) + '</td><td class="r">' + n0(p.sign * p.used) + '</td><td class="r">' + n0(p.sign * p.left) + '</td></tr>'}; brk(needT('pay') + row.h); putRow('pay', row); }
     }
     if (S.set.slipNote){ const nh = r2(3 + 5.2 * String(S.set.slipNote).split('\n').reduce((a, t) => a + linesIn(t || ' ', cw, 10.5), 0)); if (nh <= AV - H.cont) brk(nh); putBlock(nh, '<div class="note">' + e(S.set.slipNote) + '</div>'); }
     const N = pages.length;
@@ -7295,6 +7302,7 @@ function dsArStatement(M){
   const cols = [XC('客戶編號', 'text', 10), XC('客戶名稱', 'text', 20), XC('帳款日期', 'text', 10), XC('帳款單號', 'text', 16), XC('產品名稱', 'text', 34), XC('數量', 'qty', 8), XC('單位', 'text', 5), XC('單價', 'money', 10), XC('金額', 'money', 12)], rows = [];
   for (const r of M.rows){
     for (const d of r.docs){
+      if (arZeroDoc(d)) continue;
       if (d.o.type === 'tax'){ rows.push([r.pt.code || '', r.pt.name, rocD(d.o.date), d.o.no, mtaxDesc(d.o), null, '', null, d.sg * d.tax]); continue; }
       (d.o.lines || []).forEach((l, i) => rows.push([r.pt.code || '', r.pt.name, i === 0 ? rocD(d.o.date) : '', i === 0 ? d.o.no : '', l.name || '', d.sg * Number(l.qty), l.unit || '', l.price, r2(d.sg * amtOf(l.qty, l.price))]));
       rows.push([r.pt.code || '', r.pt.name, '', '', '未稅總額', null, '', null, d.sg * r2(d.total - d.tax)]);
@@ -9887,7 +9895,14 @@ const rtClassified = r => { const sp = rtSplit(r); return sp.good.length + sp.ba
 const rtCondTxt = r => { const sp = rtSplit(r); return [sp.good.length ? '良品 ' + sp.good.length + ' 項' : '', sp.bad.length ? '不良品 ' + sp.bad.length + ' 項' : ''].filter(Boolean).join('、'); };
 const rtCondItems = r => { const sp = rtSplit(r), t = a => a.map(i => i.name + '×' + num(i.qty)).join('、'); return [sp.good.length ? '良品：' + t(sp.good) : '', sp.bad.length ? '不良品：' + t(sp.bad) : ''].filter(Boolean).join('；'); };
 const rtScope = r => r && r.goodDone ? rtSplit(r).bad : ((r && r.items) || []);
-const rtItemPrice = (r, i) => { if (i && i.refundPrice !== undefined && i.refundPrice !== null && i.refundPrice !== '' && Number(i.refundPrice) >= 0) return Number(i.refundPrice); const src = r && r.srcId ? S.orders[r.srcId] : null, sl = src && (src.lines || []).find(l => l.pid === i.pid); return sl ? Number(sl.price) || 0 : Number((S.products[i.pid] || {}).price) || 0; };
+const rtItemPrice = (r, i) => { if (i && i.refundPrice !== undefined && i.refundPrice !== null && i.refundPrice !== '' && Number(i.refundPrice) >= 0) return Number(i.refundPrice); const src = r && r.srcId ? S.orders[r.srcId] : null, sl = src && (src.lines || []).find(l => l.pid === i.pid); return sl ? Number(sl.price) || 0 : rtPolicyPrice(r, i); };
+/* -eo：沒有對應銷貨單（或銷貨單上沒有這項商品）的退貨，單價依現在的售價策略（這位客戶、這個數量、今天有效的價格規則）算；沒有任何規則才是商品定價 */
+function rtPolicyPrice(r, i){
+  const p = S.products[i && i.pid]; if (!p) return 0;
+  const q = toNum(i.qty) || 1, lines = ((r && r.items) || []).map(x => ({pid:x.pid, qty:x.qty}));
+  return Number(resolvePrice({side:'sale', product:p, partner:S.partners[r && r.partnerId], qty:q, famQty:famQtyOf(lines, p, q), date:today()}).price) || 0;
+}
+const rtHasPrice = i => !!i && i.refundPrice !== undefined && i.refundPrice !== null && i.refundPrice !== '' && Number(i.refundPrice) >= 0;
 /* -dh：狀態文字（改善後歸位的維修中，叫「改善中」）、結案去向、這位客戶待退還（歸還）的退貨 */
 const rtStTxt = r => r.status === 'processing' && r.action === 'improve' ? '改善中，待歸位' : (RT_ST[r.status] ?? r.status);
 const rtDest = r => r.status !== 'done' ? '' : r.after === 'scrap' ? '報廢' : r.after === 'restock' ? '歸位（重新入庫）' : r.after === 'supplier' ? '退回廠商' : r.returnedDate ? '退還客戶' : r.action === 'refund' ? '退款' : r.action === 'exchange' ? '換貨' : '';
@@ -9907,11 +9922,41 @@ function rtRefundDefault(r){
 }
 function rtStepSheet(title, fields, onSave, okText){
   const st = {}; fields.forEach(f => { if (f.k) st[f.k] = f.value === undefined ? '' : f.value; });
-  const sh = sheet({title}), inputs = fields.map(f => f.type === 'note' ? h('p', {class:'note', style:'margin:0 0 10px', text:f.text}) : f.type === 'select'
+  const sh = sheet({title}), inputs = fields.map(f => f.type === 'note' ? h('p', {class:'note', style:'margin:0 0 10px', text:f.text}) : f.type === 'node' ? f.el : f.type === 'select'
     ? fld(f.label, (() => { const s2 = h('select', {class:'in', 'aria-label':f.label, onchange:e => { st[f.k] = e.target.value; }}, ...f.options.map(([v, t]) => h('option', {value:v, text:t}))); s2.value = st[f.k]; return s2; })())
     : fld(f.label, h('input', {class:'in', type:f.type || 'text', inputmode:f.type === 'number' ? 'decimal' : undefined, value:st[f.k], placeholder:f.placeholder || '', 'aria-label':f.label, autocomplete:'off', oninput:e => { st[f.k] = e.target.value; }})));
   put(sh.bodyEl, ...inputs);
   sh.footEl.append(h('button', {class:'btn grow', onclick:async () => { const ok = await onSave(st); if (ok !== false) sh.forceClose(); }}, okText || '儲存'));
+}
+/* -en：退貨直接退款可以選帳款月份。沒指定＝依日期和客戶的結帳日（和銷貨退回單上的欄位同一種做法） */
+function rtRoOf(r){ const o = r.returnOrderId ? S.orders[r.returnOrderId] : null; return o && o.status !== 'void' ? o : null; }
+function rtBmCtl(r){
+  const pt = S.partners[r.partnerId], c = cutoffOf(pt), ro = rtRoOf(r), src = ro ? ro.bm : r.bm;
+  const auto = () => billMonth(ro && ro.date ? ro.date : today(), c);
+  let val = BM_RE.test(String(src || '')) && src !== auto() ? src : '';
+  const inp = h('input', {class:'in', type:'month', 'aria-label':'帳款月份', style:'max-width:190px;height:40px', onchange:e => { const v = e.target.value; val = BM_RE.test(v) && v !== auto() ? v : ''; paint(); }});
+  const reset = h('button', {class:'btn plain sm', type:'button', 'aria-label':'帳款月份改回依日期', onclick:() => { val = ''; paint(); }}, '改回依日期');
+  const info = h('small', {class:'hint', 'aria-label':'所屬帳期'});
+  function paint(){ const M = val || auto(); inp.value = M; reset.style.display = val ? '' : 'none';
+    info.textContent = cycleLabel(M, c) + (val ? '（指定；依日期是 ' + auto() + ' 帳）' : '（依日期和客戶的結帳日）') + (ro ? '。銷貨退回單 ' + ro.no + ' 會一起改成這個月份' : '。建立銷貨退回單時會帶入'); }
+  paint();
+  return {get:() => val, el:h('div', {class:'f', style:'margin:2px 0 6px'}, h('label', {text:'帳款月份（這筆退款算在哪個月的帳）'}), h('div', {style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, inp, reset), info)};
+}
+/* 已經建立銷貨退回單的話，把帳款月份一起改過去。回傳空字串＝成功（或不用改）；有字＝不能改的原因 */
+async function rtSyncOrderBm(r, bm){
+  const ro = rtRoOf(r); if (!ro) return '';
+  const cur = BM_RE.test(String(ro.bm || '')) ? ro.bm : '';
+  if (cur === (bm || '')) return '';
+  if (reviewLock('order', ro)) return '銷貨退回單 ' + ro.no + ' 已覆核';
+  if (reviewOn() && monthLocked('orders', ro.date)) return '銷貨退回單 ' + ro.no + ' 的月份已封存';
+  const ok = await run(async () => { await S.db.doc('orders/' + ro.id).update({bm:bm || '', editedBy:S.meId || null, editedAt:Date.now()}); return true; });
+  return ok ? '' : '銷貨退回單 ' + ro.no + ' 沒有更新成功';
+}
+const rtBmWhy = why => '帳款月份沒有改到：' + why + '。要改請先取消覆核，或把帳款月份改回原本的月份';
+function rtBmTxt(r, ro){
+  const pt = S.partners[r.partnerId];
+  if (ro && ro.status !== 'void') return BM_RE.test(String(ro.bm || '')) ? ro.bm + '（指定）' : '依日期（' + docBillMonth(ro, pt) + ' 帳）';
+  return BM_RE.test(String(r.bm || '')) ? r.bm + '（指定，建立銷貨退回單時帶入）' : '依日期（建立銷貨退回單時決定）';
 }
 function openReturnStep(r, kind){
   if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
@@ -9931,8 +9976,8 @@ function openReturnStep(r, kind){
   if (kind === 'returned') return rtStepSheet('已退還客戶', [{k:'returnedDate', label:'退還日期', value:today(), type:'date'}, {k:'returnNote', label:'備註（誰送、客戶簽收等）', value:''}],
     st => rtUpdate(r, {status:'done', returnedDate:st.returnedDate || today(), returnNote:st.returnNote.trim()}, 'returned', st.returnNote.trim()).then(ok => { if (ok) toast('已結案：修好的商品已退還客戶'); return ok; }), '結案');
   if (kind === 'refunded'){
-    const sp = rtSplit(r), cls = rtClassified(r), inStock = rtInStock(r), canAdj = can('stock') || S.isAdmin, ro = r.returnOrderId ? S.orders[r.returnOrderId] : null;
-    const fields = [{k:'refundAmount', label:'退款金額（確認）', value:r.refundAmount || rtRefundDefault(r), type:'number'}, {k:'refundMethod', label:'退款方式', type:'select', value:r.refundMethod || 'cash', options:Object.entries(RT_PAY)}, {k:'refundDate', label:'退款日期', value:today(), type:'date'}, {k:'refundNote', label:'備註', value:''}];
+    const sp = rtSplit(r), cls = rtClassified(r), inStock = rtInStock(r), canAdj = can('stock') || S.isAdmin, ro = r.returnOrderId ? S.orders[r.returnOrderId] : null, bmc = rtBmCtl(r);
+    const fields = [{k:'refundAmount', label:'退款金額（確認）', value:r.refundAmount || rtRefundDefault(r), type:'number'}, {k:'refundMethod', label:'退款方式', type:'select', value:r.refundMethod || 'cash', options:Object.entries(RT_PAY)}, {k:'refundDate', label:'退款日期', value:today(), type:'date'}, {type:'node', el:bmc.el}, {k:'refundNote', label:'備註', value:''}];
     if (cls){
       if (sp.good.length) fields.push(!inStock && canAdj ? {k:'goodAdj', label:'良品（' + sp.good.length + ' 項）：庫存怎麼處理（還沒用銷貨退回單入庫）', type:'select', value:'yes', options:[['yes', '建立調整單，把良品加回庫存'], ['no', '只記錄，不調整庫存']]} : {type:'note', text:'良品 ' + sp.good.length + ' 項：' + (inStock ? '已隨銷貨退回單入庫，不用另外處理。' : '還沒入庫，只記錄（你的角色不能調整庫存）。')});
       if (sp.bad.length) fields.push({k:'badWay', label:'不良品（' + sp.bad.length + ' 項）之後怎麼處理', type:'select', value:'pending', options:[['pending', '之後再決定：退回廠商或報廢'], ['scrap', '直接報廢（記報廢成本' + (inStock && canAdj ? '，同時從庫存扣除' : '') + '）'], ['none', '不用處理，直接結案' + (inStock ? '（不良品仍留在庫存裡）' : '')]]});
@@ -9942,8 +9987,9 @@ function openReturnStep(r, kind){
         if (!(amt > 0)){ toast('請輸入退款金額（要大於 0）'); return false; }
         if (!r.returnOrderId && !await dialog({title:'還沒建立銷貨退回單', msg:'這筆退款還沒有對應的銷貨退回單，庫存和客戶帳款不會跟著調整。仍要登記退款嗎？（建議先按「建立銷貨退回單」）', ok:'仍要登記'})) return false;
         if (ro && Math.abs((Number(ro.total) || 0) - amt) > 0.004 && !await dialog({title:'退款金額和銷貨退回單不同', msg:'你確認的退款金額是 ' + money(amt) + '，銷貨退回單 ' + ro.no + ' 的金額是 ' + money(ro.total) + '（有稅金時會不一樣）。仍要登記嗎？', ok:'仍要登記'})) return false;
-        const rd = st.refundDate || today();
-        let patch = {refundAmount:amt, refundMethod:st.refundMethod, refundDate:rd, refundNote:st.refundNote.trim()}, extra = '';
+        const rd = st.refundDate || today(), bm = bmc.get(), bmWhy = await rtSyncOrderBm(r, bm);
+        if (bmWhy){ toast(rtBmWhy(bmWhy)); return false; }
+        let patch = {refundAmount:amt, refundMethod:st.refundMethod, refundDate:rd, refundNote:st.refundNote.trim(), bm}, extra = '';
         if (cls){
           const parts = [], scrapNow = sp.bad.length && st.badWay === 'scrap', addGood = sp.good.length && !inStock && canAdj && st.goodAdj === 'yes', cutBad = scrapNow && inStock && canAdj;
           if (addGood) parts.push([sp.good, 1]); if (cutBad) parts.push([sp.bad, -1]);
@@ -9953,7 +9999,7 @@ function openReturnStep(r, kind){
           else patch.status = sp.bad.length && st.badWay === 'pending' ? 'goods' : 'done';
           extra = '　' + rtCondTxt(r) + (addGood ? '，良品已加回庫存' : '') + (scrapNow ? '，不良品報廢' + (cutBad ? '、已扣庫存' : '') : '');
         } else patch.status = st.goods === 'pending' ? 'goods' : 'done';
-        const ok = await rtUpdate(r, patch, 'refunded', RT_PAY[st.refundMethod] + ' ' + money(amt) + extra);
+        const ok = await rtUpdate(r, patch, 'refunded', RT_PAY[st.refundMethod] + ' ' + money(amt) + extra + (bm ? '　帳款 ' + bm : ''));
         if (ok) toast(patch.status === 'goods' ? (cls ? '已退款。不良品請接著決定怎麼處理' : '已退款。退回的商品請接著決定怎麼處理') : '已結案：已退款'); return ok; }, '登記已退款');
   }
 }
@@ -9967,7 +10013,7 @@ function openReturnRefundPlan(r, kind){
   const sh = sheet({title:kind === 'switch' ? '改成直接退款' : kind === 'plan' ? '調整商品與退款金額' : '直接退款：確認商品與金額'});
   const sumBox = h('div', {class:'panel pad', 'aria-label':'退款金額確認', style:'margin:12px 0'}), hint = h('small', {class:'hint', style:'display:block;margin-top:4px', 'aria-label':'金額差異'}), saveBtn = h('button', {class:'btn grow'}, '確認退款');
   const amtIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:String(manual ? Number(r.refundAmount) : calc()), 'aria-label':'確認退款金額', autocomplete:'off', onfocus:e => e.target.select(), oninput:() => { manual = true; upd(); }});
-  const subs = [];
+  const bmc = rtBmCtl(r), subs = [];
   const rowEls = rows.map((x, n) => {
     const sub = h('b', {'aria-label':'小計 ' + (n + 1)});
     const pIn = h('input', {class:'in', type:'text', inputmode:'decimal', value:x.price, 'aria-label':'退款單價 ' + (n + 1), autocomplete:'off', onfocus:e => e.target.select(), oninput:e => { x.price = e.target.value; if (!manual) amtIn.value = String(calc()); upd(); }});
@@ -9993,13 +10039,15 @@ function openReturnRefundPlan(r, kind){
     if (!(a > 0)) return toast('請輸入退款金額（要大於 0）');
     if (Math.abs(a - c) > 0.004 && !await dialog({title:'退款金額和明細合計不同', msg:'確認的退款金額是 ' + money(a) + '，明細合計是 ' + money(c) + '（差 ' + money(r2(a - c)) + '）。確定要退 ' + money(a) + ' 嗎？', ok:'確定'})) return;
     busy = true;
+    const bm = bmc.get(), bmWhy = await rtSyncOrderBm(r, bm);
+    if (bmWhy){ busy = false; return toast(rtBmWhy(bmWhy)); }
     const nItems = rows.map(x => ({...x.i, cond:x.cond, refundPrice:toNum(x.price)}));
-    const ok = await rtUpdate(r, {action:'refund', status:'refunding', items:nItems, refundAmount:a, refundCalc:c}, kind === 'plan' ? 'refundPlan' : kind, '退款 ' + money(a) + '　' + rtCondTxt({items:nItems}));
+    const ok = await rtUpdate(r, {action:'refund', status:'refunding', items:nItems, refundAmount:a, refundCalc:c, bm}, kind === 'plan' ? 'refundPlan' : kind, '退款 ' + money(a) + '　' + rtCondTxt({items:nItems}) + (bm ? '　帳款 ' + bm : ''));
     busy = false;
     if (ok){ toast(kind === 'plan' ? '已更新退款商品與金額' : kind === 'switch' ? '已改成直接退款：' + money(a) : '已記錄：直接退款 ' + money(a)); sh.forceClose(); }
   };
   put(sh.bodyEl, h('p', {class:'note', style:'margin-top:0', text:(kind === 'switch' ? '維修不成或客戶不要了，改成直接退款。' : '') + '客戶退回來的每項商品，先分成良品（檢查沒問題、可以再賣）或不良品（有瑕疵、不能再賣），再確認退款單價和金額。有填故障情形的先選不良品，不對可以改。'}),
-    h('div', {class:'panel', style:'margin-bottom:6px'}, ...rowEls), sumBox, fld('確認退款金額', amtIn), hint);
+    h('div', {class:'panel', style:'margin-bottom:6px'}, ...rowEls), sumBox, fld('確認退款金額', amtIn), hint, bmc.el);
   sh.footEl.append(saveBtn); upd();
 }
 function openReturnGoods(r, kind){
@@ -10022,7 +10070,7 @@ function openReturnGoods(r, kind){
 function openReturnSaleOrder(r){
   if (reviewLock('return', r)) return toast('這張退貨處理單已覆核，要更正請先取消覆核');
   const only = {}; (r.items || []).forEach(i => { only[i.pid] = (only[i.pid] || 0) + (Number(i.qty) || 0); });
-  openOrder('sale_return', r.srcId && S.orders[r.srcId] ? {srcSale:r.srcId, rtn:{id:r.id, only}} : {partnerId:r.partnerId, lines:(r.items || []).map(i => ({pid:i.pid, qty:i.qty, price:Number((S.products[i.pid] || {}).price) || 0})), rtn:{id:r.id, only}});
+  openOrder('sale_return', r.srcId && S.orders[r.srcId] ? {srcSale:r.srcId, rtn:{id:r.id, only}, bm:r.bm || ''} : {partnerId:r.partnerId, lines:(r.items || []).map(i => ({pid:i.pid, qty:i.qty, ...(rtHasPrice(i) ? {price:Number(i.refundPrice)} : {})})), rtn:{id:r.id, only}, bm:r.bm || ''});   /* -eo：沒有確認過退款單價的，不帶單價 → 表單依現在的售價策略算 */
 }
 function openReturnForm(pre){
   if (!fxGate('returns')) return;
@@ -10093,7 +10141,7 @@ function openReturnDetail(id){
         kv('登記者', (r.byName || who(r.by)) + (r.at ? '，' + fmtDT(r.at) : '')), reviewKv('return', r)),
       h('div', {class:'sec-h'}, h('h2', {text:'退回的商品'})), h('div', {class:'panel', style:'margin-bottom:14px'}, (r.items || []).map(i => h('div', {class:'mv', style:'grid-template-columns:1fr auto'}, h('span', null, h('b', {text:i.name}), rtCondOf(i) ? h('span', {class:'pill', style:'margin-left:6px', 'aria-label':'分類 ' + i.name, text:RT_COND[rtCondOf(i)]}) : null, h('br'), h('small', {text:i.sku + (i.reason ? '　' + i.reason : '') + (r.action === 'refund' && i.refundPrice !== undefined ? '　退款單價 ' + money(i.refundPrice) : '')}), Array.isArray(i.mfgs) && i.mfgs.length ? [h('br'), h('small', {class:'hint', 'aria-label':'製造日期', text:'製造日期 ' + i.mfgs.join('、')})] : null), h('b', {text:num(i.qty) + ' ' + (i.unit || '')})))),
       r.action === 'repair' || r.action === 'improve' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:r.action === 'improve' ? '檢測與改善' : '檢測與維修'}), h('div', {style:'height:6px'}), kv('故障原因', r.diagnosis || '—'), kv('維修內容', r.repairNote || '—'), r.repairBy ? kv('維修的人／廠商', r.repairBy) : null, r.repairCost ? kv('維修費用', money(r.repairCost)) : null, r.fixedDate ? kv('修好日期', r.fixedDate) : null, r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
-      r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), r.refundCalc !== undefined && Math.abs(Number(r.refundCalc) - Number(r.refundAmount || 0)) > 0.004 ? kv('明細合計', money(r.refundCalc)) : null, rtCondTxt(r) ? kv('商品分類', rtCondTxt(r)) : null, r.goodDone ? kv('良品庫存', r.goodAdjId ? '已建立調整單加回庫存' : (rtInStock(r) ? '已隨銷貨退回單入庫' : '只記錄，沒有調整庫存')) : null, kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
+      r.action === 'refund' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'退款'}), h('div', {style:'height:6px'}), kv('預計退款金額', money(r.refundAmount || rtRefundDefault(r))), r.refundCalc !== undefined && Math.abs(Number(r.refundCalc) - Number(r.refundAmount || 0)) > 0.004 ? kv('明細合計', money(r.refundCalc)) : null, rtCondTxt(r) ? kv('商品分類', rtCondTxt(r)) : null, r.goodDone ? kv('良品庫存', r.goodAdjId ? '已建立調整單加回庫存' : (rtInStock(r) ? '已隨銷貨退回單入庫' : '只記錄，沒有調整庫存')) : null, kv('銷貨退回單', ro ? h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(ro.id)}, ro.no) : '還沒建立'), kv('帳款月份', rtBmTxt(r, ro)), r.refundDate ? kv('退款', RT_PAY[r.refundMethod] + '　' + money(r.refundAmount) + '　' + r.refundDate + (r.refundNote ? '　' + r.refundNote : '')) : null) : null,
       r.action === 'return' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'原物退還'}), h('div', {style:'height:6px'}), kv('處理', '檢測沒有故障（或客戶不要退了），原物退還客戶'), r.returnedDate ? kv('退還客戶', r.returnedDate + (r.returnNote ? '　' + r.returnNote : '')) : null) : null,
       r.action === 'exchange' ? h('div', {class:'panel pad', style:'margin-bottom:14px'}, h('b', {text:'換貨'}), h('div', {style:'height:6px'}), kv('換貨商品', rtItemsTxt(r)), r.exchangeDate ? kv('換貨日期', r.exchangeDate + (r.exchangeNote ? '　' + r.exchangeNote : '')) : kv('狀態', '還沒換貨'), r.exchangeOrderId && S.orders[r.exchangeOrderId] ? kv('換貨的銷貨單', h('button', {style:'text-decoration:underline', onclick:() => openOrderDetail(r.exchangeOrderId)}, S.orders[r.exchangeOrderId].no)) : null) : null,
       r.after || r.status === 'goods' ? h('div', {class:'panel pad', style:'margin-bottom:14px', 'aria-label':'退回商品的處理'}, h('b', {text:r.goodDone ? '不良品怎麼處理' : '客戶退回來的商品怎麼處理'}), h('div', {style:'height:6px'}), r.goodDone ? kv('處理的商品', rtSplit(r).bad.map(i => i.name + '×' + num(i.qty)).join('、') || '—') : null, kv('處理方式', r.after ? RT_AFTER[r.after] : '還沒決定'), kv('庫存', rtInStock(r) ? '已用銷貨退回單入庫' : '還沒入庫（在退貨區）'),
@@ -15308,7 +15356,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-em';
+const APP_VERSION = '2026.10.11-eq';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
