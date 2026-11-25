@@ -11693,7 +11693,7 @@ function openPicking(pre){
       setTimeout(() => openPickOrder(x.id, {queue:[], onClose:() => { loadProg(); if (fine()) setTimeout(slipScan.focus, 80); }}), 60);
       return {ok:true, msg:'✓ ' + x.no + '　' + (pt0.shortName || pt0.name || '散客') + '，開啟揀貨'};
     }});
-    const rowsOf = () => Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && deliveryOf(o) === U.day && (U.drv === '__all' ? true : U.drv === '__none' ? !o.driver : o.driver === U.drv)).sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
+    const rowsOf = () => Object.values(S.orders).filter(o => o.type === 'sale' && o.status !== 'void' && String(o.date || '') === U.day && (U.drv === '__all' ? true : U.drv === '__none' ? !o.driver : o.driver === U.drv)).sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0) || String(a.no).localeCompare(String(b.no)));
     const stat = o => { const its = pickItems(o), pk = U.prog[o.id], n = pk ? its.filter(i => pickHandled(pk, i.pid)).length : 0; return {total:its.length, n, qty:r3(its.reduce((a, i) => a + i.qty, 0)), done:!!(pk && pk.done), started:n > 0, skipN:pk ? its.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length : 0, lackN:its.filter(i => !(pk && pickHandled(pk, i.pid)) && stockAt(i.pid, orderWh(o)) < 0).length}; };
     /* -eg：勾選單據 → 合併揀貨 */
     const barBox = h('div', {style:'position:sticky;top:0;z-index:2'});
@@ -11708,23 +11708,23 @@ function openPicking(pre){
     const pickRow = (o, st, i, btn) => h('div', {style:'display:flex;align-items:stretch' + (i ? ';border-top:1px solid var(--line)' : '')},
       st.done ? h('span', {'aria-hidden':'true', style:'flex:none;width:8px'}) : h('label', {style:'flex:none;display:flex;align-items:center;justify-content:center;width:46px;cursor:pointer'}, h('input', {type:'checkbox', checked:U.sel.has(o.id), 'aria-label':'勾選 ' + o.no, style:'width:22px;height:22px', onchange:e => { if (e.target.checked) U.sel.add(o.id); else U.sel.delete(o.id); paintBar(); }})), btn);
     const fill = () => {
-      if (!U.drv){ U.pickable = []; paintBar(); setKids(listBox, h('div', {class:'panel empty', text:'請先選擇送貨員，系統會帶出他當天要送的銷貨單。'})); return; }
+      if (!U.drv){ U.pickable = []; paintBar(); setKids(listBox, h('div', {class:'panel empty', text:'請先選擇送貨員，系統會帶出單據日期是這一天、由他送的銷貨單。'})); return; }
       const all = rowsOf(), rows = all.filter(o => !U.only || !stat(o).done);
       U.pickable = rows.filter(o => !stat(o).done); for (const id of [...U.sel]) if (!U.pickable.some(x => x.id === id)) U.sel.delete(id); paintBar();
       setKids(listBox, h('div', {class:'panel ledger', style:'margin-bottom:10px'}, h('div', {class:'row'}, h('span', {text:'要送的銷貨單'}), h('b', {text:all.length + ' 張'})), h('div', {class:'row'}, h('span', {text:'已完成揀貨'}), h('span', {text:all.filter(o => stat(o).done).length + ' 張'}))),
         rows.length ? h('div', {class:'panel'}, rows.map((o, i) => { const st = stat(o), pt = S.partners[o.partnerId] || {};
           const rowBtn = h('button', {class:'row', 'aria-label':'揀貨 ' + o.no, style:'align-items:flex-start;flex:1;min-width:0', onclick:() => openPickOrder(o.id, {queue:rows.map(x => x.id), onClose:() => loadProg()})},
             h('span', {style:'min-width:0;text-align:left'}, h('b', null, o.no, o.urgent ? h('span', {class:'overdue', style:'font-size:12px;margin-left:6px', text:'早一點'}) : null, o && o.collect ? h('span', {class:'soon', style:'font-size:12px;margin-left:6px', text:'順收貨款'}) : null, '　' + (pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'}), h('br'), h('small', {text:st.total + ' 項・共 ' + num(st.qty) + ' 件' + (o.driver ? '' : '　未指定送貨員') + (st.lackN ? '　⚠ 庫存不足 ' + st.lackN + ' 項' : '') + (st.skipN ? '　⚠ 略過掃描 ' + st.skipN + ' 項' : '')})),
-            h('span', {class:'right'}, h('span', {class:'pd-m ' + (st.done ? 'cash' : st.started ? 'note' : 'other'), text:st.done ? '已完成' : st.started ? '揀貨中 ' + st.n + '/' + st.total : '未開始'}))); return pickRow(o, st, i, rowBtn); })) : h('div', {class:'panel empty', text:all.length ? '這位送貨員的單據都揀完了' : '這一天這位送貨員沒有要送的銷貨單'}));
+            h('span', {class:'right'}, h('span', {class:'pd-m ' + (st.done ? 'cash' : st.started ? 'note' : 'other'), text:st.done ? '已完成' : st.started ? '揀貨中 ' + st.n + '/' + st.total : '未開始'}))); return pickRow(o, st, i, rowBtn); })) : h('div', {class:'panel empty', text:all.length ? '這位送貨員的單據都揀完了' : '這一天（單據日期）這位送貨員沒有銷貨單'}));
     };
     const loadProg = () => { const ids = rowsOf().map(o => o.id); Promise.all(ids.map(id => readPick(id).then(pk => { U.prog[id] = pk; }))).then(() => fill()); };
     const dIn = h('input', {class:'in', type:'date', value:U.day, 'aria-label':'揀貨日期', onchange:e => { U.day = e.target.value || U.day; fill(); loadProg(); }});
     const sel = h('select', {class:'in', 'aria-label':'送貨員', onchange:e => { U.drv = e.target.value; try { localStorage.setItem('pickDriver', U.drv); } catch (_) {} fill(); loadProg(); }}, h('option', {value:'', text:'請選擇送貨員'}), ...names.map(n => h('option', {value:n, text:n})), h('option', {value:'__none', text:'還沒指定送貨員的單據'}), h('option', {value:'__all', text:'全部送貨員'}));
     sel.value = U.drv;
-    const body = h('div', null, h('p', {class:'note', text:'選擇送貨員，系統帶出他當天要送的銷貨單。點一張單據，依架位順序揀貨，可以用語音提示。想一次揀好幾張：勾選單據，按「合併揀貨」，選要揀的區，就會依架位編號順序一起揀。'}),
+    const body = h('div', null, h('p', {class:'note', text:'選擇日期（單據上的日期）和送貨員，系統帶出那一天、由他送的銷貨單。點一張單據，依架位順序揀貨，可以用語音提示。想一次揀好幾張：勾選單據，按「合併揀貨」，選要揀的區，就會依架位編號順序一起揀。'}),
       h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('b', {text:'直接掃描銷貨單'}), h('small', {class:'hint', style:'display:block'}, '用相機或掃碼槍掃單據上的 QR Code，就直接帶出這張單的商品，不用先選送貨員。'), slipScan.el),
       h('div', {class:'chips', style:'padding-top:0'}, [['今天', 0], ['明天', 1], ['昨天', -1]].map(([t, n]) => h('button', {class:'chip', onclick:() => { U.day = addDays(today(), n); dIn.value = U.day; fill(); loadProg(); }}, t))),
-      h('div', {class:'f2'}, fld('預計送貨日期', dIn), fld('送貨員', sel)), vb.el,
+      h('div', {class:'f2'}, fld('單據日期', dIn), fld('送貨員', sel)), vb.el,
       h('label', {class:'check'}, h('input', {type:'checkbox', checked:U.only, 'aria-label':'只看還沒揀完的', onchange:e => { U.only = e.target.checked; fill(); }}), '只列出還沒揀完的單據'), barBox, listBox);
     fill(); if (U.drv) loadProg();
     return {body};
@@ -15375,7 +15375,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-er';
+const APP_VERSION = '2026.10.11-es';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
