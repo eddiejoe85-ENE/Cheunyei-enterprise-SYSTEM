@@ -1255,11 +1255,18 @@ function openProductForm(id){
   const paintPh = k => setKids(phBox[k], phCur[k].length ? h('div', {style:'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px'}, ...phCur[k].map((m, i) => h('div', {style:'position:relative'}, h('img', {src:m.thumb, alt:(ex ? ex.name : '') + PH[k].name + (i + 1), style:'width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line)'}), h('button', {class:'ic sm', type:'button', 'aria-label':'移除' + PH[k].label + '照片 ' + (i + 1), style:'position:absolute;top:-6px;right:-6px;background:var(--panel);border:1px solid var(--line);border-radius:50%', onclick:() => { phGone[k].push(phCur[k][i]); phCur[k].splice(i, 1); paintPh(k); }}, icon('x'))))) : null, phPk[k].el);
   phPk.photo = photoPicker({max:PROD_PH_MAX, existing:() => phCur.photo.length}); phPk.pack = photoPicker({max:PROD_PH_MAX, existing:() => phCur.pack.length});
   paintPh('photo'); paintPh('pack');
+  /* -et：多行描述（每列「類別＋規格描述」） */
+  let descsSt = descNorm(ex && ex.descs);
+  const descSum = h('small', {class:'hint', 'aria-label':'多行描述摘要', style:'display:block;margin-top:4px'});
+  const paintDescSum = () => { descSum.textContent = descsSt.length ? descsSt.length + ' 列：' + descsSt.slice(0, 2).map(descTxt).join('；') + (descsSt.length > 2 ? '…' : '') : '還沒有設定（開單、列印時品名下面不印描述）'; };
+  const descField = h('div', {class:'f'}, h('label', {text:'多行描述（品名下面的規格描述，每列「類別＋描述」；開銷貨單、訂單時帶入，可在單據上改，選填）'}),
+    h('button', {type:'button', class:'btn ghost sm', 'aria-label':'編輯多行描述', onclick:() => openDescEditor({sku:f.sku.value.trim(), name:f.name.value.trim(), pid:id, rows:descsSt, onSave:rows => { descsSt = rows; paintDescSum(); }})}, '編輯多行描述…'), descSum);
+  paintDescSum();
   let saving = false;
   const saveBtn = h('button', {class:'btn grow', onclick:save}, '儲存');
   const sh = sheet({title:ex ? '編輯商品' : '新增商品'});
   put(sh.bodyEl,
-    fld('產品編號', f.sku), fld('產品名稱', f.name), fld('系列（同款不同顏色，每個顏色各建一個商品、系列填一樣；數量優惠可以合併計算，選填）', familyIn), famDl,
+    fld('產品編號', f.sku), fld('產品名稱', f.name), descField, fld('系列（同款不同顏色，每個顏色各建一個商品、系列填一樣；數量優惠可以合併計算，選填）', familyIn), famDl,
     h('div', {class:'f2'}, fld('產品大類', f.category), h('div', {class:'f'}, h('label', {text:'基本單位'}), unitSel, f.unit)),
     fld('每箱入數（外箱裡有幾個基本單位；盤點時可以直接輸入箱數，選填）', f.cartonQty), cartonHint,
     h('div', {class:'f'}, h('label', {text:'產品規格尺寸（公分）：長 × 寬 × 高，商品本身的大小，選填'}), h('div', {style:'display:grid;grid-template-columns:repeat(3,1fr);gap:8px'}, f.specL, f.specW, f.specH)),
@@ -1292,7 +1299,7 @@ function openProductForm(id){
     if (dup) return toast('料號或條碼已被「' + dup.name + '」使用');
     const bm = f.bomEd.get(); if (bm.err) return toast(bm.err);
     const cqT = f.cartonQty.value.trim(); if (cqT !== '' && !(toNum(cqT) > 1)) return toast('每箱入數要大於 1（沒有外箱就留空）');
-    const data = {sku, barcode, supplierId:f.supplier.value, bom:bm.bom, name, category:f.category.value.trim(), unit:f.unit.value.trim() || '個', cartonQty:cqT === '' ? 0 : r3(toNum(cqT)),
+    const data = {sku, barcode, supplierId:f.supplier.value, bom:bm.bom, descs:descsSt, name, category:f.category.value.trim(), unit:f.unit.value.trim() || '個', cartonQty:cqT === '' ? 0 : r3(toNum(cqT)),
       cost:Math.max(toNum(f.cost.value), 0), price:Math.max(toNum(f.price.value), 0), safety:Math.max(toNum(f.safety.value), 0), moq:Math.max(toNum(f.moq.value), 0), lot:Math.max(toNum(f.lot.value), 0), volume:Math.max(toNum(f.volume.value), 0), dimL:r3(Math.max(toNum(f.dimL.value), 0)), dimW:r3(Math.max(toNum(f.dimW.value), 0)), dimH:r3(Math.max(toNum(f.dimH.value), 0)), specL:r3(Math.max(toNum(f.specL.value), 0)), specW:r3(Math.max(toNum(f.specW.value), 0)), specH:r3(Math.max(toNum(f.specH.value), 0)), procSrc:f.procSrc.value, costMode:f.costMode.value, note:f.note.value.trim(), whRules:getWhRules(), labelSpec:labelSpecIn.value.trim(), family:familyIn.value.trim(), shelf:normShelf(shelfIn.value), shelves:Object.keys(shelfWh).reduce((a, k) => { const v = normShelf(shelfWh[k].value); if (v) a[k] = v; return a; }, {})};
     /* 其他架位：主要架位空白時，第一個其他架位變成主要架位；沒顯示在表單上的倉庫（已停用）保留原本的 */
     { const alt = ex && ex.shelfAlt && typeof ex.shelfAlt === 'object' ? {...ex.shelfAlt} : {};
@@ -1469,7 +1476,7 @@ function openOrder(type, pre){
   if (editO){
     st.date = editO.date; st.partnerId = editO.partnerId || ''; st.wh = editO.wh || WH_MAIN; st.note = editO.note || '';
     st.taxType = editO.taxType || 'exempt'; st.taxMode = editO.taxMode === 'incl' ? 'incl' : (editO.taxMode === 'month' ? 'month' : 'excl');
-    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, ...(type === 'sale_return' && l.cost != null ? {cost0:Number(l.cost) || 0} : {}), list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {}),
+    st.lines = (editO.lines || []).map(l => { const lp = l.listPrice != null ? Number(l.listPrice) : (Number((S.products[l.pid] || {}).price) || 0); return {pid:l.pid, qty:l.qty, counted:'', price:l.price, manual:true, orig:true, rule:null, ...(type === 'sale' ? {descs:descNorm(l.descs)} : {}), ...(type === 'sale_return' && l.cost != null ? {cost0:Number(l.cost) || 0} : {}), list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, l.price), ...(l.co ? {co:l.co, coNo:l.coNo || ''} : {}),
       pm:!!l.pm, price0:Number(l.price) || 0, promo0:l.promoId && !l.gift ? {id:l.promoId, name:l.promoName || '', base:Number(l.basePrice) || 0} : null, ...(l.gift ? {gift:true, promoId:l.promoId || null, promoName:l.promoName || ''} : {})}; });
     for (const l of editO.lines || []) oldQty[l.pid] = r3((oldQty[l.pid] || 0) + (Number(l.qty) || 0));
     const pd = Number(editO.paid) || 0; st.pay = pd >= (editO.total || 0) - 0.004 ? (editO.paidMethod === 'other' || type === 'sale_return' ? 'full' : 'cash') : (pd > 0.004 ? 'part' : 'none'); st.paid = st.pay === 'part' ? String(pd) : '';
@@ -1643,7 +1650,7 @@ function openOrder(type, pre){
       for (const l of docProgress('co', d).lines){
         const p = S.products[l.pid]; if (l.rem <= 0.0004 || !p || p.active === false) continue;
         const pr = Number(l.price) || 0, lp = l.listPrice != null ? Number(l.listPrice) : (Number(p.price) || 0);
-        st.lines.push({pid:l.pid, qty:l.rem, counted:'', price:pr, manual:true, orig:true, rule:null, list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, pr), co:d.id, coNo:d.no, ord:Number(l.qty) || 0, rem:l.rem}); n++;
+        st.lines.push({pid:l.pid, qty:l.rem, counted:'', price:pr, manual:true, orig:true, rule:null, descs:descNorm(l.descs !== undefined ? l.descs : p.descs), list:lp, disc:l.disc != null ? Number(l.disc) : discPct(lp, pr), co:d.id, coNo:d.no, ord:Number(l.qty) || 0, rem:l.rem}); n++;
       }
     }
     if (add.length && multiWh()){
@@ -1778,6 +1785,7 @@ function openOrder(type, pre){
       const ln = {pid, qty:isAdj ? '' : (qty || 1), counted:'', price:0, manual:price != null, rule:null};
       if (price != null){ ln.price = price; ln.list = meta && meta.listPrice != null ? Number(meta.listPrice) : (Number(p.price) || 0); ln.disc = meta && meta.disc != null ? Number(meta.disc) : discPct(ln.list, price); } else if (!isAdj) auto(ln);
       if (meta && meta.co){ ln.co = meta.co; ln.coNo = meta.coNo || ''; if (meta.ord != null){ ln.ord = Number(meta.ord) || 0; ln.rem = Number(meta.rem) || 0; } }
+      if (type === 'sale') ln.descs = meta && meta.descs !== undefined ? descNorm(meta.descs) : descsOf(p);   /* -et：多行描述從產品基本資料帶入（轉單時用客戶訂單那一行的；之後可在單據上改） */
       st.lines.push(ln); if (!isAdj) famRefresh(ln);
     }
     paintLines();
@@ -1847,7 +1855,7 @@ function openOrder(type, pre){
           h('div', null, h('label', {text:isAdj ? '實盤數量' : '數量'}), qtyIn),
           priceIn ? h('div', null, h('label', {text:'單價'}), priceIn) : null,
           h('div', {class:'ln-s'}, h('small', {text:isAdj ? '差異' : '小計'}), sub)),
-        ref.cartonEl || null, rule, warn, short, qwarn, qtier);
+        ref.cartonEl || null, rule, warn, short, qwarn, qtier, type === 'sale' ? descLineRow(ln, p, paintLines) : null);
     }));
     calc();
     if (histP) histP.paint();
@@ -1977,7 +1985,7 @@ function openOrder(type, pre){
     const lines = [], needQ = {};
     for (const ln of st.lines){
       const p = S.products[ln.pid], stock = stockAt(ln.pid, st.wh);
-      const base = {pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', cost:(type === 'sale_return' && ln.cost0 != null ? ln.cost0 : (p.cost || 0))};   /* -eq：修改銷貨退回，原本的商品維持原本的成本 */
+      const base = {pid:p.id, name:p.name, sku:p.sku, unit:p.unit || '', cost:(type === 'sale_return' && ln.cost0 != null ? ln.cost0 : (p.cost || 0)), ...(type === 'sale' && !ln.gift && descNorm(ln.descs).length ? {descs:descNorm(ln.descs)} : {})};   /* -eq：修改銷貨退回，原本的商品維持原本的成本 */
       if (isAdj){
         if (ln.counted === '') return toast('請輸入「' + p.name + '」的實盤數量');
         const c = toNum(ln.counted); if (c < 0) return toast('實盤數量不可為負');
@@ -2109,7 +2117,7 @@ function openOrderDetail(id){
         o.type === 'sale' && (o.shipContact || o.shipPhone) ? kv('送貨聯絡', [o.shipContact, o.shipPhone].filter(Boolean).join('　')) : null,
         o.note ? kv('備註', o.note) : null),
       o.type === 'tax' ? mtaxPanel(o) : h('div', {class:'panel', style:'margin-bottom:14px'}, (o.lines || []).map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
-        h('span', null, h('b', {text:l.name}), h('br'), h('small', {text:l.sku + (T.money ? '　' + num(l.qty) + (hideBuy ? '' : ' × ' + money(l.price) + (discNote(l) ? '　' + discNote(l) : '')) : '') + (o.type === 'sale' && (o.lines || []).some(x => x.co) ? (l.co ? '　訂單 ' + (l.coNo || (S.corders[l.co] || {}).no || '') : (l.gift ? '' : '　另加（不在訂單裡）')) : '')})),
+        h('span', null, h('b', {text:l.name}), h('br'), descBlock(l), h('small', {text:l.sku + (T.money ? '　' + num(l.qty) + (hideBuy ? '' : ' × ' + money(l.price) + (discNote(l) ? '　' + discNote(l) : '')) : '') + (o.type === 'sale' && (o.lines || []).some(x => x.co) ? (l.co ? '　訂單 ' + (l.coNo || (S.corders[l.co] || {}).no || '') : (l.gift ? '' : '　另加（不在訂單裡）')) : '')})),
         h('b', {text:o.type === 'transfer' ? num(l.qty) + ' ' + (l.unit || '') : ((o.type === 'assembly' || o.type === 'disassembly') ? (l.sgn < 0 ? '−' : '+') + num(l.qty) + ' ' + (l.unit || '') : o.type === 'adjust' ? (l.qty > 0 ? '+' : '') + num(l.qty) + ' ' + (l.unit || '') : (hideBuy ? num(l.qty) + ' ' + (l.unit || '') : money(amtOf(l.qty, l.price))))})))),
       photoSection(o),
       (() => { const es = Object.values(S.derrors).filter(r => r.status !== 'void' && r.orderId === id), re = Object.values(S.derrors).filter(r => r.status !== 'void' && r.redeliverOrderId === id); return es.length || re.length ? [h('div', {class:'sec-h'}, h('h2', {text:'配送錯誤紀錄'})), h('div', {class:'panel', style:'margin-bottom:14px'}, [...es.map(r => h('button', {class:'row', onclick:() => openDErrDetail(r.id)}, h('span', {style:'text-align:left'}, h('b', {text:r.item + ' × ' + num(r.qty) + '　' + DE_CAUSE[r.cause]}), h('br'), h('small', {text:r.no + '　' + DE_RES[r.result] + (r.redeliverNo ? '：' + r.redeliverNo : '') + '　責任：' + (r.empName || '無')})), h('small', {text:'-' + money(r.amount || 0)}))), ...re.map(r => h('button', {class:'row', onclick:() => openDErrDetail(r.id)}, h('span', {style:'text-align:left'}, h('b', {text:'這張是 ' + r.orderNo + ' 的再度配送'}), h('br'), h('small', {text:r.item + ' × ' + num(r.qty) + '　' + r.no})), h('small', {class:'chev', text:'›'})))]) ] : null; })(),
@@ -3927,7 +3935,7 @@ function openDocEditor(kind, pre){
   const othOf = pid => r3(Math.max((S.d.commit[pid] || 0) - ownRem(pid), 0));   // 其他訂單預留的量（修改時，扣掉這張訂單自己）
   const st = ed ? {date:ed.date, wh:ed.wh || defaultWh(), expected:ed.expected || ed.date, partnerId:ed.partnerId || '', note:ed.note || '', lines:(ed.lines || []).map(l => {
       const p = S.products[l.pid], list = Number(l.listPrice) || (p ? Number(p.price) : 0) || 0;
-      return {pid:l.pid, qty:l.qty, price:l.price, manual:true, orig:true, pm:!!l.pm, price0:Number(l.price) || 0, lastSet:Number(l.price) || 0, promo0:l.promo && l.promo.id ? l.promo : null, list, disc:Number(l.listPrice) > 0 ? (Number(l.disc) || 100) : discPct(list, l.price), fb:p ? null : {id:l.pid, name:l.name || '（已刪除的商品）', sku:l.sku || '', unit:l.unit || '', price:Number(l.price) || 0, cost:Number(l.cost) || 0, safety:0}}; })}
+      return {pid:l.pid, qty:l.qty, price:l.price, manual:true, orig:true, descs:descNorm(l.descs), pm:!!l.pm, price0:Number(l.price) || 0, lastSet:Number(l.price) || 0, promo0:l.promo && l.promo.id ? l.promo : null, list, disc:Number(l.listPrice) > 0 ? (Number(l.disc) || 100) : discPct(list, l.price), fb:p ? null : {id:l.pid, name:l.name || '（已刪除的商品）', sku:l.sku || '', unit:l.unit || '', price:Number(l.price) || 0, cost:Number(l.cost) || 0, safety:0}}; })}
     : {date:today(), wh:pre.wh || defaultWh(), expected:kind === 'co' ? today() : addDays(today(), pre.partnerId ? leadOf(pre.partnerId).max : 7), partnerId:pre.partnerId || '', note:pre.note || '', lines:[]};
   const coKind = kind === 'co', partnerOfD = () => S.partners[st.partnerId];
   /* -dn：客戶訂單的送貨方式、地址（預設帶入客戶資料）、稅別（預設依客戶設定） */
@@ -4039,6 +4047,7 @@ function openDocEditor(kind, pre){
     else {
       const ln = {pid, qty:qty || 1, price:0, manual:price != null, list:Number(p.price) || 0, disc:100};
       ln.price = price != null ? price : docAuto(p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); if (meta && meta.listPrice != null){ ln.list = Number(meta.listPrice); ln.disc = meta.disc != null ? Number(meta.disc) : discPct(ln.list, ln.price); }
+      if (kind !== 'po') ln.descs = descsOf(p);   /* -et：多行描述從產品基本資料帶入 */
       st.lines.push(ln); famRefreshD(ln);
     }
     paintLines();
@@ -4079,7 +4088,7 @@ function openDocEditor(kind, pre){
           h('span', {style:'display:flex;gap:6px;align-items:center'}, kind === 'co' && S.products[ln.pid] ? infoBtn(ln.pid, {partnerId:st.partnerId, onPick:pr => { ln.price = pr; ln.manual = true; ln.disc = discPct(ln.list, pr); ref.priceIn.value = pr; if (ref.discIn) ref.discIn.value = zheIn(ln); calc(); }}) : null, h('button', {class:'ic sm', 'aria-label':'移除此項', disabled:gotOf(ln.pid) > 0.0004, title:gotOf(ln.pid) > 0.0004 ? '已' + D.act + '，不能移除' : '', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshD(gone); paintLines(); }}, icon('x')))),
         (() => { const qtyDiv = h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', onfocus:sel, oninput:e => { ln.qty = e.target.value; if (!ln.manual){ ln.price = docAuto(p, ln.qty).price; ln.disc = discPct(ln.list, ln.price); ref.priceIn.value = ln.price; if (discIn) discIn.value = zheIn(ln); } famRefreshD(ln); calc(); }}));
           return showDisc ? [h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'定價'}), listIn), h('div', null, h('label', {text:'折數（0.9＝9折）'}), discIn)), h('div', {class:'ln-g', style:'margin-top:6px'}, h('div', null, h('label', {text:'單價（定價 × 折數）'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub))]
-            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, short, qwarn, qtier, promo);
+            : (kind === 'po' && !buyOn()) ? h('div', {class:'ln-g'}, qtyDiv) : h('div', {class:'ln-g'}, qtyDiv, h('div', null, h('label', {text:'單價'}), ref.priceIn), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)); })(), hint, short, qwarn, qtier, promo, kind !== 'po' ? descLineRow(ln, p, paintLines) : null);
     }));
     calc(); histD.paint();
   }
@@ -4121,6 +4130,7 @@ function openDocEditor(kind, pre){
       if (!(q > 0)) return toast('請輸入「' + p.name + '」的數量');
       if (pr < 0) return toast('單價不可為負');
       lines.push({...(orig || {}), pid:p.id, name:orig ? orig.name : p.name, sku:p.sku, unit:p.unit || '', qty:q, price:pr, cost:orig ? (Number(orig.cost) || 0) : (p.cost || 0), ...(kind === 'co' ? {listPrice:Number(ln.list) || 0, disc:Number(ln.disc) || 100} : {})});
+      if (kind !== 'po'){ const L2 = lines[lines.length - 1], ds2 = descNorm(ln.descs); if (ds2.length) L2.descs = ds2; else delete L2.descs; }
       if (kind === 'co'){ const L = lines[lines.length - 1]; if (ln.promoId) L.promo = {id:ln.promoId, name:ln.promoName, base:Number(ln.promoBase) || 0}; else if (L.promo && orig && Math.abs((Number(orig.price) || 0) - pr) > 0.004) delete L.promo;
         if (ln.orig ? ln.pm : ln.manual) L.pm = true; else delete L.pm; }   /* 手動輸入的單價：之後再修改訂單時，組合優惠不會改它 */
     }
@@ -4182,7 +4192,7 @@ function openDocEditor(kind, pre){
 /* ---- 明細 / 拋轉 ---- */
 function convertDoc(kind, d, more){
   const D = DOCS[kind], pr = docProgress(kind, d);
-  const lines = pr.lines.filter(l => l.rem > 0.0004 && S.products[l.pid] && S.products[l.pid].active !== false).map(l => ({pid:l.pid, qty:l.rem, price:l.price, listPrice:l.listPrice, disc:l.disc, ord:l.qty, rem:l.rem}));
+  const lines = pr.lines.filter(l => l.rem > 0.0004 && S.products[l.pid] && S.products[l.pid].active !== false).map(l => ({pid:l.pid, qty:l.rem, price:l.price, listPrice:l.listPrice, disc:l.disc, ord:l.qty, rem:l.rem, ...(l.descs !== undefined ? {descs:descNorm(l.descs)} : {})}));
   if (!lines.length) return toast('沒有可轉換的品項（商品可能已停用）');
   openOrder(D.srcType, {partnerId:d.partnerId, lines, wh:d.wh, note:D.label + ' ' + d.no, src:{id:d.id, no:d.no, kind}, ...(more || {})});
 }
@@ -4238,7 +4248,7 @@ function openDocDetail(kind, id){
         kv(PLABEL[D.partner], pt ? pt.name : '—'), kv('訂單日期', d.date), kv(D.dateLabel, d.expected || '—'),
         multiWh() && d.wh ? kv('倉庫', whName(d.wh)) : null, d.from === 'suggestion' ? kv('來源', '採購建議') : null, d.note ? kv('備註', d.note) : null, ...(kind === 'co' ? coDetailRows(d) : []), kv('建立者', who(d.by) + '，' + fmtDT(d.at)), d.editedAt ? kv('最後修改', who(d.editedBy) + '，' + fmtDT(d.editedAt)) : null, reviewKv(kind === 'co' ? 'corder' : 'porder', d)),
       h('div', {class:'panel', style:'margin-bottom:14px'}, [...pr.lines.map(l => h('div', {class:'mv', style:'grid-template-columns:1fr auto'},
-        h('span', null, h('b', {text:l.name}), h('br'),
+        h('span', null, h('b', {text:l.name}), h('br'), descBlock(l),
           h('small', {text:l.sku + '　訂 ' + num(l.qty) + '　' + D.doneLbl + ' ' + num(l.got) + '　未' + D.act.slice(0, 1) + ' ' + num(l.rem) + (D.price !== 'cost' && Number(l.price) ? '　@' + money(l.price) : '') + (discNote(l) ? '　' + discNote(l) : '') + (l.promo && l.promo.name ? '　組合優惠「' + l.promo.name + '」' + (Number(l.promo.base) > 0 ? '（原價 ' + money(l.promo.base) + '）' : '') : '')}),
           kind === 'co' && pr.active && l.rem > 0 ? [h('br'), h('small', {class:stockOf(l.pid) < l.rem ? 'overdue' : '', text:stockOf(l.pid) < l.rem ? '庫存 ' + num(stockOf(l.pid)) + '，缺 ' + num(r3(l.rem - stockOf(l.pid))) : '庫存足夠（' + num(stockOf(l.pid)) + '）'}),
             stockOf(l.pid) < l.rem && S.products[l.pid] && shortAct() ? [' ', h('button', {class:'btn ghost sm', type:'button', 'aria-label':'處理缺貨 ' + l.sku, onclick:() => openShortage({pid:l.pid, need:l.rem, have:() => stockOf(l.pid), wid:docWh(d), label:'客戶訂單', haveLabel:'目前庫存', ref:d.no})}, '處理缺貨')] : null] : null),
@@ -4452,14 +4462,16 @@ function refSlipHTML(o, standalone, P){
   const pt = S.partners[o.partnerId] || {}, os = orderShip(o), isRet = o.type === 'sale_return', np = !!(P && P.noPrice);
   const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
   const n0 = x => (Number(x) || 0).toLocaleString('zh-TW', {maximumFractionDigits:2});
-  const lines = o.lines || [], pages = Math.max(1, Math.ceil((lines.length + 1) / REF_ROWS)), total = o.total || 0, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : r2(total - tax);
+  const lines = o.lines || [], flat = descPack(lines.map(l => [{l}, ...((P && P.noDesc) ? [] : descsOf(l).map(d => ({d})))]), REF_ROWS), pages = Math.max(1, Math.ceil((flat.length + 1) / REF_ROWS)), total = o.total || 0, tax = Number(o.tax) || 0, net = o.net !== undefined ? Number(o.net) || 0 : r2(total - tax);
   const salesName = pt.salesRep || ((S.employees[pt.salesEmp] || {}).name) || '', madeBy = o.byName || whoName(o.by), wh = whName(o.wh);
   const month = rocYM(docBillMonth(o, pt)), ship = [o.shipMethod ? '交貨方式: ' + o.shipMethod : '交貨方式:', slipNoteOf(o)].filter(Boolean).join('　');
   const spec = l => (S.products[l.pid] || {}).labelSpec ? ' ' + (S.products[l.pid] || {}).labelSpec : '';
   const qrOn = (o.type === 'sale' || o.type === 'sale_return') && !(P && P.qr === false), qrBox = qrOn ? '<div class="oqr" style="position:absolute;right:2mm;top:5mm;width:13mm;height:13mm">' + qrSvg(String(o.no || ''), 13, 'M') + '</div>' : '';
   const pageHtml = pg => {
-    const part = lines.slice(pg * REF_ROWS, (pg + 1) * REF_ROWS), last = pg === pages - 1, rows = [];
-    part.forEach(l => rows.push('<tr><td>' + e(l.sku) + '</td><td>' + e(l.name) + e(spec(l)) + '</td><td class="r">' + n0(l.qty) + (l.unit ? ' ' + e(l.unit) : '') + '</td><td class="r">' + (np ? '' : n0(l.price)) + '</td><td class="r">' + (np ? '' : n0(amtOf(l.qty, l.price))) + '</td></tr>'));
+    const part = flat.slice(pg * REF_ROWS, (pg + 1) * REF_ROWS), last = pg === pages - 1, rows = [];
+    part.forEach(x => { if (!x) return rows.push('<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>');
+      if (x.d) return rows.push('<tr><td></td><td style="font-size:.92em">' + e(descTxt(x.d)) + '</td><td></td><td></td><td></td></tr>');   /* -et：多行描述 */
+      const l = x.l; rows.push('<tr><td>' + e(l.sku) + '</td><td>' + e(l.name) + e(spec(l)) + '</td><td class="r">' + n0(l.qty) + (l.unit ? ' ' + e(l.unit) : '') + '</td><td class="r">' + (np ? '' : n0(l.price)) + '</td><td class="r">' + (np ? '' : n0(amtOf(l.qty, l.price))) + '</td></tr>'); });
     if (last) rows.push('<tr><td></td><td>(以下空白,共 ' + pages + ' 頁)</td><td></td><td></td><td></td></tr>');
     while (rows.length < REF_ROWS) rows.push('<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>');
     return '<section class="pg">' + qrBox + '<div class="ttl">' + (isRet ? '銷貨退回單' : '銷貨單') + '</div>' +
@@ -4499,7 +4511,8 @@ function slipHTML(o, P, standalone){
   const lines = o.lines || [], os = orderShip(o);
   const showPrice = !!P.price, showSku = !!P.sku, showList = showPrice && !!P.listp && lines.some(l => Number(l.listPrice) > 0);
   const ncol = 4 + (showSku ? 1 : 0) + (showPrice ? 2 : 0) + (showList ? 2 : 0);
-  const rows = lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td>' + (showSku ? '<td>' + e(l.sku) + '</td>' : '') + '<td>' + e(l.name) + '</td><td class="r">' + n2(l.qty) + '</td><td class="c">' + e(l.unit || '') + '</td>' +
+  const dsHtml = l => P.noDesc ? '' : descsOf(l).map(d => '<div class="ds">' + e(descTxt(d)) + '</div>').join('');   /* -et：多行描述 */
+  const rows = lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td>' + (showSku ? '<td>' + e(l.sku) + '</td>' : '') + '<td>' + e(l.name) + dsHtml(l) + '</td><td class="r">' + n2(l.qty) + '</td><td class="c">' + e(l.unit || '') + '</td>' +
     (showList ? '<td class="r">' + (Number(l.listPrice) > 0 ? n2(l.listPrice) : '') + '</td><td class="c">' + (Number(l.listPrice) > 0 && Math.abs((Number(l.disc) || 100) - 100) > 0.004 ? zheTxt(l.disc) : '') + '</td>' : '') +
     (showPrice ? '<td class="r">' + n2(l.price) + '</td><td class="r">' + n2(amtOf(l.qty, l.price)) + '</td>' : '') + '</tr>').join('');
   const qtySum = r3(lines.reduce((a, l) => a + (Number(l.qty) || 0), 0));
@@ -4541,7 +4554,7 @@ function slipHTML(o, P, standalone){
     'table.it{width:100%;border-collapse:collapse;table-layout:auto}table.it td,table.it th{padding:0}' +
     'table.it tbody td,table.it thead th.h{border:1px solid #000;padding:' + (compact ? '0 3px' : '1px 4px') + ';vertical-align:top}' +
     'table.it thead th.h{font-weight:700;text-align:center;white-space:nowrap}table.it thead td.hd{font-weight:700}thead{display:table-header-group}tr{page-break-inside:avoid;break-inside:avoid}' +
-    '.c{text-align:center}.r{text-align:right;white-space:nowrap}' +
+    '.c{text-align:center}.r{text-align:right;white-space:nowrap}' + (!P.noDesc && lines.some(l => descsOf(l).length) ? '.ds{font-size:' + Math.max(fs - 1.5, 7) + 'pt;font-weight:400;line-height:1.25}' : '') +
     '.bot{break-inside:avoid;page-break-inside:avoid;margin-top:' + (compact ? '2px' : '5px') + '}' +
     '.tot{display:flex;justify-content:space-between;gap:12px;border:1px solid #000;padding:' + (compact ? '0 5px' : '2px 6px') + '}.tot .caps{flex:1}' +
     '.rcs{display:flex;justify-content:flex-end;padding:.6mm 4mm 0 0}.rcs .stp{display:inline-block;font-size:' + (compact ? '10' : '12') + 'pt;padding:.2mm 2.2mm;border-width:.45mm;letter-spacing:.4mm;transform:rotate(2deg);transform-origin:right center}.pay{display:flex;justify-content:flex-end;margin-top:2px}.note{margin-top:2px;font-weight:400;font-size:' + Math.max(fs - 1, 7) + 'pt}' +
@@ -4724,9 +4737,12 @@ function slipEnv(L, local, opt, fs, title){
   };
   return {e, n2, T, gridHtml, shell, upFs, stamps, dateAt, qr, spStamp, storeStamp, rcStamp};
 }
-function slipRows(o, F, per){
+function slipRows(o, F, per, opt){
   const c = invCalc(o, {mode:F.mode, taxType:F.taxType, merge:false});
-  const rows = c.rows.map(r => ({sku:r.sku || '', name:r.name, qty:r.qty, unit:r.unit, price:r.price, amt:r.amt}));
+  /* -et：每個商品＝主列＋多行描述的列（描述列只印品名欄）；沒有描述時和以前完全一樣 */
+  const src = o.lines || [], show = !(opt && opt.noDesc);
+  const groups = c.rows.map((r, i) => { const g = [{sku:r.sku || '', name:r.name, qty:r.qty, unit:r.unit, price:r.price, amt:r.amt, seq:i + 1}]; if (show) for (const d of descsOf(src[i])) g.push({sku:'', name:descTxt(d), desc:true, qty:0, unit:'', price:0, amt:0}); return g; });
+  const rows = descPack(groups, per).map(r => r || {sku:'', name:'', desc:true, qty:0, unit:'', price:0, amt:0});
   const pages = []; for (let i = 0; i < Math.max(rows.length, 1); i += per) pages.push(rows.slice(i, i + per));
   return {c, pages};
 }
@@ -4736,7 +4752,7 @@ function slipFormHTML(o, F, L, local, opt){
   opt = opt || {};
   const fs = Math.min(Math.max(toNum(L.fs) || 10, 7), 16), hfs = Math.min(Math.max(toNum(L.hfs) || 9, 7), 14);
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
-  const {c, pages} = slipRows(o, F, Math.max(Math.round(L.item.rows), 1));
+  const {c, pages} = slipRows(o, F, Math.max(Math.round(L.item.rows), 1), opt);
   const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
   const qUnit = !!(local && local.qu === true);   /* -el：數量後面印單位（預設不印，「20」；勾選才印「20組」） */
   const ctr = !!(local && local.ctr === true);   /* -ej：數量、單價預設靠右；列印設定勾選「印在格子正中間」（local.ctr === true）才置中（-ei 曾經預設置中） */
@@ -4761,6 +4777,7 @@ function slipFormHTML(o, F, L, local, opt){
     if (F.dm >= 0 && f.dm[F.dm]) h += T(f.dm[F.dm].x, f.dm[F.dm].y, 'V', {cls:'ck', fs:12});
     pr.forEach((r, i) => {
       const y = L.item.y + i * L.item.pitch;
+      if (r.desc){ if (r.name) h += T(cl.name.x, y, r.name, {w:cl.name.w, fs:fs - 1}); return; }   /* -et：多行描述的列，只印在品名欄 */
       if (r.sku) h += T(cl.sku.x, y, r.sku, {w:cl.sku.w});
       h += T(cl.name.x, y, r.name, {w:cl.name.w});
       /* -ei／-ej：數量、單價預設靠右；列印設定勾選才印在格子正中間；金額一律靠右對齊 */
@@ -4787,7 +4804,7 @@ function slipSouthHTML(o, F, L, local, opt){
   const fs = Math.min(Math.max(toNum(L.fs) || 9.5, 7), 16), hfs = Math.min(Math.max(toNum(L.hfs) || 9, 7), 14);
   const env = slipEnv(L, local, opt, fs, '銷貨單套印 ' + o.no), {e, n2, T} = env;
   const per = Math.max(Math.round(L.item.rows), 1);
-  const {c, pages} = slipRows(o, F, per);
+  const {c, pages} = slipRows(o, F, per, opt);
   const np = !!opt.noPrice;   /* -ee：出貨單，不印單價、金額、小計、稅額與合計 */
   const dt = String(o.date || '').split('-').map(Number);
   const f = L.f, cl = L.col;
@@ -4807,7 +4824,8 @@ function slipSouthHTML(o, F, L, local, opt){
     if (dt.length === 3 && dt[0]) h += T(f.year.xr, f.year.y, dt[0] - 1911, {r:1, w:6, fs:7.5}) + T(f.month.xr, f.month.y, dt[1], {r:1, w:4, fs:7.5}) + T(f.day.xr, f.day.y, dt[2], {r:1, w:4, fs:7.5});
     pr.forEach((r, i) => {
       const y = L.item.y + i * L.item.pitch;
-      h += T(cl.no.xr, y, pi * per + i + 1, {r:1, w:cl.no.w, fs:fs - 1});
+      if (r.desc){ if (r.name) h += T(cl.name.x, y, r.name, {w:rd2(cl.name.w + nameExt), fs:fs - 1}); return; }   /* -et：多行描述的列，只印在品名欄（沒有數量，可以用品名延伸的寬度） */
+      h += T(cl.no.xr, y, r.seq, {r:1, w:cl.no.w, fs:fs - 1});
       if (F.brandSku && r.sku) h += T(cl.brand.x, y, r.sku, {w:cl.brand.w, fs:fs - 1.5});
       const qtyTxt = n2(r.qty) + (qUnit ? (r.unit || '') : ''), nameCap = cl.qty.xr - emOf(qtyTxt) * qtyFs * 0.3528 - 1.5 - cl.name.x;
       h += T(cl.name.x, y, r.name, {w:rd2(Math.max(cl.name.w, Math.min(cl.name.w + nameExt, nameCap)))});
@@ -4852,6 +4870,94 @@ const STAMP_ROT = [-9, 5, -4];
 const buyOn = () => see('cost') && !!S.ui.showBuy;
 const buyT = t => t === 'purchase' || t === 'purchase_return';
 const deliveryOf = o => (o && (o.deliveryDate || o.date)) || '';
+/* -et：多行描述＝品名下面的規格描述，每列「類別＋描述」（產品基本資料 descs；開單時複製到單據的商品行 descs，可在單據上改） */
+const DESC_MAX = 20, DESC_CATS = ['規格', '材質', '顏色', '尺寸', '包裝', '備註'];
+function descNorm(list){
+  const out = [];
+  for (const r of Array.isArray(list) ? list : []){
+    const cat = String(r && r.cat != null ? r.cat : '').replace(/\s+/g, ' ').trim().slice(0, 12), text = String(r && r.text != null ? r.text : '').replace(/[\r\n]+/g, ' ').trim().slice(0, 120);
+    if (!text) continue;
+    out.push(cat ? {cat, text} : {text});
+    if (out.length >= DESC_MAX) break;
+  }
+  return out;
+}
+const descTxt = r => (r.cat ? r.cat + '：' : '') + r.text;
+const descsOf = x => descNorm(x && x.descs);
+const descBlock = l => descsOf(l).map(d => [h('small', {class:'hint', 'aria-label':'多行描述', text:descTxt(d)}), h('br')]);
+/* 每個商品＝一個主列＋它的描述列。一頁放不下整組（組的列數不超過每頁列數）時，整組移到下一頁，不拆開；沒有描述時完全不影響 */
+function descPack(groups, per){
+  const flat = [];
+  for (const g of groups){
+    const used = flat.length % per;
+    if (g.length > 1 && g.length <= per && used && g.length > per - used) while (flat.length % per) flat.push(null);
+    flat.push(...g);
+  }
+  return flat;
+}
+function openDescEditor(opt){
+  opt = opt || {};
+  const rows = descNorm(opt.rows).map(r => ({cat:r.cat || '', text:r.text}));
+  let dirty = false;
+  const box = h('div', {'aria-label':'多行描述清單'}), touch = () => { dirty = true; };
+  const sh = sheet({title:opt.title || '多行描述', guard:async () => !dirty || await dialog({title:'放棄修改？', msg:'多行描述還沒存檔，要放棄修改嗎？', ok:'放棄', danger:true})});
+  const focusRow = i => { const el = box.querySelector('[data-desc-i="' + i + '"] input[aria-label^="規格描述"]'); if (el) el.focus(); };
+  function paint(focusI){
+    setKids(box, rows.length ? rows.map((r, i) => h('div', {class:'panel pad', 'data-desc-i':String(i), style:'margin-bottom:8px'},
+      h('div', {style:'display:flex;gap:6px;align-items:center;margin-bottom:6px'},
+        h('b', {style:'min-width:22px;text-align:center', text:String(i + 1)}),
+        h('input', {class:'in', value:r.cat, placeholder:'類別（例：規格）', 'aria-label':'類別 ' + (i + 1), list:'descCatDl', maxlength:'12', autocomplete:'off', style:'flex:1;min-width:0', oninput:e => { r.cat = e.target.value; touch(); }}),
+        h('button', {type:'button', class:'btn plain sm', 'aria-label':'上移第 ' + (i + 1) + ' 列', disabled:i === 0, onclick:() => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; touch(); paint(); }}, '↑'),
+        h('button', {type:'button', class:'btn plain sm', 'aria-label':'下移第 ' + (i + 1) + ' 列', disabled:i === rows.length - 1, onclick:() => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; touch(); paint(); }}, '↓'),
+        h('button', {type:'button', class:'btn plain sm', 'aria-label':'刪除第 ' + (i + 1) + ' 列', onclick:() => { rows.splice(i, 1); touch(); paint(); }}, '✕')),
+      h('input', {class:'in', value:r.text, placeholder:'規格描述', 'aria-label':'規格描述 ' + (i + 1), maxlength:'120', autocomplete:'off', oninput:e => { r.text = e.target.value; touch(); },
+        onkeydown:e => { if (e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); if (i === rows.length - 1) addRow(); else focusRow(i + 1); } }})))
+      : h('div', {class:'panel empty', text:'還沒有描述。按「新增一列」。'}));
+    if (focusI != null) focusRow(focusI);
+  }
+  const addRow = () => { if (rows.length >= DESC_MAX) return toast('最多 ' + DESC_MAX + ' 列'); rows.push({cat:'', text:''}); touch(); paint(rows.length - 1); };
+  /* 拷貝其他商品的描述（加在後面） */
+  const copyList = h('div'), copyIn = h('input', {class:'in', placeholder:'搜尋有描述的商品（品名、料號）', 'aria-label':'搜尋要拷貝的商品', autocomplete:'off', oninput:() => paintCopy()});
+  const copyBox = h('div', {class:'panel pad', 'aria-label':'拷貝其他商品的描述', style:'display:none;margin-bottom:10px'}, copyIn, copyList);
+  function paintCopy(){
+    const k = copyIn.value.trim().toLowerCase();
+    const list = Object.values(S.products).filter(p => p.id !== opt.pid && descsOf(p).length && (!k || (String(p.name || '') + ' ' + String(p.sku || '')).toLowerCase().includes(k))).sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || ''))).slice(0, 8);
+    setKids(copyList, list.length ? list.map(p => h('button', {type:'button', class:'row', 'aria-label':'拷貝 ' + p.sku, onclick:() => {
+      const add = descsOf(p), room = DESC_MAX - rows.length;
+      if (room <= 0) return toast('最多 ' + DESC_MAX + ' 列');
+      add.slice(0, room).forEach(r => rows.push({cat:r.cat || '', text:r.text})); touch(); paint(); copyBox.style.display = 'none';
+      toast('已拷貝 ' + Math.min(add.length, room) + ' 列（' + p.name + '）' + (add.length > room ? '，超過 ' + DESC_MAX + ' 列的沒有拷貝' : ''));
+    }}, h('span', {style:'text-align:left;min-width:0'}, h('b', {text:p.name}), h('br'), h('small', {text:p.sku + '　' + descsOf(p).length + ' 列：' + descsOf(p).slice(0, 2).map(descTxt).join('；')})))) : h('div', {class:'hint', style:'padding:6px 2px', text:'沒有找到有多行描述的商品'}));
+  }
+  const bar = h('div', {style:'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px'},
+    h('button', {type:'button', class:'btn ghost sm', 'aria-label':'新增一列', onclick:addRow}, '＋新增一列'),
+    h('button', {type:'button', class:'btn ghost sm', 'aria-label':'拷貝其他商品', onclick:() => { copyBox.style.display = copyBox.style.display === 'none' ? '' : 'none'; if (copyBox.style.display === '') { paintCopy(); copyIn.focus(); } }}, '拷貝…'),
+    opt.reset ? h('button', {type:'button', class:'btn ghost sm', 'aria-label':'重新帶入商品資料的描述', onclick:async () => { if (rows.length && !await dialog({title:'重新帶入？', msg:'目前這一行的描述會換成「產品基本資料」裡的描述。', ok:'重新帶入'})) return; rows.splice(0, rows.length, ...descNorm(opt.reset()).map(r => ({cat:r.cat || '', text:r.text}))); touch(); paint(); }}, '重新帶入商品資料') : null,
+    h('button', {type:'button', class:'btn plain sm', 'aria-label':'清空多行描述', onclick:async () => { if (!rows.length) return; if (!await dialog({title:'清空？', msg:'所有描述列都會刪除。', ok:'清空', danger:true})) return; rows.length = 0; touch(); paint(); }}, '清空'));
+  const cancelBtn = h('button', {type:'button', class:'btn ghost grow', 'aria-label':'取消多行描述', onclick:() => sh.close()}, '取消');
+  const saveBtn = h('button', {type:'button', class:'btn grow', 'aria-label':'存檔多行描述', onclick:() => {
+    const bad = rows.findIndex(r => String(r.cat || '').trim() && !String(r.text || '').trim());
+    if (bad >= 0) return toast('第 ' + (bad + 1) + ' 列有類別，但沒有填描述');
+    const out = descNorm(rows);
+    if (opt.onSave) opt.onSave(out);
+    dirty = false; sh.forceClose();
+  }}, '存檔');
+  put(sh.bodyEl,
+    h('div', {class:'panel pad', style:'margin-bottom:10px'}, kv('產品編號', opt.sku || '—'), kv('產品名稱', opt.name || '—')),
+    h('p', {class:'hint', style:'margin:0 0 10px', text:'每一列是「類別＋描述」，例：規格：38mm 白色。開銷貨單、訂單時帶入，列印時印在品名下面（最多 ' + DESC_MAX + ' 列）。'}),
+    bar, copyBox, box, h('datalist', {id:'descCatDl'}, ...DESC_CATS.map(c => h('option', {value:c}))));
+  sh.footEl.append(cancelBtn, saveBtn);
+  paint();
+  return sh;
+}
+/* 單據商品行下面的「多行描述」按鈕（銷貨單、客戶訂單、報價單） */
+function descLineRow(ln, p, repaint){
+  const ds = descNorm(ln.descs), n = ds.length, sku = (p && p.sku) || '';
+  return h('div', {style:'margin-top:6px', 'aria-label':'多行描述區 ' + sku},
+    h('button', {type:'button', class:'btn plain sm', 'aria-label':'多行描述 ' + sku, onclick:() => openDescEditor({sku, name:p && p.name, pid:p && p.id, rows:ln.descs, reset:() => descsOf(p), onSave:rows => { ln.descs = rows; repaint(); }})}, n ? '多行描述（' + n + ' 列）' : '＋多行描述'),
+    n ? h('small', {class:'hint', 'aria-label':'描述摘要 ' + sku, style:'display:block;margin-top:2px;word-break:break-all', text:ds.slice(0, 3).map(descTxt).join('　') + (n > 3 ? '…' : '')}) : null);
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {descForTest:{descNorm, descTxt, descsOf, descPack, openDescEditor, slipRows:(...x) => slipRows(...x), slipHTML:(...x) => slipHTML(...x), refSlipHTML:(...x) => refSlipHTML(...x), openDocDetail:(...x) => openDocDetail(...x)}}); } catch (_) {}
 const storeInfoOf = (pt, name) => (pt && pt.storeInfo && name && pt.storeInfo[name]) || {};
 const isStoreStamp = t => / 叫貨$/.test(String(t));
 const storeStampName = o => { const nm = o && o.type === 'sale' ? String(o.store || '').trim() : ''; return nm ? nm + ' 叫貨' : ''; };
@@ -5059,8 +5165,9 @@ function openPrint(ref){
   slipRefresh = () => { if (!sh.bodyEl.isConnected) return; local = slipFormLocal(tp.id); buildForm(); paint(); };
   const pvBox = h('div', {style:'overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#dfe3e8;margin-top:12px'}), pvNote = h('small', {class:'hint', 'aria-label':'預覽說明', style:'display:block;margin-top:6px'});
   const offTxt = (ox, oy) => [ox ? (ox < 0 ? '往左 ' : '往右 ') + num(Math.abs(ox)) + ' mm' : '', oy ? (oy < 0 ? '往上 ' : '往下 ') + num(Math.abs(oy)) + ' mm' : ''].filter(Boolean).join('、') || '沒有補正';
-  let fr = null, noPrice = false;   /* -ee：這一次列印是否「出貨單（不印價格）」；不存起來，下次開視窗恢復印價格 */
+  let fr = null, noPrice = false, noDesc = false;   /* -ee：這一次列印是否「出貨單（不印價格）」；不存起來，下次開視窗恢復印價格 */
   const formOn = () => isSale && P.mode !== 'full' && P.mode !== 'ref';
+  const PD = np => (np || noDesc) ? {...P, ...(np ? {noPrice:true} : {}), ...(noDesc ? {noDesc:true} : {})} : P;   /* -et：這一次列印的選項（不存起來） */
   const paint = () => {
     savePrint(P);
     const SL = slipFormLayout(tp.id), on = formOn();
@@ -5071,12 +5178,12 @@ function openPrint(ref){
       try { const hgt = fr.contentDocument.documentElement.scrollHeight; fr.style.height = hgt + 'px'; pvBox.style.height = Math.ceil(hgt * sc) + 'px'; } catch (_) {}
     });
     pvBox.style.height = Math.ceil((on ? SL.h * 3.7795 : 400) * sc) + 'px';
-    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true, noPrice}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, noPrice ? {...P, noPrice:true} : P) : slipHTML(o, P, false)));
+    fr.setAttribute('srcdoc', on ? tp.html(o, F, SL, local, {bg:F.bg ? tp.bg : null, noLocal:true, noPrice, noDesc}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, false, PD(noPrice)) : slipHTML(o, PD(false), false)));
     { const ox = toNum(local.ox), oy = toNum(local.oy); pvNote.textContent = on && (ox || oy) ? '預覽顯示對準套表的位置；列印時會再' + offTxt(ox, oy) + (slipUsesShared(tp.id) ? '（所有電腦共用的列印位置補正）。' : '（這台電腦的列印位置補正）。') : ''; }
     setKids(pvBox, fr);
   };
   const soon = () => { clearTimeout(soon.t); soon.t = setTimeout(paint, 250); };
-  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone, noPrice}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, standalone, noPrice ? {...P, noPrice:true} : P) : slipHTML(o, P, standalone));
+  const html = standalone => formOn() ? tp.html(o, F, slipFormLayout(tp.id), local, {standalone, noPrice, noDesc}) : (isSale && P.mode === 'ref' ? refSlipHTML(o, standalone, PD(noPrice)) : slipHTML(o, PD(false), standalone));
 
   /* ---- 完整列印（自行畫表格）控制項 ---- */
   const inputs = {};
@@ -5168,6 +5275,7 @@ function openPrint(ref){
         h('li', {text:'按下面的「連續 3 張測試頁」，放空白報表紙或套表印出來：3 張的線都在同一個位置就對了（3 張一樣、只是整張一起偏，再用「列印位置補正」）。'})),
       h('button', {class:'btn ghost sm', 'aria-label':'印連續 3 張測試頁', onclick:() => printNow(driftTestHTML(tp.id, local), '連續列印測試頁.html', () => driftTestHTML(tp.id, local, true), {form:tp.id})}, '連續 3 張測試頁'))); };
   const priceRow = isSale ? h('label', {class:'check', style:'margin:8px 0'}, h('input', {type:'checkbox', checked:true, 'aria-label':'列印單價、金額與合計', onchange:e => { noPrice = !e.target.checked; paint(); }}), '列印單價、金額與合計（取消＝出貨單，不含價格；只影響這一次列印）') : null;
+  const descRow = isSale && (o.lines || []).some(l => descsOf(l).length) ? h('label', {class:'check', style:'margin:8px 0'}, h('input', {type:'checkbox', checked:true, 'aria-label':'列印多行描述', onchange:e => { noDesc = !e.target.checked; paint(); }}), '列印多行描述（品名下面的規格描述；取消＝不印，只影響這一次列印）') : null;
   const syncVis = () => { fullCtl.style.display = formOn() || (isSale && P.mode === 'ref') ? 'none' : ''; formCtl.style.display = formOn() ? '' : 'none'; adminBtn.style.display = formOn() && S.isAdmin ? '' : 'none'; if (priceRow) priceRow.style.display = isSale && P.mode !== 'full' ? '' : 'none'; };
   function buildForm(){
     const ftxt = (key, label) => fld(label, h('input', {class:'in', value:F[key] || '', 'aria-label':label, autocomplete:'off', oninput:e => { F[key] = e.target.value; soon(); }}));
@@ -5211,7 +5319,7 @@ function openPrint(ref){
       P.mode = k; [...e.target.parentElement.children].forEach(b => b.setAttribute('aria-pressed', String(b === e.target))); syncVis(); paint(); }}, t))) : null;
   syncVis();
   put(sh.bodyEl,
-    modeRow, priceRow, fullCtl, formCtl,
+    modeRow, priceRow, descRow, fullCtl, formCtl,
     h('details', {style:'margin:8px 0'}, h('summary', {style:'cursor:pointer;color:var(--ink2)', text:'第一次使用 EPSON LQ-690C 的設定'}),
       h('ol', {style:'margin:8px 0 0 18px;font-size:14px;color:var(--ink2)'},
         h('li', {text:'Windows「設定 → 藍牙與裝置 → 印表機與掃描器」，點 EPSON LQ-690C → 設為預設。若沒有這個選項，先關閉「讓 Windows 管理我的預設印表機」。'}),
@@ -15375,7 +15483,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-es';
+const APP_VERSION = '2026.10.11-et';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
