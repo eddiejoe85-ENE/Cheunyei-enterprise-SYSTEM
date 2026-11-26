@@ -13357,6 +13357,26 @@ function openDisStep(opt, it, wid, orderNo, done){
     !opt.ok ? h('div', {class:'note bad', text:'成品庫存只有 ' + num(opt.fstock) + '，不夠拆 ' + num(opt.n) + '。'}) : null, sc ? sc.el : null);
   sh.footEl.append(go); if (sc) setTimeout(sc.focus, 80);
 }
+/* -ev：揀貨時主動顯示「拆解／組裝工單」。工單＝組成作業（AS）、拆解作業（DA）的單據；
+   「做出」某商品＝那張單上這個商品的 sgn 是正的（組成：成品；拆解：拆出來的組件）。只看沒作廢、同倉庫、最近 60 天的。 */
+const PICK_WO_DAYS = 60, PICK_WO_MAX = 3, PICK_WO_OPEN = new Set();
+function pickWoIndex(wid, nos){
+  const t = today(), idx = new Map();
+  for (const x of Object.values(S.orders)){
+    if ((x.type !== 'assembly' && x.type !== 'disassembly') || x.status === 'void' || (x.wh || WH_MAIN) !== (wid || WH_MAIN)) continue;
+    if (daysBetween(x.date || t, t) > PICK_WO_DAYS) continue;
+    const linked = (nos || []).some(n => n && String(x.note || '').includes(n));
+    for (const l of x.lines || []){ if (!l.pid || !(Number(l.sgn) > 0)) continue; const a = idx.get(l.pid) || []; if (!a.some(e => e.o === x)) a.push({o:x, out:l, linked}); idx.set(l.pid, a); }
+  }
+  for (const a of idx.values()) a.sort((p, q) => (q.linked - p.linked) || String(q.o.date || '').localeCompare(String(p.o.date || '')) || (q.o.at || 0) - (p.o.at || 0));
+  return idx;
+}
+const woSummary = x => {
+  const o = x.o, l = x.out, unit = l.unit || '';
+  if (o.type === 'assembly'){ const cs = (o.lines || []).filter(z => Number(z.sgn) < 0); return '組成 ' + num(l.qty) + ' ' + unit + '「' + l.name + '」' + (cs.length ? '（用 ' + cs.slice(0, 3).map(z => z.name + ' ' + num(z.qty)).join('、') + (cs.length > 3 ? '…' : '') + '）' : ''); }
+  const src = (o.lines || []).find(z => Number(z.sgn) < 0);
+  return '拆解' + (src ? ' ' + num(src.qty) + ' ' + (src.unit || '') + '「' + src.name + '」' : '') + ' → 得到 ' + num(l.qty) + ' ' + unit + '「' + l.name + '」';
+};
 function openPickOrder(orderId, opts){
   if (!fxGate('picking')) return;
   opts = opts || {};
@@ -13367,6 +13387,7 @@ function openPickOrder(orderId, opts){
   if (B && !items.length) return toast('選的區沒有商品');
   const bIn = B ? bOrders.filter(x => items.some(i => i.parts.some(p => p.oid === x.id))) : [], pks = {}, bLoaded = new Set();
   const zoneList = B ? [...new Set(items.map(i => navZone(navShelf(i))))] : [], zoneTxt = zoneList.map(z => z ? z + ' 區' : '沒有架位').join('、');
+  const nosOf = B ? bIn.map(x => x.no) : [o.no]; let WO = new Map();
   const noTxt = B ? bIn.slice(0, 3).map(x => x.no).join('、') + (bIn.length > 3 ? '…等 ' + bIn.length + ' 張' : '') : o.no;
   const lis = makeListener(t => { if (!cfg.on || !cfg.cmd) return; const c = cur(); if (/重複|再說|再念/.test(t)){ speakCur(); } else if (/跳過|下一個|下一項/.test(t)){ if (c) skip(c); } else if (/到了|到達/.test(t)){ if (c) arriveNow(c); } else if (/好了|完成|確認|揀好|OK/i.test(t)){ if (c){ if (scanReqOn()) speakNow('請先掃描商品 QR Code', cfg); else mark(c, c.qty); } } });
   const sh = sheet({title:B ? '合併揀貨　' + bIn.length + ' 張・' + (zoneList.length <= 3 ? zoneTxt : zoneList.length + ' 區') : '揀貨　' + o.no, onclose:() => { stopSpeak(); lis.stop(); if (typeof unsub === 'function') unsub(); if (opts.onClose) opts.onClose(); }});
@@ -13503,6 +13524,35 @@ function openPickOrder(orderId, opts){
       catch (_) { readPick(x.id).then(p => { pks[x.id] = p; bLoaded.add(x.id); got(); }); }
     }
   }
+  /* -ev：這個商品是拆解／組裝做出來的 → 主動顯示工單。庫存夠＝收成一行（點開看）；庫存不足＝自動展開，做法和「開始」按鈕在下面的庫存不足提示 */
+  function workHow(c, P, own, wos){
+    const unit = c.unit || '', rows = [];
+    if (own){ const b = bomOf(P), build = bomBuildable(P, wid);
+      rows.push(h('div', {'aria-label':'組裝做法', style:'margin-top:8px'}, h('b', {style:'display:block', text:'組裝：1 ' + unit + '「' + c.name + '」＝ ' + b.map(x => S.products[x.pid].name + ' ×' + num(Number(x.qty))).join(' ＋ ')}),
+        ...b.map(x => { const cp = S.products[x.pid]; return h('small', {style:'display:block', text:'・' + cp.name + ' 每 1 要 ' + num(Number(x.qty)) + ' ' + (cp.unit || '') + '（庫存 ' + num(stockAt(x.pid, wid)) + '）　' + pickWhere(shelfAll(cp, wid))}); }),
+        h('small', {class:'hint', style:'display:block', text:'組件目前最多可組 ' + num(build) + ' ' + unit}))); }
+    const os = disOptions(c.pid, c.qty, wid).filter(op => op.F.active !== false && (op.fstock > 0.0004 || wos.some(x => x.o.bomPid === op.F.id))).slice(0, 3);   // 成品沒庫存、又沒拆過的不列（不夠時的補貨方式在庫存不足提示）
+    if (os.length) rows.push(h('div', {'aria-label':'拆解做法', style:'margin-top:8px'}, ...os.map(op => h('div', {style:'margin-bottom:4px'}, h('b', {style:'display:block', text:'拆解：1 ' + (op.F.unit || '') + '「' + op.F.name + '」→ 得到 ' + num(op.per) + ' ' + unit}), h('small', {style:'display:block', text:'成品在' + pickWhere(shelfAll(op.F, wid)) + '，成品庫存 ' + num(op.fstock)}), op.plan && op.plan.hint ? h('small', {style:'display:block', text:'提示：' + op.plan.hint}) : null))));
+    if (!rows.length) return null;
+    return h('div', {'aria-label':'拆組做法'}, ...rows, h('small', {class:'hint', style:'display:block;margin-top:6px', text:'庫存夠，現在不用拆或組，這裡只是讓你知道這個商品怎麼來的；真的不夠時按「數量不足」，會有補貨方式。'}));
+  }
+  function workPrompt(c){
+    const P = S.products[c.pid], wos = WO.get(c.pid) || [], own = !!P && hasBom(P) && P.active !== false; if (!wos.length && !own) return null;
+    const short = needOf(c) > 0, open = short || PICK_WO_OPEN.has(c.pid), nLink = wos.filter(x => x.linked).length;
+    const title = wos.length ? '🔧 這個商品是拆解／組裝做出來的：最近有 ' + wos.length + ' 張工單' + (nLink ? '（' + nLink + ' 張是這張單據的）' : '') : '🔧 這個商品是組合商品，用組件組裝而成';
+    const head = short ? h('b', {'aria-label':'拆組工單', text:title}) : h('button', {type:'button', class:'btn ghost', style:'width:100%;text-align:left;min-height:44px;white-space:normal', 'aria-label':'拆組工單', 'aria-expanded':String(open), onclick:() => { if (PICK_WO_OPEN.has(c.pid)) PICK_WO_OPEN.delete(c.pid); else PICK_WO_OPEN.add(c.pid); paint(); }}, title + (open ? '　▾' : '　▸'));
+    if (!open) return h('div', {style:'margin:10px 0 0'}, head);
+    const kids = [head];
+    if (wos.length){
+      kids.push(h('small', {style:'display:block;margin-top:6px;font-weight:700', text:'工單（最近 ' + PICK_WO_DAYS + ' 天，點開看單據）'}),
+        h('div', {class:'panel', 'aria-label':'工單清單', style:'margin-top:4px'}, wos.slice(0, PICK_WO_MAX).map(x => h('button', {class:'row', type:'button', 'aria-label':'工單 ' + x.o.no, style:'text-align:left', onclick:() => openOrderDetail(x.o.id)},
+          h('span', {style:'min-width:0'}, h('b', {text:TYPES[x.o.type].label + ' ' + x.o.no}), x.linked ? h('span', {class:'tag adj', style:'margin-left:6px', text:'這張單據的'}) : null, h('br'), h('small', {style:'overflow-wrap:anywhere', text:(x.o.date || '') + '　' + woSummary(x)}), x.o.note ? [h('br'), h('small', {class:'hint', style:'overflow-wrap:anywhere', text:x.o.note})] : null),
+          h('small', {class:'chev', text:'›'})))));
+      if (wos.length > PICK_WO_MAX) kids.push(h('small', {class:'hint', style:'display:block', text:'還有 ' + (wos.length - PICK_WO_MAX) + ' 張，到「單據查詢」看。'}));
+    }
+    if (!short){ const hw = workHow(c, P, own, wos); if (hw) kids.push(hw); }
+    return h('div', {class:'note', style:'margin:10px 0 0', 'aria-label':'拆組工單內容'}, ...kids);
+  }
   /* 這一項不夠時的提示：① 其他架位 ② 拆解（大包裝、組合商品在哪個架位、拆幾個）③ 組裝（每個組件在哪個架位、拿幾個、夠組幾個） */
   function disPrompt(c){
     const need = needOf(c); if (!(need > 0)) return null;
@@ -13551,6 +13601,7 @@ function openPickOrder(orderId, opts){
         : (same.length ? null : h('b', {text:'這是最後一站，揀完就到終點'})));
   }
   function paint(){
+    WO = pickWoIndex(wid, nosOf);
     const rt = route(), st = navStations(rt), multiZone = new Set(rt.map(i => navZone(navShelf(i)))).size > 1, c = cur(), n = items.filter(i => pickHandled(pk, i.pid)).length, total = items.length, pt = S.partners[o.partnerId] || {}, all = n === total, skipN = items.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length, lackN = items.filter(i => !pickHandled(pk, i.pid) && needOf(i) > 0).length;
     try { if (c){ const ci = rt.indexOf(c); prefetchPickPhotos([...rt.slice(ci + 1), ...rt.slice(0, Math.max(ci, 0))].find(i => i !== c && !pickHandled(pk, i.pid))); } } catch (_) {}
     setKids(body,
@@ -13567,13 +13618,14 @@ function openPickOrder(orderId, opts){
         B ? partsBox(c) : null,
         (c.more || []).length ? h('div', {'aria-label':'其他架位', style:'margin:2px 0 6px;font-weight:700;color:var(--brand);overflow-wrap:anywhere'}, '也放在：' + c.more.join('、'), h('small', {style:'display:block;font-weight:400;color:var(--ink3)', text:'主要架位不夠時，到這' + (c.more.length > 1 ? '幾' : '') + '個架位拿'})) : null,
         h('small', {class:'hint', text:'庫存（扣除所有已開單據後）' + num(stockNow(c))}),
+        workPrompt(c),
         disPrompt(c),
         scan ? h('div', {style:'margin-top:8px'}, h('small', {style:'display:block;font-weight:700', text:'請掃描這個商品的 QR Code 確認拿對了'}), scan.el) : null,
         h('div', {class:'btns', style:'margin-top:10px'}, !scan ? h('button', {class:'btn grow', style:'min-height:56px;font-size:18px', 'aria-label':'揀好了', onclick:() => mark(c, c.qty)}, '揀好了') : null, h('button', {class:'btn ghost', 'aria-label':'數量不足', onclick:() => shortSheet(c)}, '數量不足'), h('button', {class:'btn ghost', 'aria-label':'跳過這一項', onclick:() => skip(c)}, '先揀別項'))) : h('div', {class:'note', style:'font-size:16px', text:(B ? '這幾區的商品都處理完了，按「完成揀貨」。' : '這張單據的商品都處理完了，按「完成揀貨」。')}),
       nextPanel(c, rt),
       h('div', {class:'sec-h'}, h('h2', {text:'整條路線'})), h('small', {class:'hint', style:'display:block;margin:0 0 6px', text:'全部商品，依架位排列。✓ 揀好了　➜ 現在這一項　↩ 先跳過，最後回來補'}),
       h('div', {class:'panel'}, rt.map((it, i) => { const d = pk.items && pk.items[it.pid], isCur = c && c.pid === it.pid, sIdx = st.findIndex(g => g.items.includes(it)), zoneHd = multiZone && (i === 0 || navZone(navShelf(rt[i - 1])) !== navZone(navShelf(it))) ? h('div', {'aria-label':'區域 ' + (navZone(navShelf(it)) || '無架位'), style:'padding:6px 12px;font-weight:800;background:var(--soft);color:var(--ink3)', text:navZone(navShelf(it)) ? navZone(navShelf(it)) + ' 區' : '沒有架位'}) : null;
-        return [zoneHd, h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ skipped.delete(it.pid); alertMsg = ''; focus = it.pid; paint(); speakCur(); } }}, h('span', {'aria-hidden':'true', style:'flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;' + (d ? 'background:var(--brand);color:#fff' : (isCur ? 'background:var(--brand);color:#fff' : 'background:var(--soft);color:var(--ink3)')), text:d ? '✓' : (isCur ? '➜' : String(sIdx + 1))}), h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (B && it.parts.length > 1 ? '（' + it.parts.length + ' 張單）' : '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && skipped.has(it.pid) ? '　↩ 先跳過，最後回來補' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '')}))),
+        return [zoneHd, h('div', {class:'row', 'aria-label':'商品 ' + (i + 1), style:'align-items:center;' + (isCur ? 'background:var(--brands)' : '')}, h('button', {style:'display:flex;gap:10px;align-items:center;text-align:left;min-width:0', 'aria-label':'選這一項 ' + it.sku, onclick:() => { if (!d){ skipped.delete(it.pid); alertMsg = ''; focus = it.pid; paint(); speakCur(); } }}, h('span', {'aria-hidden':'true', style:'flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;' + (d ? 'background:var(--brand);color:#fff' : (isCur ? 'background:var(--brand);color:#fff' : 'background:var(--soft);color:var(--ink3)')), text:d ? '✓' : (isCur ? '➜' : String(sIdx + 1))}), h('span', {style:'display:flex;gap:4px;flex:none'}, ...((it.packs || [])[0] ? [h('img', {src:it.packs[0], alt:it.name + '包裝', style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'})] : []), (it.pics || [])[0] ? h('img', {src:it.pics[0], alt:it.name, style:'width:40px;height:40px;object-fit:cover;border-radius:8px;border:1px solid var(--line)'}) : ((it.packs || [])[0] ? null : h('div', {style:'width:40px;height:40px;display:grid;place-items:center;background:var(--soft);border-radius:8px;color:var(--ink3);font-size:10px', text:'沒照片'}))), h('span', {style:'min-width:0'}, h('b', {text:(d ? '✓ ' : '') + it.name}), h('br'), h('small', {text:(it.shelf || '沒有架位') + ((it.more || []).length ? '（另有 ' + it.more.join('、') + '）' : '') + '　' + num(it.qty) + ' ' + (it.unit || '') + (B && it.parts.length > 1 ? '（' + it.parts.length + ' 張單）' : '') + (d && d.short ? '　實際 ' + num(d.q) + '（不足）' : '') + (d && d.scanned ? '　已掃描' : '') + (d && d.skip ? '　⚠ 略過掃描（' + d.skipReason + '）' : '') + (!d && skipped.has(it.pid) ? '　↩ 先跳過，最後回來補' : '') + (!d && needOf(it) > 0 ? '　⚠ 庫存不足' : '') + (!d && ((WO.get(it.pid) || []).length || (S.products[it.pid] && hasBom(S.products[it.pid]) && S.products[it.pid].active !== false)) ? '　🔧 拆組工單' : '')}))),
           d ? h('button', {class:'btn ghost sm', 'aria-label':'取消 ' + it.sku, onclick:() => unmark(it)}, '取消') : null)].filter(Boolean); }).flat()),
       (pk.dis || []).length || (pk.asm || []).length ? [h('div', {class:'sec-h', style:'margin-top:10px'}, h('h2', {text:(B ? '這次合併揀貨的' : '這張單據的') + ((pk.dis || []).length && (pk.asm || []).length ? '拆解、組裝' : ((pk.asm || []).length ? '組裝' : '拆解')) + '補貨'})), h('div', {class:'panel', 'aria-label':'拆解組裝紀錄'},
         (pk.dis || []).map(x => h('div', {class:'row'}, h('span', null, h('b', {text:'拆 ' + num(x.n) + '「' + x.fname + '」→ ' + num(x.yield) + '（補 ' + x.item + '）'}), h('br'), h('small', {text:x.no + (x.skipped ? '　略過掃描' : '')})), h('small', {text:hmOf(x.t)}))),
@@ -13587,7 +13639,7 @@ function openPickOrder(orderId, opts){
   if (B) bSubscribe();
   else try { unsub = S.db.doc('picks/' + orderId).onSnapshot(apply, () => null); } catch (_) { readPick(orderId).then(p => { pk = p; paint(); }); }
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems, mergePickItems, allocParts, batchZones, batchOrders, openMergePick:(...x) => openMergePick(...x)}}); } catch(_){}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {pickNavForTest:{navShelf, navZone, navRoute, navStations, navCue, navSay, itemSpeech, pickItems, mergePickItems, allocParts, batchZones, batchOrders, openMergePick:(...x) => openMergePick(...x), pickWoIndex:(...x) => pickWoIndex(...x), woSummary, PICK_WO_OPEN}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {dqForTest:{repCalc, repDocRows, openRepDocs, summarize, ordSpan, ordFiltered, rangeOf, dsOrders:() => dsOrders(), dsReport:() => dsReport()}}); } catch(_){}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {codForTest:{unassignedOrders, cashStampOn, codWaiting, cashSaleOf, cashPending, awaitCash, openCashPending, codNeedShip, codAmtOf, paidDateOf, openCodConfirm, collectRows:(a, b) => collectRows(a, b), aging:t => aging(t), cashRows:() => cashEntries(), openOrderDetail:x => openOrderDetail(x), openOrder:(...x) => openOrder(...x), openPayment:(...x) => openPayment(...x), openSettle:(...x) => openSettle(...x), planBatch:r => planBatch(r), remindPreview:p => remindPreview(p), deliveryRows:(d, v) => deliveryRows(d, v), stampItems:o => stampItems(o), openDispatch:x => openDispatch(x)}}); } catch(_){}
 /* ---- 拆解作業設定（作業人員先設定好，揀貨人員照提示做） ---- */
@@ -15506,7 +15558,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-eu';
+const APP_VERSION = '2026.10.11-ev';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
