@@ -14963,6 +14963,79 @@ function openCashCats(){
   }}, '儲存');
   sh.footEl.append(btn); paint();
 }
+/* ================= -ew：零用金年度統計表（12 個月 × 項目） =================
+   每一筆照單據上的「日期」記到那一個月（已作廢的不算）；看全部時，主管↔出納的轉撥不算收入、支出；
+   只看一個零用金時，轉入算收入、轉出算支出（和上面的帳簿、項目彙總同一個算法）。 */
+function cashYearCalc(year, F){
+  F = F === 'mgr' || F === 'cash' ? F : '';
+  const vis = cashEntries().filter(e => cashShows(e, F)), y0 = year + '-01-01', y1 = year + '-12-31';
+  const open = cashBalance(vis.filter(e => String(e.date || '') < y0), F);
+  const order = cashCats().map(c => c.id), rank = id => { const i = order.indexOf(id); return i >= 0 ? i : (id === 'sys_xfer' ? 1000 : 900); };
+  const cat = {in:{}, out:{}}, mIn = Array(12).fill(0), mOut = Array(12).fill(0); let n = 0;
+  for (const e of vis){
+    const dt = String(e.date || ''); if (dt < y0 || dt > y1) continue;
+    const d = cashDelta(e, F); if (!d) continue;
+    const m = Number(dt.slice(5, 7)) - 1; if (!(m >= 0 && m < 12)) continue;
+    const k = d > 0 ? 'in' : 'out', v = Math.abs(d), r = cat[k][e.catId] || (cat[k][e.catId] = {catId:e.catId, m:Array(12).fill(0), n:0});
+    r.m[m] = r2(r.m[m] + v); r.n++; n++;
+    if (k === 'in') mIn[m] = r2(mIn[m] + v); else mOut[m] = r2(mOut[m] + v);
+  }
+  const sum = a => r2(a.reduce((x, y) => x + y, 0));
+  const rowsOf = k => Object.values(cat[k]).sort((a, b) => rank(a.catId) - rank(b.catId)).map(r => ({...r, name:r.catId === 'sys_xfer' ? (k === 'in' ? '轉入' : '轉出') : cashCatName(r.catId), total:sum(r.m)}));
+  const net = mIn.map((v, i) => r2(v - mOut[i])); let run_ = open; const bal = net.map(v => (run_ = r2(run_ + v)));
+  const inT = sum(mIn), outT = sum(mOut);
+  return {year, fund:F, open, close:bal[11], ins:rowsOf('in'), outs:rowsOf('out'), mIn, mOut, net, bal, inT, outT, netT:r2(inT - outT), n};
+}
+function dsCashYear(q){
+  const z = a => a.map(v => v || null), blank = () => Array(13).fill(null);
+  const cols = [XC('項目', 'text', 18), ...Array.from({length:12}, (_, i) => XC((i + 1) + '月', 'money', 11)), XC('合計', 'money', 13)];
+  const rows = [['【支出】', ...blank()], ...q.outs.map(r => [r.name, ...z(r.m), r.total || null]), ['支出合計', ...z(q.mOut), q.outT || null],
+    ['【收入】', ...blank()], ...q.ins.map(r => [r.name, ...z(r.m), r.total || null]), ['收入合計', ...z(q.mIn), q.inT || null],
+    ['淨額（收入－支出）', ...q.net, q.netT], ['月底結餘', ...q.bal, q.close]];
+  const who = q.fund ? '（' + cashFundName(q.fund) + '）' : '';
+  return {title:'零用金年度統計表　' + q.year + ' 年' + who, sub:'年初結餘 ' + money(q.open) + '　年底結餘 ' + money(q.close) + '　全年收入 ' + money(q.inT) + '　全年支出 ' + money(q.outT) + '　依單據日期歸月、已作廢不算　' + today(),
+    filename:'零用金年度統計表_' + q.year + (q.fund ? '_' + cashFundName(q.fund) : ''), landscape:true, sections:[{name:q.year + '年', cols, rows}]};
+}
+function openCashYear(opt){
+  opt = opt || {};
+  const U0 = S.ui.cashU || {}, now = today(), st = {year:String(opt.year || now.slice(0, 4)), fund:opt.fund !== undefined ? opt.fund : (U0.fund === 'mgr' || U0.fund === 'cash' ? U0.fund : '')};
+  const sh = sheet({title:'零用金年度統計表'}), box = h('div');
+  const N = v => v ? Number(v).toLocaleString('zh-TW', {maximumFractionDigits:S.set.intAmt === false ? 2 : 0}) : '–';
+  const years = () => { const y = new Set([now.slice(0, 4), st.year]); for (const e of cashEntries()){ const x = String(e.date || '').slice(0, 4); if (/^\d{4}$/.test(x)) y.add(x); } return [...y].sort(); };
+  const p2 = n => String(n).padStart(2, '0'), mFrom = m => st.year + '-' + p2(m + 1) + '-01', mTo = m => st.year + '-' + p2(m + 1) + '-' + p2(new Date(Number(st.year), m + 1, 0).getDate());
+  const drill = (catId, from, to) => { const U = S.ui.cashU; U.from = from; U.to = to; U.cat = catId; U.fund = st.fund; U.init = true; sh.forceClose(); draw(); };
+  const TD = 'padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums';
+  const FC = ';position:sticky;left:0;z-index:1;text-align:left;white-space:normal;min-width:88px;max-width:132px;border-right:1px solid var(--line)';
+  const nameTd = (t, o) => { o = o || {}; return h('td', {style:TD + FC + ';background:' + (o.bg || 'var(--panel)') + (o.bold ? ';font-weight:800' : ''), text:t}); };
+  const numTd = (v, o) => { o = o || {}; const hot = !!(o.go && v); return h('td', {class:v < 0 ? 'overdue' : '', style:TD + (o.bold ? ';font-weight:800' : '') + (o.bg ? ';background:' + o.bg : '') + (hot ? ';cursor:pointer' : '') + (v ? '' : ';color:var(--ink3)'), ...(hot ? {role:'button', tabindex:'0', 'aria-label':o.label, onclick:o.go, onkeydown:e => { if (e.key === 'Enter') o.go(); }} : {}), text:N(v)}); };
+  const secHead = t => h('tr', null, nameTd(t, {bg:'var(--soft)', bold:true}), ...Array.from({length:13}, () => h('td', {style:'background:var(--soft);border-bottom:1px solid var(--line)'})));
+  const catRow = (r, kind) => { const real = r.catId !== 'sys_xfer' && !!cashCatOf(r.catId), lab = (m, t) => '看 ' + st.year + ' 年' + t + ' ' + r.name + ' ' + kind + ' 明細';
+    return h('tr', {'aria-label':kind + ' ' + r.name}, nameTd(r.name), ...r.m.map((v, m) => numTd(v, real ? {go:() => drill(r.catId, mFrom(m), mTo(m)), label:lab(m, (m + 1) + ' 月')} : {})), numTd(r.total, {bold:true, ...(real ? {go:() => drill(r.catId, st.year + '-01-01', st.year + '-12-31'), label:lab(0, '全年')} : {})})); };
+  const totRow = (label, arr, tot, bg, aria) => h('tr', {'aria-label':aria || label}, nameTd(label, {bg, bold:true}), ...arr.map(v => numTd(v, {bold:true, bg})), numTd(tot, {bold:true, bg}));
+  const paint = () => {
+    const q = cashYearCalc(st.year, st.fund), ys = years(), yi = ys.indexOf(st.year);
+    const yearBar = h('div', {style:'display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:8px'},
+      h('button', {class:'btn ghost sm', 'aria-label':'上一年', disabled:yi <= 0, onclick:() => { st.year = ys[yi - 1]; paint(); }}, '‹'),
+      (() => { const sel = h('select', {class:'in', style:'width:auto;min-width:110px;text-align:center', 'aria-label':'年度', onchange:e => { st.year = e.target.value; paint(); }}, ...ys.map(y => h('option', {value:y, text:y + ' 年'}))); sel.value = st.year; return sel; })(),
+      h('button', {class:'btn ghost sm', 'aria-label':'下一年', disabled:yi >= ys.length - 1, onclick:() => { st.year = ys[yi + 1]; paint(); }}, '›'),
+      exportBtn(() => dsCashYear(cashYearCalc(st.year, st.fund))));
+    const fundChips = h('div', {class:'chips', style:'padding:0 0 8px', 'aria-label':'年度統計的零用金'}, [['', '全部（合計）'], ...CASH_FUNDS.map(f => [f.id, f.name])].map(([k, t]) => h('button', {class:'chip', 'aria-pressed':st.fund === k, 'aria-label':'年度統計看 ' + t, onclick:() => { st.fund = k; paint(); }}, t)));
+    const sum = h('div', {class:'panel ledger', 'aria-label':'年度摘要', style:'margin-bottom:10px'},
+      h('div', {class:'row'}, h('span', {text:'年初 → 年底結餘'}), h('b', {class:q.close < 0 ? 'overdue' : '', text:money(q.open) + ' → ' + money(q.close)})),
+      h('div', {class:'row'}, h('span', {text:'全年收入' + (q.fund ? '（含轉入）' : '')}), h('span', {text:money(q.inT)})),
+      h('div', {class:'row'}, h('span', {text:'全年支出' + (q.fund ? '（含轉出）' : '')}), h('span', {text:money(q.outT)})));
+    const tbl = h('table', {style:'border-collapse:separate;border-spacing:0;font-size:13px;width:max-content;min-width:100%'},
+      h('thead', null, h('tr', null, h('th', {style:TD + FC + ';background:var(--soft);font-weight:700', text:'項目'}), ...Array.from({length:12}, (_, i) => h('th', {style:TD + ';background:var(--soft);font-weight:700;text-align:center', text:(i + 1) + '月'})), h('th', {style:TD + ';background:var(--soft);font-weight:700;text-align:center', text:'合計'}))),
+      h('tbody', null, secHead('支出'), ...q.outs.map(r => catRow(r, '支出')), totRow('支出合計', q.mOut, q.outT, 'var(--soft)'),
+        secHead('收入'), ...q.ins.map(r => catRow(r, '收入')), totRow('收入合計', q.mIn, q.inT, 'var(--soft)'),
+        totRow('淨額（收入－支出）', q.net, q.netT, 'var(--panel)', '淨額'), totRow('月底結餘', q.bal, q.close, 'var(--panel)', '月底結餘')));
+    setKids(box, yearBar, fundChips, sum,
+      q.n ? h('div', {'aria-label':'年度統計表', style:'overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)'}, tbl) : h('div', {class:'panel empty', 'aria-label':'年度統計表', text:st.year + ' 年沒有零用金的收支紀錄' + (st.fund ? '（' + cashFundName(st.fund) + '）' : '')}),
+      h('small', {class:'hint', style:'display:block;margin-top:8px', text:'每一筆照單據上的日期算在那一個月，已作廢的不算。看全部時，主管↔出納的轉撥不算收入、支出；只看一個零用金時，轉入算收入、轉出算支出。點一個數字，可以看那一個月、那個項目的明細。'}));
+  };
+  put(sh.bodyEl, box); paint();
+}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {cashYearForTest:{cashYearCalc, dsCashYear, openCashYear:(...x) => openCashYear(...x)}}); } catch (_) {}
 function cashView(){
   const wrap = h('div');
   const U = S.ui.cashU;
@@ -14983,7 +15056,7 @@ function cashView(){
       can('cash') ? h('button', {class:'btn', onclick:() => openCashEntry(null, 'out', q.fund || 'cash')}, icon('plus'), '支出') : null,
       can('cash') ? h('button', {class:'btn ghost', onclick:() => openCashEntry(null, 'in', q.fund || 'cash')}, icon('plus'), '收入（補充）') : null,
       can('cash') ? h('button', {class:'btn ghost', 'aria-label':'零用金轉撥', onclick:() => openCashXfer(null)}, '轉撥（主管↔出納）') : null,
-      S.isAdmin ? h('button', {class:'btn ghost', onclick:openCashCats}, '編輯項目') : null, exportBtn(() => dsCash(U))),
+      S.isAdmin ? h('button', {class:'btn ghost', onclick:openCashCats}, '編輯項目') : null, h('button', {class:'btn ghost', 'aria-label':'零用金年度統計表', onclick:() => openCashYear()}, '年度統計表'), exportBtn(() => dsCash(U))),
     h('div', {style:'height:8px'}), dateRangeBar(U, redraw), fld('項目', catSel));
   if (q.byCat.length) wrap.append(h('div', {class:'sec-h'}, h('h2', {text:'項目彙總'})), h('div', {class:'panel'}, q.byCat.map(b => h('div', {class:'row'}, h('span', {text:b.catId === 'sys_xfer' ? '轉撥' : cashCatName(b.catId)}), h('span', {class:'right'}, b.in ? h('b', {text:'+' + money(b.in)}) : null, b.in && b.out ? h('br') : null, b.out ? h('b', {class:'overdue', text:'−' + money(b.out)}) : null)))));
   wrap.append(h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'明細（共 ' + q.rows.length + ' 筆）'})));
@@ -15558,7 +15631,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ev';
+const APP_VERSION = '2026.10.11-ew';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
