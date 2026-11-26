@@ -9933,6 +9933,27 @@ function compressPhoto(src, sw, sh, name){
   return {id:photoId(), data:out.data, thumb:th.data, w:out.w, h:out.h, name:String(name || '照片').replace(/\.[^.]+$/, '') + '.jpg', at:Date.now()};
 }
 async function photoFromFile(file){ const img = await loadImage(file); return compressPhoto(img, img.naturalWidth || img.width, img.naturalHeight || img.height, file && file.name); }
+/* -eu：讀照片原圖（photos 集合）。暫存最近 16 張（存的是 Promise，同一張同時被要幾次只讀一次）；讀不到不暫存。 */
+const PH_CACHE = new Map(), PH_CACHE_MAX = 16;
+function photoOrig(id){
+  if (!id) return Promise.resolve(null);
+  if (PH_CACHE.has(id)){ const v = PH_CACHE.get(id); PH_CACHE.delete(id); PH_CACHE.set(id, v); return v; }
+  const pr = (async () => { try { const sn = await S.db.doc('photos/' + id).get(); return sn.exists ? ((sn.data() || {}).data || null) : null; } catch (_) { return null; } })();
+  PH_CACHE.set(id, pr); pr.then(v => { if (!v && PH_CACHE.get(id) === pr) PH_CACHE.delete(id); });
+  while (PH_CACHE.size > PH_CACHE_MAX) PH_CACHE.delete(PH_CACHE.keys().next().value);
+  return pr;
+}
+/* 原圖解碼好了才換上去（不閃一下空白）；解不出來就留著縮圖 */
+function hqImg(img, id){
+  if (id) photoOrig(id).then(data => { if (!data) return; let t; try { t = new Image(); t.src = data; } catch (_) { t = null; }
+    const swap = () => { img.src = data; img.setAttribute('data-hq', '1'); };
+    if (t && t.decode) t.decode().then(swap, () => {}); else swap(); });
+  return img;
+}
+function prefetchPickPhotos(it){
+  if (!it) return;
+  for (const [kind, ids] of [['photo', it.picIds], ['pack', it.packIds]]){ if (!ids || !ids.length) continue; const i = Math.min(PICK_IDX[it.pid + '|' + kind] || 0, ids.length - 1); if (ids[i]) photoOrig(ids[i]); }
+}
 const photoMeta = p => ({id:p.id, name:p.name, w:p.w, h:p.h, at:p.at, thumb:p.thumb});
 async function savePhotoDocs(list){ for (const p of list) await S.db.doc('photos/' + p.id).set({data:p.data, name:p.name, w:p.w, h:p.h, at:p.at, by:S.meId || null, byName:myName()}); }
 const deletePhotoDocs = ids => Promise.all(ids.map(id => S.db.doc('photos/' + id).delete().catch(() => null)));
@@ -9976,7 +9997,7 @@ async function openPhotoViewer(o, idx, opt){
   const sh = sheet({title:'照片'}), box = h('div'); let i = Math.min(Math.max(idx || 0, 0), metas.length - 1);
   const show = async () => {
     const m = metas[i]; setKids(box, h('img', {src:m.thumb, alt:m.name, style:'width:100%;border-radius:12px;filter:blur(1px)'}), h('p', {class:'hint', text:'讀取原圖中…'}));
-    let data = null; try { const snap = await S.db.doc('photos/' + m.id).get(); if (snap.exists) data = (snap.data() || {}).data; } catch (_) {}
+    let data = null; try { data = await photoOrig(m.id); } catch (_) {}
     const canDel = can('sale') && !reviewLock(opt.key, o) && o.status !== 'void' && o.status !== 'cancelled';
     setKids(box, h('img', {src:data || m.thumb, alt:m.name, 'aria-label':'照片 ' + (i + 1), style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:(i + 1) + ' / ' + metas.length + (metas.length > 1 && touchUi() ? '　左右撥動可換圖' : '') + '　' + m.name + '　' + fmtDT(m.at) + (data ? '' : '　（找不到原圖，只顯示縮圖）')}),
       h('div', {class:'btns'}, metas.length > 1 ? h('button', {class:'btn ghost', 'aria-label':'上一張', onclick:() => { i = (i + metas.length - 1) % metas.length; show(); }}, '‹ 上一張') : null, metas.length > 1 ? h('button', {class:'btn ghost', 'aria-label':'下一張', onclick:() => { i = (i + 1) % metas.length; show(); }}, '下一張 ›') : null,
@@ -10452,7 +10473,7 @@ function swipeNav(el, opt){
   el.addEventListener('touchcancel', () => { if (st){ back(st.m); st = null; } }, {passive:true});
   el.addEventListener('click', e => { if (swiped){ swiped = false; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } }, true);
 }
-try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {photoSwipeForTest:{swipeNav, touchUi:() => touchUi(), openProductPhoto:(...x) => openProductPhoto(...x), openPhotoViewer:(...x) => openPhotoViewer(...x), pickPhotos:(...x) => pickPhotos(...x)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {photoSwipeForTest:{swipeNav, touchUi:() => touchUi(), openProductPhoto:(...x) => openProductPhoto(...x), openPhotoViewer:(...x) => openPhotoViewer(...x), pickPhotos:(...x) => pickPhotos(...x), photoOrig:(...x) => photoOrig(...x), phCache:PH_CACHE, prefetchPick:(...x) => prefetchPickPhotos(...x)}}); } catch (_) {}
 function productGallery(p){
   const g = [['photo', '產品', prodPics(p)], ['pack', '包裝', prodPacks(p)]].filter(x => x[2].length); if (!g.length) return null;
   return h('div', {style:'display:flex;flex-direction:column;gap:8px;margin-bottom:6px'}, ...g.map(([k, t, list]) => h('div', {style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap'}, h('small', {class:'hint', style:'width:34px;flex:none', text:t}), ...list.map((m, i) => h('button', {type:'button', 'aria-label':'查看' + (k === 'pack' ? '包裝' : '商品') + '照片' + (list.length > 1 ? ' ' + (i + 1) : ''), onclick:() => openProductPhoto(p, k, i)}, h('img', {src:m.thumb, alt:p.name + t + (i + 1), style:'width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block'}))))));
@@ -10464,7 +10485,7 @@ async function openProductPhoto(p, kind, idx){
   if (list.length > 1) swipeNav(box, {prev:() => { i = (i + list.length - 1) % list.length; show(); }, next:() => { i = (i + 1) % list.length; show(); }, mover:() => box.querySelector('img')});
   const show = async () => {
     const m = list[i]; setKids(box, h('img', {src:m.thumb, alt:p.name, style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:'讀取原圖中…'}));
-    let data = null; try { if (m.id){ const sn = await S.db.doc('photos/' + m.id).get(); if (sn.exists) data = (sn.data() || {}).data; } } catch (_) {}
+    let data = null; try { if (m.id) data = await photoOrig(m.id); } catch (_) {}
     setKids(box, h('img', {src:data || m.thumb, alt:p.name, 'aria-label':pack ? '包裝照片' : '商品照片', style:'width:100%;border-radius:12px'}), h('p', {class:'hint', text:p.sku + '　' + (pack ? '包裝' : '產品') + '照片 ' + (i + 1) + ' / ' + list.length + (list.length > 1 && touchUi() ? '　左右撥動可換圖' : '') + (data ? '' : '　（只顯示縮圖）')}),
       list.length > 1 ? h('div', {class:'btns'}, h('button', {class:'btn ghost', 'aria-label':'上一張', onclick:() => { i = (i + list.length - 1) % list.length; show(); }}, '‹ 上一張'), h('button', {class:'btn ghost', 'aria-label':'下一張', onclick:() => { i = (i + 1) % list.length; show(); }}, '下一張 ›')) : null);
   };
@@ -11665,7 +11686,7 @@ function voiceBar(cfg, o){
 /* ---- 揀貨資料 ---- */
 function pickItems(o){
   const wid = orderWh(o), m = new Map();
-  for (const l of o.lines || []){ const p = S.products[l.pid], c = m.get(l.pid) || {pid:l.pid, name:l.name || (p && p.name) || '', sku:l.sku || (p && p.sku) || '', unit:l.unit || (p && p.unit) || '', qty:0, shelf:shelfOf(p, wid), more:shelfMore(p, wid), thumb:p ? p.photoThumb || '' : '', packThumb:p ? p.packThumb || '' : '', pics:prodPics(p).map(m => m.thumb), packs:prodPacks(p).map(m => m.thumb), stock:p ? stockAt(l.pid, wid) : 0}; c.qty = r3(c.qty + (Number(l.qty) || 0)); m.set(l.pid, c); }
+  for (const l of o.lines || []){ const p = S.products[l.pid], c = m.get(l.pid) || {pid:l.pid, name:l.name || (p && p.name) || '', sku:l.sku || (p && p.sku) || '', unit:l.unit || (p && p.unit) || '', qty:0, shelf:shelfOf(p, wid), more:shelfMore(p, wid), thumb:p ? p.photoThumb || '' : '', packThumb:p ? p.packThumb || '' : '', pics:prodPics(p).map(m => m.thumb), packs:prodPacks(p).map(m => m.thumb), picIds:prodPics(p).map(m => m.id || ''), packIds:prodPacks(p).map(m => m.id || ''), stock:p ? stockAt(l.pid, wid) : 0}; c.qty = r3(c.qty + (Number(l.qty) || 0)); m.set(l.pid, c); }
   return [...m.values()].sort((a, b) => shelfCmp(a.shelf, b.shelf) || String(a.name).localeCompare(String(b.name), 'zh-TW'));
 }
 /* -do：導航式揀貨。站＝路線上連續同一個架位的商品；區＝架位開頭的字母（A27-2、A28 → A 區；B-02 → B 區）；先跳過的商品排到路線最後 */
@@ -11769,8 +11790,9 @@ async function openMergePick(ids, onClose){
 }
 function pickPhotos(it, repaint){
   const col = (kind, cap) => {
-    const pack = kind === 'pack', list = pack ? (it.packs || []) : (it.pics || []), key = it.pid + '|' + kind, i = Math.min(PICK_IDX[key] || 0, Math.max(list.length - 1, 0)), lab = pack ? '包裝' : '商品';
-    const main = list.length ? h('button', {type:'button', 'aria-label':'放大' + lab + '照片 ' + it.sku, style:'display:block;width:100%', onclick:() => openProductPhoto(S.products[it.pid], kind, i)}, h('img', {src:list[i], alt:it.name + cap, style:'width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'}))
+    const pack = kind === 'pack', list = pack ? (it.packs || []) : (it.pics || []), ids = (pack ? it.packIds : it.picIds) || [], key = it.pid + '|' + kind, i = Math.min(PICK_IDX[key] || 0, Math.max(list.length - 1, 0)), lab = pack ? '包裝' : '商品';
+    if (list.length > 1 && ids[(i + 1) % list.length]) photoOrig(ids[(i + 1) % list.length]);
+    const main = list.length ? h('button', {type:'button', 'aria-label':'放大' + lab + '照片 ' + it.sku, style:'display:block;width:100%', onclick:() => openProductPhoto(S.products[it.pid], kind, i)}, hqImg(h('img', {src:list[i], alt:it.name + cap, style:'width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;border:1px solid var(--line);display:block'}), ids[i]))
       : h('div', {style:'width:100%;aspect-ratio:1/1;display:grid;place-items:center;background:var(--soft);border-radius:12px;color:var(--ink3);font-size:12px', text:pack ? '沒有包裝照片' : '沒有照片'});
     const thumbs = list.length > 1 ? h('div', {style:'display:flex;gap:4px;justify-content:center;margin-top:4px;flex-wrap:wrap'}, ...list.map((th, j) => h('button', {type:'button', 'aria-label':'切換' + lab + '照片 ' + it.sku + ' ' + (j + 1), 'aria-pressed':String(j === i), style:'padding:0;border-radius:6px;overflow:hidden;line-height:0;border:2px solid ' + (j === i ? 'var(--brand)' : 'transparent'), onclick:() => { PICK_IDX[key] = j; if (repaint) repaint(); }}, h('img', {src:th, alt:'', style:'width:34px;height:34px;object-fit:cover;display:block'})))) : null;
     const colEl = h('div', {style:'flex:1;min-width:0;max-width:200px;text-align:center'}, main, thumbs, h('small', {style:'display:block;margin-top:2px;font-weight:700', text:cap + (list.length > 1 ? ' ' + (i + 1) + '/' + list.length : '')}));
@@ -13530,6 +13552,7 @@ function openPickOrder(orderId, opts){
   }
   function paint(){
     const rt = route(), st = navStations(rt), multiZone = new Set(rt.map(i => navZone(navShelf(i)))).size > 1, c = cur(), n = items.filter(i => pickHandled(pk, i.pid)).length, total = items.length, pt = S.partners[o.partnerId] || {}, all = n === total, skipN = items.filter(i => pk.items && pk.items[i.pid] && pk.items[i.pid].skip).length, lackN = items.filter(i => !pickHandled(pk, i.pid) && needOf(i) > 0).length;
+    try { if (c){ const ci = rt.indexOf(c); prefetchPickPhotos([...rt.slice(ci + 1), ...rt.slice(0, Math.max(ci, 0))].find(i => i !== c && !pickHandled(pk, i.pid))); } } catch (_) {}
     setKids(body,
       B ? batchHead() : h('div', {class:'panel pad', style:'margin-bottom:10px'}, h('div', {style:'display:flex;justify-content:space-between;gap:10px;align-items:flex-start'}, h('div', {style:'min-width:0'}, h('b', {class:'big', text:(pt.shortName || pt.name || '散客') + (o.store ? '（' + o.store + '）' : '')}), h('br'), h('small', {text:shipLine(o) || '（沒有送貨地址）'})), o.urgent || o.collect ? h('span', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'}, o.collect ? h('span', {class:'soon', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'順收貨款'}) : null, o.urgent ? h('span', {class:'overdue', style:'font-weight:800;font-size:18px;border:2px solid currentColor;border-radius:8px;padding:0 8px;white-space:nowrap', text:'早一點'}) : null) : null),
         h('small', {class:'hint', style:'display:block;margin-top:4px', text:(o.driver ? '送貨員 ' + o.driver + '　' : '') + '預計送貨 ' + deliveryOf(o) + (o.truckPlate ? '　' + o.truckPlate + ' ' + truckSlotTxt(o) : '')})),
@@ -15483,7 +15506,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-et';
+const APP_VERSION = '2026.10.11-eu';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
