@@ -1542,7 +1542,11 @@ function openOrder(type, pre){
     const withList = () => { ln.list = Number(p.price) || 0; ln.disc = discPct(ln.list, ln.price); };
     if (type === 'sale' && st.partnerId){
       const hp = histPriceOf(getHist(st.partnerId), ln.pid, conv);
-      if (hp){ ln.price = hp.price; ln.rule = {name:'上次成交價（' + hp.date + '）', plain:true, hist:true}; withList(); return; }
+      if (hp){
+        const qr = qtyRuleBeatsHist({side, product:p, partner:partnerOf(), qty:toNum(ln.qty) || 1, famQty:famQtyOf(st.lines, p, toNum(ln.qty) || 1), date:st.date}, hp);
+        if (qr){ ln.price = qr.price; ln.rule = qr.rule; withList(); return; }   // -ez：數量達到優惠門檻、比上次成交價便宜 → 數量優惠價
+        ln.price = hp.price; ln.rule = {name:'上次成交價（' + hp.date + '）', plain:true, hist:true}; withList(); return;
+      }
     }
     const r = resolvePrice({side, product:p, partner:partnerOf(), qty:toNum(ln.qty) || 1, famQty:famQtyOf(st.lines, p, toNum(ln.qty) || 1), date:st.date});
     ln.price = r.price; ln.rule = r.rule || (type === 'sale' && st.partnerId ? {name:'無歷史成交價，依價格策略／標準售價', plain:true} : null); withList();
@@ -3226,6 +3230,7 @@ function ledgerView(type){
 
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {ageForTest:{ageHolders, aging, dsLedger:(t, i) => dsLedger(t, i), ledgerView:t => ledgerView(t)}}); } catch (_) {}
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {maintForTest:{openMaintForm:(v, e) => openMaintForm(v, e), maintCatOfLog:m => maintCatOfLog(m), maintCatDefault:() => maintCatDefault(), cashEntries:() => cashEntries(), dsVehicles:() => dsVehicles(), openVehicle:id => openVehicle(id)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {qtyHistForTest:{beats:(a, hp) => qtyRuleBeatsHist(a, hp), openQuote:ex => openQuoteForm(ex)}}); } catch (_) {}
 const NOTE_BASIS = {due:['到期日', n => n.dueDate], issue:['收（開）票日', n => n.issueDate], deposit:['託收日', n => n.depositDate || ''], cash:['兌現日', n => n.cashDate || '']};
 const noteInRange = n => { const f = S.ui.noteFrom, t = S.ui.noteTo; if (!f && !t) return true; const d = NOTE_BASIS[S.ui.noteBasis][1](n); return !!d && (!f || d >= f) && (!t || d <= t); };
 function notesView(){
@@ -3980,7 +3985,7 @@ function openDocEditor(kind, pre){
   let saving = false;
   const linesBox = h('div'), pickBox = h('div', {class:'pick'}), totEl = h('div', {class:'tot'});
   const getHistD = histCache();
-  const docAuto = (p, qty) => { if (kind === 'co' && st.partnerId){ const hp = histPriceOf(getHistD(st.partnerId), p.id, x => x); if (hp) return {price:hp.price, rule:null}; } return resolvePrice({side:D.price === 'cost' ? 'purchase' : 'sale', product:p, partner:S.partners[st.partnerId], qty:toNum(qty) || 1, famQty:famQtyOf(st.lines, p, toNum(qty) || 1), date:st.date}); };
+  const docAuto = (p, qty) => { if (kind === 'co' && st.partnerId){ const hp = histPriceOf(getHistD(st.partnerId), p.id, x => x); if (hp){ const qr = qtyRuleBeatsHist({side:'sale', product:p, partner:S.partners[st.partnerId], qty:toNum(qty) || 1, famQty:famQtyOf(st.lines, p, toNum(qty) || 1), date:st.date}, hp); return qr || {price:hp.price, rule:null}; } } return resolvePrice({side:D.price === 'cost' ? 'purchase' : 'sale', product:p, partner:S.partners[st.partnerId], qty:toNum(qty) || 1, famQty:famQtyOf(st.lines, p, toNum(qty) || 1), date:st.date}); };
   /* 同系列（不同顏色）合併計算數量：某一行數量變了，同系列其他行的單價重算 */
   const famRefreshD = ln => { const k = famKey(S.products[ln.pid]); if (!k) return; for (const l of st.lines){ if (l === ln || l.manual || famKey(S.products[l.pid]) !== k) continue; l.price = docAuto(S.products[l.pid], l.qty).price; l.disc = discPct(l.list, l.price); const rf = refs.find(x => x.ln === l); if (rf){ if (rf.priceIn) rf.priceIn.value = l.price; if (rf.discIn) rf.discIn.value = zheIn(l); } } };
   const paintTierD = r => { if (!r.qtier) return; const q = toNum(r.ln.qty), on = q > 0 && (kind === 'co' || buyOn()); const t = on ? qtyTierHint({side:D.price === 'cost' ? 'purchase' : 'sale', product:r.p, partner:S.partners[st.partnerId], qty:q, famQty:famQtyOf(st.lines, r.p, q), date:st.date, curPrice:toNum(r.ln.price)}) : null; setKids(r.qtier, t ? h('span', {text:tierHintText(t, r.p)}) : null); };
@@ -15412,15 +15417,16 @@ function openQuoteForm(ex){
   const getHistQ = histCache();
   const convQ = ex1 => { const pt = partner() || {}; return (S.set.taxMode !== 'none' && (pt.taxType || 'taxable') === 'taxable' && pt.taxMode === 'incl') ? ex1 * (1 + taxRate() / 100) : ex1; };
   const autoP = ln => { if (ln.manual) return; const p = S.products[ln.pid];
-    if (st.partnerId){ const hp = histPriceOf(getHistQ(st.partnerId), ln.pid, convQ); if (hp){ ln.price = String(hp.price); ln.src = '上次成交價（' + hp.date + '）'; return; } }
+    if (st.partnerId){ const hp = histPriceOf(getHistQ(st.partnerId), ln.pid, convQ); if (hp){ const qr = qtyRuleBeatsHist({side:'sale', product:p, partner:partner(), qty:toNum(ln.qty) || 1, famQty:famQtyOf(st.lines, p, toNum(ln.qty) || 1), date:st.date}, hp); if (qr){ ln.price = String(qr.price); ln.src = '套用「' + qr.rule.name + '」（比上次成交價便宜）'; return; } ln.price = String(hp.price); ln.src = '上次成交價（' + hp.date + '）'; return; } }
     const r = resolvePrice({side:'sale', product:p, partner:partner(), qty:toNum(ln.qty) || 1, famQty:famQtyOf(st.lines, p, toNum(ln.qty) || 1), date:st.date}); ln.price = String(r.price); ln.src = st.partnerId ? (r.rule ? '套用「' + r.rule.name + '」' : '無歷史成交價，依價格策略／標準售價') : ''; };
-  const famRefreshQ = ln => { const k = famKey(S.products[ln.pid]); if (!k) return; for (const l of st.lines){ if (l === ln || l.manual || famKey(S.products[l.pid]) !== k) continue; autoP(l); const r = refs.find(x => x.ln === l); if (r && r.pin) r.pin.value = l.price; } };
+  const setSrcQ = r => { if (!r || !r.srcEl) return; r.srcEl.textContent = r.ln.src || ''; r.srcEl.style.display = r.ln.src ? '' : 'none'; };   // -ez：說明會因數量改變（上次成交價 ↔ 數量優惠）
+  const famRefreshQ = ln => { const k = famKey(S.products[ln.pid]); if (!k) return; for (const l of st.lines){ if (l === ln || l.manual || famKey(S.products[l.pid]) !== k) continue; autoP(l); const r = refs.find(x => x.ln === l); if (r && r.pin) r.pin.value = l.price; setSrcQ(r); } };
   const paintTierQ = r => { if (!r.qtier) return; const q = toNum(r.ln.qty); const t = q > 0 ? qtyTierHint({side:'sale', product:r.p, partner:partner(), qty:q, famQty:famQtyOf(st.lines, r.p, q), date:st.date, curPrice:toNum(r.ln.price)}) : null; setKids(r.qtier, t ? h('span', {text:tierHintText(t, r.p)}) : null); };
   const calc = () => { let sum = 0; for (const r of refs){ const a = amtOf(r.ln.qty, r.ln.price); sum += a; r.sub.textContent = money(a); paintTierQ(r); } const pt = partner() || {}; const ts = taxSplit(mInt(sum), S.set.taxMode === 'none' ? 'exempt' : (pt.taxType || 'taxable'), pt.taxMode === 'incl' ? 'incl' : 'excl'); totEl.textContent = '合計 ' + money(ts.total); };
   const paintLines = () => { refs.length = 0; setKids(linesBox, st.lines.map((ln, i) => { const p = S.products[ln.pid], sub = h('b'), qtier = h('div', {class:'soon', style:'font-size:13px;margin-top:2px', 'aria-label':'數量優惠提示'}); const ref = {ln, p, sub, qtier, pin:null}; refs.push(ref);
     ref.pin = h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.price, 'aria-label':'單價', onfocus:e => e.target.select(), oninput:e => { ln.price = e.target.value; ln.manual = true; calc(); }});
     return h('div', {class:'ln'}, h('div', {class:'ln-h'}, h('div', null, h('b', {text:p.name}), h('small', {text:p.sku + '　' + (p.unit || '')})), h('span', {style:'display:flex;gap:6px;align-items:center'}, infoBtn(ln.pid, {partnerId:st.partnerId, conv:ex1 => r2(convQ(ex1)), onPick:pr => { ln.price = String(pr); ln.manual = true; ln.src = ''; ref.pin.value = pr; calc(); }}), h('button', {class:'ic sm', 'aria-label':'移除此項', onclick:() => { const gone = st.lines.splice(i, 1)[0]; if (gone) famRefreshQ(gone); paintLines(); }}, icon('x')))),
-      h('div', {class:'ln-g'}, h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', 'data-enter':'search', onfocus:e => e.target.select(), oninput:e => { ln.qty = e.target.value; if (!ln.manual){ autoP(ln); ref.pin.value = ln.price; } famRefreshQ(ln); calc(); }})), h('div', null, h('label', {text:'單價'}), ref.pin), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)), ln.src ? h('small', {class:'hint', text:ln.src}) : null, qtier); })); calc(); histQ.paint(); };
+      h('div', {class:'ln-g'}, h('div', null, h('label', {text:'數量'}), h('input', {class:'in', type:'text', inputmode:'decimal', value:ln.qty, 'aria-label':'數量', 'data-enter':'search', onfocus:e => e.target.select(), oninput:e => { ln.qty = e.target.value; if (!ln.manual){ autoP(ln); ref.pin.value = ln.price; } setSrcQ(ref); famRefreshQ(ln); calc(); }})), h('div', null, h('label', {text:'單價'}), ref.pin), h('div', {class:'ln-s'}, h('small', {text:'小計'}), sub)), (ref.srcEl = h('small', {class:'hint', text:ln.src || '', style:ln.src ? '' : 'display:none'})), qtier); })); calc(); histQ.paint(); };
   const addLineQ = (pid, q) => { const ex1 = st.lines.find(l => l.pid === pid); let ln; if (ex1){ ex1.qty = String(r3(toNum(ex1.qty) + q)); autoP(ex1); ln = ex1; } else { ln = {pid, qty:String(q), price:'0', manual:false}; autoP(ln); st.lines.push(ln); } famRefreshQ(ln); paintLines(); };
   const addLine = p => addLineQ(p.id, 1);
   const histQ = histPanel({hasPartner:() => !!st.partnerId, getHist:() => getHistQ(st.partnerId), added:pid => st.lines.some(l => l.pid === pid), add:(pid, q) => addLineQ(pid, q), conv:ex1 => r2(convQ(ex1))});
@@ -15688,7 +15694,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ey';
+const APP_VERSION = '2026.10.11-ez';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -16515,6 +16521,14 @@ function resolvePrice(a){
   const per = best.r.kind === 'fixed' && rulePrices(best.r.prod), tier = ruleTierFor(best.r, p.id, best.q);
   // 各商品價格不同、或有數量階梯的規則：回傳「只含這個商品、這個階梯」的規則，畫面上的說明（效果、門檻）才是這個商品實際套用的
   return {price:best.price, rule:(per || tier) ? {...best.r, value:tier ? tier.value : best.price, ...(tier ? {minQty:tier.minQty, maxQty:tier.maxQty} : {}), prod:{type:'product', productId:p.id}} : best.r, base};
+}
+/* -ez：客戶有「上次成交價」時，原本一律帶上次價，數量再多也不會套用數量優惠。
+   現在：如果這個數量已經達到某條價格規則的「數量從／數量階梯」門檻（門檻大於 1），而且規則算出的單價比上次成交價便宜 → 用優惠價；
+   不是數量門檻的規則（例如客戶等級九折）照舊不蓋掉上次成交價。a：resolvePrice 的參數；hp：{price, date}；回傳 resolvePrice 的結果或 null */
+function qtyRuleBeatsHist(a, hp){
+  if (!hp) return null;
+  const r = resolvePrice(a);
+  return r.rule && Number(r.rule.minQty) > 1 && r.price < hp.price - 0.004 ? r : null;
 }
 /* 數量優惠提示：目前的數量還沒達到某個「數量階梯」的門檻時，回傳再買幾件、單價會變多少（只提示，不強迫）。
    a：{side, product, partner, qty, famQty, date, curPrice}；curPrice＝目前這一行的單價（比它便宜才提示） */
