@@ -3225,6 +3225,7 @@ function ledgerView(type){
 }
 
 try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {ageForTest:{ageHolders, aging, dsLedger:(t, i) => dsLedger(t, i), ledgerView:t => ledgerView(t)}}); } catch (_) {}
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {maintForTest:{openMaintForm:(v, e) => openMaintForm(v, e), maintCatOfLog:m => maintCatOfLog(m), maintCatDefault:() => maintCatDefault(), cashEntries:() => cashEntries(), dsVehicles:() => dsVehicles(), openVehicle:id => openVehicle(id)}}); } catch (_) {}
 const NOTE_BASIS = {due:['到期日', n => n.dueDate], issue:['收（開）票日', n => n.issueDate], deposit:['託收日', n => n.depositDate || ''], cash:['兌現日', n => n.cashDate || '']};
 const noteInRange = n => { const f = S.ui.noteFrom, t = S.ui.noteTo; if (!f && !t) return true; const d = NOTE_BASIS[S.ui.noteBasis][1](n); return !!d && (!f || d >= f) && (!t || d <= t); };
 function notesView(){
@@ -5883,38 +5884,58 @@ function openVehicleForm(id){
 }
 function openMaintForm(vid, ex){
   const st = ex ? {...ex} : {vehicleId:vid, date:today(), item:'', cost:'', vendor:'', odo:'', nextDate:'', nextOdo:'', note:''};
-  if (ex){ st.cost = ex.cost || ''; st.odo = ex.odo || ''; st.nextOdo = ex.nextOdo || ''; }
+  if (ex){ st.cost = ex.cost || ''; st.odo = ex.odo || ''; st.nextOdo = ex.nextOdo || ''; st.vendor = ex.vendor || ''; st.note = ex.note || ''; st.nextDate = ex.nextDate || ''; }
+  /* -ey：由零用金支付（同步記一筆零用金支出）。新增預設勾選；以前的紀錄沒有這個標記，不會自己跑進帳簿，要記就打開來勾 */
+  st.fromCash = ex ? !!ex.fromCash : see('cash'); st.fund = ex && ex.fromCash ? cashFundOf(ex.fund) : cashAutoFund(); st.catId = ex && ex.catId && cashCatOf(ex.catId) ? ex.catId : '';
   const sh = sheet({title:ex ? '編輯保養紀錄' : '新增保養紀錄'});
   const itemIn = h('input', {class:'in', value:st.item, placeholder:'例如：引擎機油＋濾芯', oninput:e => { st.item = e.target.value; }});
   const presets = h('div', {class:'chips', style:'padding-top:0'}, MAINT_PRESET.map(t => h('button', {class:'chip', onclick:() => { itemIn.value = t === '其他' ? '' : t; st.item = itemIn.value; itemIn.focus(); }}, t)));
+  const cashInput = h('input', {type:'checkbox', checked:st.fromCash, 'aria-label':'由零用金支付', onchange:e => { st.fromCash = e.target.checked; paintPay(); }});
+  const payRow = h('label', {class:'check'}, cashInput, '由零用金支付（同步記入零用金帳簿的支出）');
+  const fundBox = h('div', {class:'chips', style:'padding-top:0', 'aria-label':'從哪一個零用金支付'}), fundRow = h('div', {class:'f'}, h('label', {text:'從哪一個零用金支付'}), fundBox);
+  const catSel = h('select', {class:'in', 'aria-label':'會計科目項目', onchange:e => { st.catId = e.target.value; paintHint(); }}), catRow = h('div', {class:'f', 'aria-label':'會計科目'}, h('label', {text:'由哪個會計項目支出（零用金項目）'}), catSel);
+  const payHint = h('small', {class:'hint', style:'display:block;margin:-2px 0 8px'});
+  const roNote = ex && ex.fromCash && !see('cash') ? h('small', {class:'hint', style:'display:block;margin:-2px 0 8px', text:'這筆保養費已記入零用金（' + cashFundName(ex.fund) + '・' + cashCatName(maintCatOfLog(ex)) + '）；你沒有零用金權限，無法修改這部分。'}) : null;
+  const paintFund = () => setKids(fundBox, ...CASH_FUNDS.map(f => h('button', {class:'chip', 'aria-pressed':st.fund === f.id, 'aria-label':'保養費從 ' + f.name, onclick:() => { st.fund = f.id; paintFund(); paintHint(); }}, f.name)));
+  const paintCat = () => {
+    const cats = cashCats().filter(c => c.id !== 'sys_pay' && (c.dir === 'out' || c.dir === 'both'));
+    catSel.replaceChildren(h('option', {value:'', text:'依設定（' + cashCatName(maintCatDefault()) + '）'}), ...cats.map(c => h('option', {value:c.id, text:c.name})));
+    catSel.value = cats.some(c => c.id === st.catId) ? st.catId : ''; st.catId = catSel.value;
+  };
+  const paintHint = () => { const cost = mInt(toNum(st.cost)); payHint.textContent = cost > 0 ? '會在零用金帳簿記一筆支出 ' + money(cost) + '（' + cashFundName(st.fund) + '・' + cashCatName(st.catId || maintCatDefault()) + '，日期 ' + st.date + '）；之後改費用、日期、項目，或刪除這筆保養，帳簿會跟著變。' : '填了費用，才會記入零用金帳簿。'; };
+  const paintPay = () => { const on = see('cash'), show = on && st.fromCash; payRow.style.display = on ? '' : 'none'; cashInput.checked = st.fromCash; fundRow.style.display = catRow.style.display = show ? '' : 'none'; payHint.style.display = show ? 'block' : 'none'; if (show){ paintFund(); paintCat(); paintHint(); } };
   let saving = false;
   const btn = h('button', {class:'btn grow', onclick:async () => {
     if (saving) return;
     const item = st.item.trim(); if (!item) return toast('請輸入保養項目');
-    const data = {vehicleId:vid, date:st.date, item, cost:mInt(toNum(st.cost)), vendor:st.vendor.trim(), odo:st.odo ? Math.round(toNum(st.odo)) : null,
+    const cost = mInt(toNum(st.cost));
+    const data = {vehicleId:vid, date:st.date, item, cost, vendor:st.vendor.trim(), odo:st.odo ? Math.round(toNum(st.odo)) : null,
       nextDate:st.nextDate || '', nextOdo:st.nextOdo ? Math.round(toNum(st.nextOdo)) : null, note:st.note.trim()};
+    /* 零用金：沒有零用金權限的人不動這部分（修改別人記進零用金的紀錄，不會把標記清掉） */
+    const pay = st.fromCash && cost > 0, cashData = see('cash') ? {fromCash:pay, fund:pay ? cashFundOf(st.fund) : null, catId:pay && st.catId ? st.catId : null} : (ex ? {} : {fromCash:false});
     saving = true; btn.disabled = true;
     const ok = await run(async () => {
-      if (ex) await S.db.doc('maint/' + ex.id).update(data);
-      else await S.db.collection('maint').doc().set({...data, by:S.meId || null, at:Date.now()});
+      if (ex) await S.db.doc('maint/' + ex.id).update({...data, ...cashData});
+      else await S.db.collection('maint').doc().set({...data, ...cashData, by:S.meId || null, at:Date.now()});
       return true;
     });
     saving = false; btn.disabled = false;
-    if (ok){ toast('已儲存'); sh.forceClose(); }
+    if (ok){ toast(cashData.fromCash ? '已儲存，並記入零用金支出 ' + money(cost) : '已儲存'); sh.forceClose(); }
   }}, '儲存');
   put(sh.bodyEl,
     fld('保養項目', itemIn), presets,
-    h('div', {class:'f2'}, fld('日期', h('input', {class:'in', type:'date', value:st.date, onchange:e => { st.date = e.target.value || today(); }})), fld('費用', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.cost, placeholder:'0', oninput:e => { st.cost = e.target.value; }}))),
-    h('div', {class:'f2'}, fld('保養廠（選填）', h('input', {class:'in', value:st.vendor, oninput:e => { st.vendor = e.target.value; }})), fld('當時里程（選填）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.odo, oninput:e => { st.odo = e.target.value; }}))),
+    h('div', {class:'f2'}, fld('日期', h('input', {class:'in', type:'date', value:st.date, onchange:e => { st.date = e.target.value || today(); paintHint(); }})), fld('費用', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.cost, placeholder:'0', 'aria-label':'保養費用', oninput:e => { st.cost = e.target.value; paintHint(); }}))),
+    payRow, fundRow, catRow, payHint, roNote,
+    h('div', {class:'f2'}, fld('保養廠（選填）', h('input', {class:'in', value:st.vendor, oninput:e => { st.vendor = e.target.value; paintHint(); }})), fld('當時里程（選填）', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.odo, oninput:e => { st.odo = e.target.value; }}))),
     h('div', {class:'sec-h'}, h('h2', {text:'下次提醒（選填）'})),
     h('div', {class:'f2'}, fld('下次日期', h('input', {class:'in', type:'date', value:st.nextDate, onchange:e => { st.nextDate = e.target.value; }})), fld('下次里程', h('input', {class:'in', type:'text', inputmode:'decimal', value:st.nextOdo, oninput:e => { st.nextOdo = e.target.value; }}))),
     fld('備註', h('input', {class:'in', value:st.note, oninput:e => { st.note = e.target.value; }})),
     ex ? h('button', {class:'btn plain', onclick:async () => {
-      if (!await dialog({title:'刪除這筆保養紀錄？', ok:'刪除', danger:true})) return;
+      if (!await dialog({title:'刪除這筆保養紀錄？', msg:ex.fromCash && ex.cost > 0 ? '零用金帳簿裡這筆保養費支出（' + money(ex.cost) + '，' + ex.date + '）也會一起移除。' : '', ok:'刪除', danger:true})) return;
       const ok = await run(async () => { await S.db.doc('maint/' + ex.id).delete(); return true; });
       if (ok){ toast('已刪除'); sh.forceClose(); }
     }}, '刪除') : null);
-  sh.footEl.append(btn);
+  sh.footEl.append(btn); paintPay();
 }
 
 function fuelRow(f, showVeh){
@@ -5937,12 +5958,12 @@ function openVehicle(id){
         v.driver ? kv('預設駕駛', v.driver) : null, cardOfVehicle(id) ? kv('儲值卡', cardOfVehicle(id).name + '　現金點 ' + money(cardBalance(cardOfVehicle(id).id)) + (cardBonus(cardOfVehicle(id).id) ? '、紅利金 ' + money(cardBonus(cardOfVehicle(id).id)) : '')) : null, v.note ? kv('備註', v.note) : null),
       h('div', {class:'panel pad', style:'margin-bottom:14px'},
         kv('平均油耗', st.avgKml ? st.avgKml.toFixed(1) + ' km/L' : '資料不足'), kv('累計油費', money(st.totFuelCost)),
-        st.totTopup ? kv('累計儲值', money(st.totTopup)) : null, st.totKm ? kv('累計行駛（依加油區間估算）', num(st.totKm) + ' km') : null),
+        st.totTopup ? kv('累計儲值', money(st.totTopup)) : null, (x => x ? kv('累計保養費', money(x)) : null)(r2(maints.reduce((a, m) => a + (Number(m.cost) || 0), 0))), st.totKm ? kv('累計行駛（依加油區間估算）', num(st.totKm) + ' km') : null),
       st.legs.length ? [h('div', {class:'sec-h'}, h('h2', {text:'近期油耗'})),
         h('div', {class:'panel'}, st.legs.map(l => h('div', {class:'row'}, h('span', {text:l.date}), h('b', {text:l.kml.toFixed(1) + ' km/L'}))))] : null,
       h('div', {class:'sec-h'}, h('h2', {text:'保養紀錄'}), can('vehicle') ? h('button', {class:'btn ghost sm', onclick:() => openMaintForm(id)}, icon('plus'), '新增') : null),
       maints.length ? h('div', {class:'panel'}, maints.map(m => { const d = maintDue(m); return h('button', {class:'row', onclick:() => openMaintForm(id, m)},
-        h('span', null, h('b', {text:m.item}), h('br'), h('small', {text:m.date + (m.cost ? '　' + money(m.cost) : '') + (m.vendor ? '　' + m.vendor : '')})),
+        h('span', null, h('b', {text:m.item}), h('br'), h('small', {text:m.date + (m.cost ? '　' + money(m.cost) : '') + (m.vendor ? '　' + m.vendor : '') + (m.fromCash && m.cost ? '　' + cashFundName(m.fund) + '・' + cashCatName(maintCatOfLog(m)) : '')})),
         d ? h('small', {class:d.overdue ? 'overdue' : 'soon', text:d.text}) : null); }))
         : h('div', {class:'panel empty', text:'尚無保養紀錄'}),
       h('div', {class:'sec-h', style:'margin-top:14px'}, h('h2', {text:'加油與儲值紀錄'})),
@@ -5982,11 +6003,11 @@ function dsVehicles(){
   const det = [];
   for (const v of list) for (const f of vehFuelLogs(v.id)) det.push([v.plate, f.date, f.type === 'topup' ? '儲值' : '加油', f.who || '', f.odo || '', f.liters || '', f.amount, f.station || '']);
   const md = [];
-  for (const v of list) for (const m of vehMaint(v.id)) md.push([v.plate, m.date, m.item, m.cost || 0, m.vendor || '', m.odo || '', m.nextDate || '', m.nextOdo || '']);
+  for (const v of list) for (const m of vehMaint(v.id)) md.push([v.plate, m.date, m.item, m.cost || 0, m.vendor || '', m.odo || '', m.nextDate || '', m.nextOdo || '', m.fromCash && m.cost ? cashFundName(m.fund) + '・' + cashCatName(maintCatOfLog(m)) : '']);
   return {title:'車輛管理', sub:'共 ' + list.length + ' 輛　' + today(), filename:'車輛管理',
     sections:[{name:'車輛', cols, rows},
       {name:'加油與儲值紀錄', opt:true, cols:[XC('車牌', 'text', 12), XC('日期', 'text', 12), XC('類型', 'text', 8), XC('駕駛', 'text', 10), XC('里程', 'qty', 10), XC('公升', 'qty', 10), XC('金額', 'money', 10), XC('加油站', 'text', 14)], rows:det},
-      {name:'保養紀錄', opt:true, cols:[XC('車牌', 'text', 12), XC('日期', 'text', 12), XC('項目', 'text', 20), XC('費用', 'money', 10), XC('保養廠', 'text', 14), XC('當時里程', 'qty', 10), XC('下次日期', 'text', 12), XC('下次里程', 'qty', 10)], rows:md}]};
+      {name:'保養紀錄', opt:true, cols:[XC('車牌', 'text', 12), XC('日期', 'text', 12), XC('項目', 'text', 20), XC('費用', 'money', 10), XC('保養廠', 'text', 14), XC('當時里程', 'qty', 10), XC('下次日期', 'text', 12), XC('下次里程', 'qty', 10), XC('記入零用金', 'text', 22)], rows:md}]};
 }
 
 /* ---- 加油紀錄 CSV 匯入 ---- */
@@ -14833,6 +14854,9 @@ const fuelCatId = vid => cashFuelCar() && S.vehicles[vid] ? 'fv_' + vid : 'sys_f
 const fuelCardShared = cid => { const c = S.fuelcards[cid]; return !!c && (c.vehicleIds || []).length > 1; };
 const fuelCatDefault = (vid, cardId, type) => type === 'topup' && cardId && fuelCardShared(cardId) ? 'sys_fuel' : fuelCatId(vid);
 const fuelCatOfLog = f => f.catId && cashCatOf(f.catId) ? f.catId : fuelCatDefault(f.vehicleId, f.cardId, f.type);
+/* -ey：保養紀錄由零用金支付 → 零用金帳簿的支出。項目預設「保養維修費」（c_maint）；管理員刪掉這個項目的話，退而記「其他支出」 */
+const maintCatDefault = () => cashCatOf('c_maint') ? 'c_maint' : (cashCatOf('c_oout') ? 'c_oout' : 'c_maint');
+const maintCatOfLog = m => m.catId && cashCatOf(m.catId) ? m.catId : maintCatDefault();
 const cashCatOf = id => cashCats().find(c => c.id === id);
 const cashCatName = id => (cashCatOf(id) || (String(id).startsWith('fv_') && S.vehicles[String(id).slice(3)] ? {name:cashFuelPre() + (S.vehicles[String(id).slice(3)].plate || '')} : null) || {}).name || '（已刪除的項目）';
 const cashSaleIn = () => S.set.cashSaleIn !== false;
@@ -14869,6 +14893,11 @@ function cashEntries(){
     const v = S.vehicles[f.vehicleId] || {};
     out.push({key:'f' + f.id, auto:'fuel', ref:f.vehicleId, date:f.date, dir:'out', catId:fuelCatOfLog(f), amount:f.amount, note:(f.type === 'topup' ? '儲值 ' : '加油 ') + (v.plate || '') + (S.fuelcards[f.cardId] ? '　' + S.fuelcards[f.cardId].name : '') + (f.who ? '　' + f.who : ''), card:f.type === 'topup' ? (f.cardId || null) : null, at:f.at || 0, fund:f.fund ? cashFundOf(f.fund) : af});
   }
+  for (const m of Object.values(S.maint)){   /* -ey：保養紀錄勾了「由零用金支付」 */
+    if (!m.fromCash || !(m.cost > 0) || !m.date) continue;
+    const v = S.vehicles[m.vehicleId] || {};
+    out.push({key:'mn:' + m.id, auto:'maint', ref:m.vehicleId, mid:m.id, date:m.date, dir:'out', catId:maintCatOfLog(m), amount:m.cost, note:'保養 ' + (v.plate || '') + '　' + (m.item || '') + (m.vendor ? '　' + m.vendor : ''), at:m.at || 0, fund:m.fund ? cashFundOf(m.fund) : af});
+  }
   for (const o of Object.values(S.orders)){
     if (o.status === 'void' || o.type !== 'purchase' || !o.freightCash || !(o.freight > 0)) continue;
     out.push({key:'r' + o.id, auto:'order', ref:o.id, date:o.truckDate || o.date, dir:'out', catId:'c_freight', amount:o.freight, note:'回頭車運費　' + o.no + '　' + num(o.volume) + ' 才', at:o.at || 0, fund:af});
@@ -14893,7 +14922,7 @@ function dsCash(U){
   const cols = [XC('日期', 'text', 12), XC('零用金', 'text', 14), XC('項目', 'text', 14), XC('說明', 'text', 34), XC('來源', 'text', 10), XC('收入', 'money', 12), XC('支出', 'money', 12), XC('結餘', 'money', 12)];
   /* 轉撥：看單一個零用金時是轉入（收入）或轉出（支出）；看全部時不算收支，金額寫在說明 */
   const inAmt = e => e.dir === 'xfer' ? (e.delta > 0 ? e.delta : null) : (e.dir === 'in' ? e.amount : null), outAmt = e => e.dir === 'xfer' ? (e.delta < 0 ? -e.delta : null) : (e.dir === 'out' ? e.amount : null);
-  const rows = q.rows.map(e => [e.date, e.dir === 'xfer' ? cashXferTxt(e) : cashFundName(e.fund), cashCatLabel(e), (e.dir === 'xfer' && !q.fund ? '轉撥 ' + money(e.amount) + (e.note ? '　' : '') : '') + e.note, e.manual ? '手動' : ({payment:'收付款', order:'單據', fuel:'油錢'})[e.auto], inAmt(e), outAmt(e), e.bal]);
+  const rows = q.rows.map(e => [e.date, e.dir === 'xfer' ? cashXferTxt(e) : cashFundName(e.fund), cashCatLabel(e), (e.dir === 'xfer' && !q.fund ? '轉撥 ' + money(e.amount) + (e.note ? '　' : '') : '') + e.note, e.manual ? '手動' : ({payment:'收付款', order:'單據', fuel:'油錢', maint:'保養'})[e.auto], inAmt(e), outAmt(e), e.bal]);
   const sum = q.byCat.map(b => [b.catId === 'sys_xfer' ? '轉撥' : cashCatName(b.catId), b.in || null, b.out || null]);
   const fundsTxt = '目前結餘 ' + q.funds.map(f => f.name + ' ' + money(f.bal)).join('、') + '（合計 ' + money(q.total) + '）';
   return {title:'零用金帳簿' + (q.fund ? '（' + cashFundName(q.fund) + '）' : ''), sub:'期間 ' + rng + '　期初 ' + money(q.opening) + '　期末 ' + money(q.end) + '　' + fundsTxt + (q.fund ? '' : '　轉撥只在兩個零用金之間移動，合計不變'), filename:'零用金帳簿' + (q.fund ? '_' + cashFundName(q.fund) : ''),
@@ -15090,7 +15119,8 @@ function cashView(){
   const rows = q.rows.slice().reverse();
   wrap.append(rows.length ? h('div', {class:'panel'}, rows.slice(0, 120).map(e => h('button', {class:'row', onclick:() => {
       if (e.manual){ if (e.expId && S.expdocs[e.expId]) return openExpDetail(e.expId); if (can('cash')) openCashEntry({...S.cashbook[e.id], id:e.id}); return; }
-      if (e.auto === 'payment') return openPaymentDetail(e.ref); if (e.auto === 'order') return openOrderDetail(e.ref); if (e.auto === 'fuel') return e.card ? openFuelCard(e.card) : openVehicle(e.ref); },},
+      if (e.auto === 'payment') return openPaymentDetail(e.ref); if (e.auto === 'order') return openOrderDetail(e.ref); if (e.auto === 'fuel') return e.card ? openFuelCard(e.card) : openVehicle(e.ref);
+      if (e.auto === 'maint') return can('vehicle') && S.maint[e.mid] ? openMaintForm(e.ref, S.maint[e.mid]) : openVehicle(e.ref); },},
     h('span', {style:'display:flex;gap:10px;align-items:center;min-width:0'}, h('span', {class:'tag ' + (e.dir === 'xfer' ? 'adj' : (e.dir === 'in' ? 'in' : 'out')), text:e.dir === 'xfer' ? '轉' : (e.dir === 'in' ? '收' : '支')}),
       h('span', {style:'min-width:0'}, h('b', {text:cashCatLabel(e) + (e.manual ? '' : '　自動') + (e.expNo ? '　費用單據 ' + e.expNo : '')}), h('br'), h('small', {text:e.date + '　' + (e.dir === 'xfer' ? cashXferTxt(e) : cashFundName(e.fund)) + (e.note ? '　' + e.note : '')}))),
     h('span', {class:'right'}, h('b', {class:e.delta < 0 ? 'overdue' : '', text:e.dir === 'xfer' && !e.delta ? '↔ ' + money(e.amount) : (e.delta >= 0 ? '+' : '−') + money(Math.abs(e.delta))}), h('br'), h('small', {text:'結餘 ' + money(e.bal)})))))
@@ -15658,7 +15688,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ex';
+const APP_VERSION = '2026.10.11-ey';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
