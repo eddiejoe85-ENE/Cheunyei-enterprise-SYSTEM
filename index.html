@@ -199,6 +199,20 @@ button.row:hover{background:var(--soft)}
 .age-row{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;padding:5px 0;font-size:14px}
 .age-row .sw{width:10px;height:10px;border-radius:3px}
 .age-row .a0{background:var(--ok)}.age-row .a1{background:var(--low)}.age-row .a2{background:var(--b3)}.age-row .a3{background:var(--zero)}.age-row .a4{background:var(--b4)}
+/* -ex：帳齡長條圖可以點 */
+.strip.pick{height:24px}
+.strip.pick button{display:block;border-radius:5px;min-width:10px;transition:opacity .15s}
+.strip.pick.has button{opacity:.3}
+.strip.pick.has button.on{opacity:1;box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--ink)}
+button.age-row{width:100%;text-align:left;border-radius:8px;padding:6px 6px}
+button.age-row:disabled{cursor:default;opacity:.55}
+button.age-row:not(:disabled):hover,button.age-row.on{background:var(--soft)}
+button.age-row.on{font-weight:700}
+.age-row .ageN{color:var(--ink3);font-weight:400;font-size:12.5px}
+.age-filt{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;border-radius:10px;background:var(--soft);font-size:14px}
+.age-filt .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.age-filt .a0{background:var(--ok)}.age-filt .a1{background:var(--low)}.age-filt .a2{background:var(--b3)}.age-filt .a3{background:var(--zero)}.age-filt .a4{background:var(--b4)}
+.age-filt .t{flex:1;font-weight:600}
 .overdue{color:var(--zero)!important;font-weight:600}
 .soon{color:var(--low)!important;font-weight:600}
 /* stocktake */
@@ -2676,6 +2690,9 @@ function aging(type){
   return {byP, tot, open:r2(tot.reduce((a, b) => a + b, 0))};
 }
 const lateOf = b => r2(b.slice(1).reduce((a, x) => a + x, 0));
+/* -ex：帳齡第 i 段（0＝未到期，1～4＝逾期）有金額的往來對象，依那一段的金額由大到小 */
+const ageHolders = (ag, i) => Object.keys(ag.byP).map(id => S.partners[id]).filter(p => p && ag.byP[p.id].b[i] > 0.004).sort((a, b) => ag.byP[b.id].b[i] - ag.byP[a.id].b[i] || cmpName(a, b));
+function ageJump(){ try { const el = document.querySelector('[data-age-list]'); if (!el || !el.scrollIntoView) return; const r = el.getBoundingClientRect(); if (r.top > window.innerHeight * 0.55 || r.top < 0) el.scrollIntoView({block:'start', behavior:'smooth'}); } catch (_) {} }
 
 function allocPanel(){
   let rows = [], pid = null, cb = () => {}, cbFilter = null;
@@ -3162,13 +3179,20 @@ const AGE_CLS = ['a0', 'a1', 'a2', 'a3', 'a4'];
 function ledgerView(type){
   const isAR = type === 'customer', ag = aging(type), net = receivable(type), late = lateOf(ag.tot);
   const wrap = h('div');
+  const AF = S.ui.ageF || (S.ui.ageF = {});   /* -ex：每個畫面（應收／應付）各自記著點了哪一段，-1＝沒篩選 */
+  let sel = Number.isInteger(AF[type]) && AF[type] >= 0 && AF[type] < 5 ? AF[type] : -1;
+  if (sel >= 0 && !(ag.tot[sel] > 0.004)){ sel = -1; AF[type] = -1; }
+  const pickAge = i => { AF[type] = AF[type] === i ? -1 : i; draw(); if (AF[type] === i) ageJump(); };
   const hero = h('section', {class:'panel hero'},
     h('h2', {text:isAR ? '應收帳款' : '應付帳款'}),
     h('div', {class:'lg', style:'font-size:26px;margin-top:4px', text:money(net)}),
     late > 0 ? h('small', {class:'overdue', text:'其中逾期 ' + money(late)}) : h('small', {text:ag.open > 0 ? '目前沒有逾期款項' : '目前沒有未結款項'}));
   if (ag.open > 0){
-    hero.append(h('div', {class:'strip', role:'img', 'aria-label':'帳齡分布'}, ag.tot.map((v, i) => v > 0 ? h('i', {class:AGE_CLS[i], style:'flex:' + v}) : null)),
-      h('div', null, ag.tot.map((v, i) => h('div', {class:'age-row'}, h('span', {class:'sw ' + AGE_CLS[i]}), h('span', {text:AGE_LABELS[i]}), h('b', {text:money(v)})))));
+    const cnt = ag.tot.map((_, i) => ageHolders(ag, i).length);
+    hero.append(h('div', {class:'strip pick' + (sel >= 0 ? ' has' : ''), role:'group', 'aria-label':'帳齡分布（點一段，只看那一段的客戶）'}, ag.tot.map((v, i) => v > 0 ? h('button', {type:'button', class:AGE_CLS[i] + (sel === i ? ' on' : ''), style:'flex:' + v, 'aria-label':'帳齡 ' + AGE_LABELS[i] + '（' + cnt[i] + ' 戶）', 'aria-pressed':sel === i, onclick:() => pickAge(i)}) : null)),
+      h('div', null, ag.tot.map((v, i) => h('button', {type:'button', class:'age-row' + (sel === i ? ' on' : ''), disabled:!(v > 0.004), 'aria-label':'只看 ' + AGE_LABELS[i] + ' 的客戶', 'aria-pressed':sel === i, onclick:() => pickAge(i)},
+        h('span', {class:'sw ' + AGE_CLS[i]}), h('span', null, AGE_LABELS[i], v > 0.004 ? h('small', {class:'ageN', text:'　' + cnt[i] + ' 戶'}) : null), h('b', {text:money(v)})))),
+      ...(sel < 0 ? [h('small', {class:'hint', text:'點長條的一段，或上面任一項，下面的名單就只列那一段的客戶。'})] : []));
     if (Math.abs(ag.open - net) > 0.004) hero.append(h('small', {text:'已扣除退貨與預收款 ' + money(r2(ag.open - net))}));
   }
   wrap.append(hero);
@@ -3181,13 +3205,15 @@ function ledgerView(type){
     mainOk ? h('button', {class:'btn ghost', onclick:() => openPayment({type})}, isAR ? '簡易收款' : '付款') : null,
     mainOk || fxOn('notes') ? h('button', {class:'btn ghost', onclick:() => openNoteForm(isAR ? 'in' : 'out')}, isAR ? '收票' : '開票') : null));
   wrap.append(h('div', {class:'btns', style:'margin-top:8px'}, h('button', {class:'btn ghost', onclick:() => openLedgerQuery(type)}, isAR ? '應收查詢（指定期間）' : '應付查詢（指定期間）')));
-  const list = Object.values(S.partners).filter(p => p.type === type && Math.abs(S.d.bal[p.id] || 0) > 0.004).sort((a, b) => (S.d.bal[b.id] || 0) - (S.d.bal[a.id] || 0));
-  wrap.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:isAR ? '客戶未收款' : '供應商未付款'}), exportBtn(() => dsLedger(type))),
+  const list = sel >= 0 ? ageHolders(ag, sel) : Object.values(S.partners).filter(p => p.type === type && Math.abs(S.d.bal[p.id] || 0) > 0.004).sort((a, b) => (S.d.bal[b.id] || 0) - (S.d.bal[a.id] || 0));
+  wrap.append(h('section', {class:'sec', 'data-age-list':'1', style:'scroll-margin-top:72px'}, h('div', {class:'sec-h'}, h('h2', {text:isAR ? '客戶未收款' : '供應商未付款'}), exportBtn(() => dsLedger(type, sel))),
+    sel >= 0 ? h('div', {class:'age-filt', role:'status', 'aria-label':'帳齡篩選'}, h('span', {class:'sw ' + AGE_CLS[sel]}), h('span', {class:'t', text:'只看「' + AGE_LABELS[sel] + '」：' + list.length + ' 戶，共 ' + money(ag.tot[sel])}),
+      h('button', {class:'btn ghost sm', 'aria-label':'清除帳齡篩選', onclick:() => { AF[type] = -1; draw(); }}, '顯示全部')) : null,
     list.length ? h('div', {class:'panel'}, list.map(p => {
       const r = ag.byP[p.id], l = r ? lateOf(r.b) : 0;
       return h('button', {class:'row', onclick:() => openStatement(p.id)},
-        h('span', null, h('b', {text:p.name}), h('br'), l > 0 ? h('small', {class:'overdue', text:'逾期 ' + money(l)}) : h('small', {text:'未逾期'})),
-        h('b', {text:money(S.d.bal[p.id])}));
+        h('span', null, h('b', {text:p.name}), h('br'), sel >= 0 ? h('small', {text:(isAR ? '應收合計 ' : '應付合計 ') + money(S.d.bal[p.id] || 0) + (sel === 0 && l > 0 ? '，另有逾期 ' + money(l) : '')}) : (l > 0 ? h('small', {class:'overdue', text:'逾期 ' + money(l)}) : h('small', {text:'未逾期'}))),
+        h('b', {text:money(sel >= 0 ? r.b[sel] : S.d.bal[p.id])}));
     })) : h('div', {class:'panel empty', text:'沒有未結款項'})));
   const flagged = isAR ? Object.values(S.payments).filter(pm => pm.status !== 'void' && pm.audit && pm.audit !== 'ok').sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8) : [];
   if (flagged.length) wrap.append(h('section', {class:'sec'}, h('div', {class:'sec-h'}, h('h2', {text:'收款金額審核異常（' + flagged.length + '）'})), h('div', {class:'panel'}, flagged.map(payRow))));
@@ -3198,6 +3224,7 @@ function ledgerView(type){
   return wrap;
 }
 
+try { if (window.__TESTHOOK) window.__app = Object.assign(window.__app || {}, {ageForTest:{ageHolders, aging, dsLedger:(t, i) => dsLedger(t, i), ledgerView:t => ledgerView(t)}}); } catch (_) {}
 const NOTE_BASIS = {due:['到期日', n => n.dueDate], issue:['收（開）票日', n => n.issueDate], deposit:['託收日', n => n.depositDate || ''], cash:['兌現日', n => n.cashDate || '']};
 const noteInRange = n => { const f = S.ui.noteFrom, t = S.ui.noteTo; if (!f && !t) return true; const d = NOTE_BASIS[S.ui.noteBasis][1](n); return !!d && (!f || d >= f) && (!t || d <= t); };
 function notesView(){
@@ -15631,7 +15658,7 @@ function openProgramBackup(){
 }
 
 /* ---- 功能表（主選單） ---- */
-const APP_VERSION = '2026.10.11-ew';
+const APP_VERSION = '2026.10.11-ex';
 /* ================= 功能分類（功能表）與功能權限 =================
    FN：每個功能一筆，名稱（l）和功能表上的名稱一樣。
      kw＝搜尋用的別名（打「調撥」也找得到「庫存轉倉作業」）；d＝功能表沒有說明時用的說明；
@@ -18022,12 +18049,12 @@ function dsPartners(type){
     termText(p), ...(isCust ? [p.bankAccount || '', p.checkAccount || ''] : []), S.d.bal[p.id] || 0, ag.byP[p.id] ? lateOf(ag.byP[p.id].b) : 0]);
   return {title:PLABEL[type] + '資料', sub:'共 ' + list.length + ' 筆　' + today(), filename:PLABEL[type] + '資料', sections:[{name:PLABEL[type], cols, rows, foot:cols.map((c, i) => i === 0 ? '合計' : (i >= cols.length - 2 ? sumBy(rows, i) : ''))}]};
 }
-function dsLedger(type){
-  const isAR = type === 'customer', ag = aging(type);
-  const list = Object.values(S.partners).filter(p => p.type === type && Math.abs(S.d.bal[p.id] || 0) > 0.004).sort((a, b) => (S.d.bal[b.id] || 0) - (S.d.bal[a.id] || 0));
+function dsLedger(type, sel){
+  const isAR = type === 'customer', ag = aging(type), f = Number.isInteger(sel) && sel >= 0 && sel < 5 ? sel : -1;   /* -ex：f＝只列帳齡第 f 段的客戶 */
+  const list = f >= 0 ? ageHolders(ag, f) : Object.values(S.partners).filter(p => p.type === type && Math.abs(S.d.bal[p.id] || 0) > 0.004).sort((a, b) => (S.d.bal[b.id] || 0) - (S.d.bal[a.id] || 0));
   const cols = [XC(isAR ? '客戶' : '供應商', 'text', 24), XC(isAR ? '應收金額' : '應付金額', 'money', 14), ...AGE_LABELS.map(l => XC(l, 'money', 14)), XC('逾期合計', 'money', 14)];
   const rows = list.map(p => { const r = ag.byP[p.id] || {b:[0, 0, 0, 0, 0]}; return [p.name, S.d.bal[p.id] || 0, ...r.b, lateOf(r.b)]; });
-  return {title:isAR ? '應收帳款' : '應付帳款', sub:'截至 ' + today() + '　共 ' + list.length + ' 戶', filename:isAR ? '應收帳款' : '應付帳款', sections:[{name:isAR ? '應收帳款' : '應付帳款', cols, rows, foot:['合計', ...cols.slice(1).map((_, i) => sumBy(rows, i + 1))]}]};
+  return {title:(isAR ? '應收帳款' : '應付帳款') + (f >= 0 ? '（' + AGE_LABELS[f] + '）' : ''), sub:'截至 ' + today() + (f >= 0 ? '　只列「' + AGE_LABELS[f] + '」的客戶' : '') + '　共 ' + list.length + ' 戶', filename:(isAR ? '應收帳款' : '應付帳款') + (f >= 0 ? '_' + AGE_LABELS[f].replace(/\s+/g, '') : ''), sections:[{name:isAR ? '應收帳款' : '應付帳款', cols, rows, foot:['合計', ...cols.slice(1).map((_, i) => sumBy(rows, i + 1))]}]};
 }
 function dsNotes(){
   const q = S.ui.noteQ.trim().toLowerCase(), sf = S.ui.noteSt, df = S.ui.noteDir;
